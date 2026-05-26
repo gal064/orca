@@ -58,6 +58,7 @@ import type { WorkspacePortScanResult } from '../../../../shared/workspace-ports
 export type PendingSidebarWorktreeReveal = {
   worktreeId: string
   behavior: 'auto' | 'smooth'
+  highlight?: boolean
 }
 
 function clampPetSize(size: number): number {
@@ -530,7 +531,10 @@ export type UISlice = {
   pendingRevealWorktree: PendingSidebarWorktreeReveal | null
   revealWorktreeInSidebar: (
     worktreeId: string,
-    options?: { behavior?: PendingSidebarWorktreeReveal['behavior'] }
+    options?: {
+      behavior?: PendingSidebarWorktreeReveal['behavior']
+      highlight?: boolean
+    }
   ) => void
   clearPendingRevealWorktreeId: () => void
   // Why: lets the SourceControl sidebar request that the diff editor scroll
@@ -1121,7 +1125,8 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     set({
       pendingRevealWorktree: {
         worktreeId,
-        behavior: options?.behavior ?? 'smooth'
+        behavior: options?.behavior ?? 'smooth',
+        ...(options?.highlight ? { highlight: true } : {})
       }
     }),
   clearPendingRevealWorktreeId: () => set({ pendingRevealWorktree: null }),

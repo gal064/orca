@@ -1148,6 +1148,9 @@ function App(): React.JSX.Element {
   // split-column chrome. Full-page navigation views keep the draggable app
   // titlebar so their page-level controls can live in that window strip.
   const workspaceActive = activeView === 'terminal' && activeWorktreeId !== null
+  // Why: Tasks/Landing keep the full titlebar only when the sidebar is collapsed;
+  // with it open, mirror workspace view so titlebar-left sits flush above nav.
+  const stackedSidebarOpen = !workspaceActive && showSidebar && sidebarOpen
   // Why: suppress right sidebar controls on full-page navigation surfaces
   // since those surfaces intentionally own the full content area.
   const showRightSidebarControls = canShowRightSidebarForView(activeView)
@@ -1621,6 +1624,43 @@ function App(): React.JSX.Element {
     </Tooltip>
   ) : null
 
+  const titlebarMainStrip = (
+    <>
+      {activeView === 'activity' ? (
+        <ActivityTitlebarControls />
+      ) : (
+        <div
+          id="titlebar-tabs"
+          className={`flex flex-1 min-w-0 self-stretch${activeView !== 'terminal' || !activeWorktreeId ? ' invisible pointer-events-none' : ''}`}
+        />
+      )}
+      {showTitlebarExpandButton && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="titlebar-icon-button"
+              onClick={handleToggleExpand}
+              aria-label="Collapse pane"
+              disabled={!activeTabCanExpand}
+            >
+              <Minimize2 size={14} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={6}>
+            Collapse pane
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {/* Why: when the right sidebar is open, its own header renders
+      an identical close button — hide this copy so only one is
+      visible at a time. */}
+      {!rightSidebarOpen && rightSidebarToggle}
+      {/* Why: reserve space so content is not obscured by the
+      fixed-position window-controls overlay on Windows. */}
+      {isWindows && <div className="window-controls-titlebar-spacer" />}
+    </>
+  )
+
   return (
     <div
       ref={setAppRootNode}
@@ -1664,51 +1704,15 @@ function App(): React.JSX.Element {
                 to the top of the window. Left titlebar controls move to a
                 header above the sidebar. Settings, landing, and the tasks
                 page keep the titlebar. */}
-                {!workspaceActive ? (
+                {!workspaceActive && !stackedSidebarOpen ? (
                   <div className="titlebar">
-                    <div
-                      className={`flex items-center${showSidebar && sidebarOpen ? ' overflow-hidden shrink-0 bg-worktree-sidebar' : ' shrink-0 mr-2'}`}
-                      style={{ width: showSidebar && sidebarOpen ? sidebarWidth : undefined }}
-                    >
-                      {titlebarLeftControls}
-                    </div>
-                    {activeView === 'activity' ? (
-                      <ActivityTitlebarControls />
-                    ) : (
-                      <div
-                        id="titlebar-tabs"
-                        className={`flex flex-1 min-w-0 self-stretch${activeView !== 'terminal' || !activeWorktreeId ? ' invisible pointer-events-none' : ''}`}
-                      />
-                    )}
-                    {showTitlebarExpandButton && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            className="titlebar-icon-button"
-                            onClick={handleToggleExpand}
-                            aria-label="Collapse pane"
-                            disabled={!activeTabCanExpand}
-                          >
-                            <Minimize2 size={14} />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" sideOffset={6}>
-                          Collapse pane
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                    {/* Why: when the right sidebar is open, its own header renders
-                    an identical close button — hide this copy so only one is
-                    visible at a time. */}
-                    {!rightSidebarOpen && rightSidebarToggle}
-                    {/* Why: reserve space so content is not obscured by the
-                    fixed-position window-controls overlay on Windows. */}
-                    {isWindows && <div className="window-controls-titlebar-spacer" />}
+                    <div className="flex items-center shrink-0 mr-2">{titlebarLeftControls}</div>
+                    {titlebarMainStrip}
                   </div>
                 ) : null}
                 <div className="flex flex-row flex-1 min-h-0 overflow-hidden">
                   {showSidebar ? (
-                    workspaceActive ? (
+                    workspaceActive || stackedSidebarOpen ? (
                       /* Why: left column wraps the sidebar with a titlebar-height
                      header above it. The header holds the same controls
                      (traffic lights, sidebar toggle, "Orca" title, agent badge)
@@ -1780,87 +1784,92 @@ function App(): React.JSX.Element {
                       </RecoverableRenderErrorBoundary>
                     )
                   ) : null}
-                  <div className="relative flex flex-1 min-w-0 min-h-0 overflow-hidden">
-                    {/* Why: right sidebar toggle floats at the top-right of the center
+                  <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
+                    {stackedSidebarOpen ? (
+                      <div className="titlebar">{titlebarMainStrip}</div>
+                    ) : null}
+                    <div className="relative flex flex-1 min-w-0 min-h-0 overflow-hidden">
+                      {/* Why: right sidebar toggle floats at the top-right of the center
                     column so it's always accessible whether the right sidebar is
                     open or closed. Match the RightSidebar header's 36px height and
                     top-0 anchor so the icon's vertical center is identical between
                     open and closed states — otherwise toggling makes the icon jump
                     a few pixels, which reads as layout jitter. */}
-                    {workspaceActive && !rightSidebarOpen && (
-                      <div
-                        className="absolute top-0 z-10 flex items-center h-[36px]"
-                        style={
-                          {
-                            // Why: right: var(--window-controls-width) is the single
-                            // mechanism that keeps the toggle clear of the
-                            // fixed-position window-controls overlay on Windows (138px)
-                            // and sits at the right edge on non-Windows (0px). No
-                            // internal spacer needed — adding one would push the button
-                            // a further 138px to the left and cover the pane-actions
-                            // Ellipsis button with an un-clickable div.
-                            right: 'var(--window-controls-width)',
-                            WebkitAppRegion: 'no-drag'
-                          } as React.CSSProperties
-                        }
-                      >
-                        {rightSidebarToggle}
-                      </div>
-                    )}
-                    <div className="flex flex-1 min-w-0 min-h-0 flex-col">
-                      <div
-                        className={
-                          activeView !== 'terminal' ||
-                          !activeWorktreeId ||
-                          activeCreationLoaderVisible
-                            ? 'hidden flex-1 min-w-0 min-h-0'
-                            : 'flex flex-1 min-w-0 min-h-0'
-                        }
-                      >
-                        <RecoverableRenderErrorBoundary
-                          boundaryId="terminal.workbench"
-                          surface="terminal-workbench"
-                          resetKey="terminal"
-                          title="The workspace workbench hit an error."
-                          description="Terminal, browser, or editor rendering failed in this workspace. Retry to remount it."
+                      {workspaceActive && !rightSidebarOpen && (
+                        <div
+                          className="absolute top-0 z-10 flex items-center h-[36px]"
+                          style={
+                            {
+                              // Why: right: var(--window-controls-width) is the single
+                              // mechanism that keeps the toggle clear of the
+                              // fixed-position window-controls overlay on Windows (138px)
+                              // and sits at the right edge on non-Windows (0px). No
+                              // internal spacer needed — adding one would push the button
+                              // a further 138px to the left and cover the pane-actions
+                              // Ellipsis button with an un-clickable div.
+                              right: 'var(--window-controls-width)',
+                              WebkitAppRegion: 'no-drag'
+                            } as React.CSSProperties
+                          }
                         >
-                          <Terminal />
-                        </RecoverableRenderErrorBoundary>
-                      </div>
-                      <Suspense fallback={null}>
-                        <RecoverableRenderErrorBoundary
-                          boundaryId={`page.${activeView}`}
-                          surface="page"
-                          resetKey={activeView}
-                          title="This page hit an error."
-                          description="Retry the page or navigate to another Orca surface."
+                          {rightSidebarToggle}
+                        </div>
+                      )}
+                      <div className="flex flex-1 min-w-0 min-h-0 flex-col">
+                        <div
+                          className={
+                            activeView !== 'terminal' ||
+                            !activeWorktreeId ||
+                            activeCreationLoaderVisible
+                              ? 'hidden flex-1 min-w-0 min-h-0'
+                              : 'flex flex-1 min-w-0 min-h-0'
+                          }
                         >
-                          {activeView === 'settings' ? <Settings /> : null}
-                          {activeView === 'skills' ? <SkillsPage /> : null}
-                          {activeView === 'tasks' ? <TaskPage /> : null}
-                          {activeView === 'automations' ? <AutomationsPage /> : null}
-                          {activeView === 'activity' ? <ActivityPrototypePage /> : null}
-                          {activeView === 'space' ? <WorkspaceSpacePage /> : null}
-                          {activeView === 'mobile' ? <MobilePage /> : null}
-                          {activeView === 'terminal' &&
-                          activeCreationLoaderVisible &&
-                          activePendingCreationId ? (
-                            <WorktreeCreationPanel creationId={activePendingCreationId} />
-                          ) : null}
-                          {activeView === 'terminal' &&
-                          !activeWorktreeId &&
-                          !activeCreationLoaderVisible ? (
-                            <Landing />
-                          ) : null}
-                        </RecoverableRenderErrorBoundary>
-                      </Suspense>
+                          <RecoverableRenderErrorBoundary
+                            boundaryId="terminal.workbench"
+                            surface="terminal-workbench"
+                            resetKey="terminal"
+                            title="The workspace workbench hit an error."
+                            description="Terminal, browser, or editor rendering failed in this workspace. Retry to remount it."
+                          >
+                            <Terminal />
+                          </RecoverableRenderErrorBoundary>
+                        </div>
+                        <Suspense fallback={null}>
+                          <RecoverableRenderErrorBoundary
+                            boundaryId={`page.${activeView}`}
+                            surface="page"
+                            resetKey={activeView}
+                            title="This page hit an error."
+                            description="Retry the page or navigate to another Orca surface."
+                          >
+                            {activeView === 'settings' ? <Settings /> : null}
+                            {activeView === 'skills' ? <SkillsPage /> : null}
+                            {activeView === 'tasks' ? <TaskPage /> : null}
+                            {activeView === 'automations' ? <AutomationsPage /> : null}
+                            {activeView === 'activity' ? <ActivityPrototypePage /> : null}
+                            {activeView === 'space' ? <WorkspaceSpacePage /> : null}
+                            {activeView === 'mobile' ? <MobilePage /> : null}
+                            {activeView === 'terminal' &&
+                            activeCreationLoaderVisible &&
+                            activePendingCreationId ? (
+                              <WorktreeCreationPanel creationId={activePendingCreationId} />
+                            ) : null}
+                            {activeView === 'terminal' &&
+                            !activeWorktreeId &&
+                            !activeCreationLoaderVisible ? (
+                              <Landing />
+                            ) : null}
+                          </RecoverableRenderErrorBoundary>
+                        </Suspense>
+                      </div>
+                      {showFloatingTerminalButton ? (
+                        <FloatingTerminalToggleButton
+                          open={floatingTerminalOpen}
+                          onToggle={() => setFloatingTerminalOpenWithFocus((open) => !open)}
+                        />
+                      ) : null}
                     </div>
-                    {showFloatingTerminalButton ? (
-                      <FloatingTerminalToggleButton
-                        open={floatingTerminalOpen}
-                        onToggle={() => setFloatingTerminalOpenWithFocus((open) => !open)}
-                      />
-                    ) : null}
                   </div>
                 </div>
               </div>

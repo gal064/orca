@@ -156,6 +156,8 @@ type StoreState = {
   setAgentStatus: ReturnType<typeof vi.fn>
   removeAgentStatus: ReturnType<typeof vi.fn>
   dropAgentStatus: ReturnType<typeof vi.fn>
+  setPaneForegroundAgent: ReturnType<typeof vi.fn>
+  clearPaneForegroundAgent: ReturnType<typeof vi.fn>
   markTerminalTabUnread: ReturnType<typeof vi.fn>
   markTerminalPaneUnread: ReturnType<typeof vi.fn>
   markAgentCompletionPaneUnread: ReturnType<typeof vi.fn>
@@ -743,6 +745,8 @@ describe('connectPanePty', () => {
       ),
       removeAgentStatus: vi.fn(),
       dropAgentStatus: vi.fn(),
+      setPaneForegroundAgent: vi.fn(),
+      clearPaneForegroundAgent: vi.fn(),
       markTerminalTabUnread: vi.fn(),
       markTerminalPaneUnread: vi.fn(),
       markAgentCompletionPaneUnread: vi.fn()

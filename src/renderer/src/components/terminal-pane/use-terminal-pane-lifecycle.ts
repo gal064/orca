@@ -18,6 +18,7 @@ import { normalizeTerminalLineHeight } from '../../../../shared/terminal-line-he
 import { normalizeTerminalTuiMouseWheelMultiplier } from '@/lib/pane-manager/pane-terminal-mouse-wheel'
 import { buildWindowsPtyCompatibilityOptions } from '@/lib/pane-manager/windows-pty-compatibility'
 import { buildTerminalKeyboardProtocolOptions } from '@/lib/pane-manager/terminal-keyboard-protocol'
+import { resolvePaneKeyboardProtocolAgent } from './terminal-keyboard-protocol-pane-agent'
 import { useAppStore } from '@/store'
 import {
   createFilePathLinkProvider,
@@ -1374,19 +1375,27 @@ export function useTerminalPaneLifecycle({
           (candidate) => candidate.id === tabId
         )
         const platformInfo = window.api.platform?.get?.()
+        // Why: launch identity belongs only to the pane consuming this one-shot
+        // startup. A tab-wide hint would leak Grok's KKP exception to shell splits.
+        const knownTuiAgent = resolvePaneKeyboardProtocolAgent(
+          ptyDeps.startup,
+          currentTab?.launchAgent
+        )
         const ptyBackendContext = {
           userAgent: navigator.userAgent,
           osRelease: platformInfo?.osRelease,
           connectionId: getConnectionId(worktreeId),
           cwd: startupCwd,
           shellOverride: currentTab?.shellOverride,
-          executionHostId: getExecutionHostIdForWorktree(storeState, worktreeId)
+          executionHostId: getExecutionHostIdForWorktree(storeState, worktreeId),
+          tuiAgent: knownTuiAgent
         }
         const windowsPtyCompatibilityOptions =
           buildWindowsPtyCompatibilityOptions(ptyBackendContext)
         // Why: local Windows ConPTY CLIs read the Kitty keyboard advertisement but
         // do not decode CSI-u, so withhold it there to restore Enter/Up/Down nav
         // (issue #2434); SSH and macOS/Linux panes keep enhanced reporting.
+        // Exception: Grok (tuiAgent) keeps the advertisement — see protocol module.
         const keyboardProtocolOptions = buildTerminalKeyboardProtocolOptions(ptyBackendContext)
         return {
           ...windowsPtyCompatibilityOptions,

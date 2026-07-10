@@ -5308,11 +5308,11 @@
           "0e89a574ae": "Floating animated pet in the bottom-right corner.",
           "nativeChat": {
             "title": "Native chat",
-            "description": "Preview the desktop chat surface for Claude and Codex terminal sessions.",
-            "copy": "Adds a native chat view you can switch to from supported Claude and Codex terminal panes. Experimental while we tune transcript fidelity, streaming, and terminal parity.",
+            "description": "Preview the desktop chat surface for supported agent terminal sessions.",
+            "copy": "Adds a native chat view you can switch to from supported agent terminal panes. Experimental while we tune transcript fidelity, streaming, and terminal parity.",
             "toggleLabel": "Toggle native chat",
             "defaultTitle": "Default view",
-            "defaultCopy": "Choose how new Claude and Codex terminal tabs open.",
+            "defaultCopy": "Choose how new supported agent terminal tabs open.",
             "defaultViewLabel": "Default native chat view",
             "defaultViewTerminal": "Terminal chat",
             "defaultViewNative": "Native chat"
@@ -6723,9 +6723,9 @@
           "d23b43c5be": "Setup Script Location",
           "34a0dfa06e": "Where the repository setup script runs when a new workspace is created.",
           "21f8da2078": "Workspace Setup Script",
-          "6e6480a7df": "Let programs in the terminal (tmux, Neovim, fzf, SSH) copy to your system clipboard.",
+          "6e6480a7df": "Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard.",
           "3338dcf8c1": "Allow TUI Clipboard Writes (OSC 52)",
-          "69c64a479c": "Let tmux, Neovim, and fzf copy to the system clipboard over the PTY (including over SSH).",
+          "69c64a479c": "Let Grok, tmux, Neovim, and fzf copy to the system clipboard over the PTY (including over SSH).",
           "4729c645fc": "Automatically copy terminal selections to the clipboard.",
           "902f5dee1f": "Copy on Select",
           "9129b7e805": "Hovering a terminal pane activates it without needing to click.",
@@ -7517,7 +7517,8 @@
             "87d99e634b": "Pet",
             "nativeChat": {
               "title": "Native chat",
-              "description": "Preview the desktop chat surface for Claude and Codex terminal sessions."
+              "description": "Preview the desktop chat surface for supported agent terminal sessions.",
+              "grok": "grok"
             }
           }
         },

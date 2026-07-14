@@ -665,6 +665,12 @@ import {
 } from '../../shared/constants'
 import { listRepoWorktrees } from '../repo-worktrees'
 import { createWorktreeLinkedPaths, removeWorktreeLinkedPaths } from '../ipc/worktree-symlinks'
+import {
+  getReuseCheckoutWorkspaceInstanceId,
+  listReuseCheckoutWorkspaces,
+  mergeReuseCheckoutWorkspace,
+  pickReuseCheckoutTarget
+} from '../ipc/reuse-checkout-workspace'
 import { deleteWorktreeHistoryDir } from '../terminal-history'
 import {
   cleanupUnusedWorktreePushTargetRemote,
@@ -14739,6 +14745,100 @@ export class OrcaRuntimeService {
     })
   }
 
+  // Why: shared tail for reuse-checkout creates — spawn the startup terminal,
+  // activate, and shape the CreateWorktreeResult. Mirrors the folder-workspace
+  // create path; deliberately never touches `git worktree`.
+  private async finalizeReuseCheckoutCreate(
+    worktree: Worktree,
+    ctx: {
+      effectiveStartup?: WorktreeStartupLaunch
+      effectiveStartupFollowup?: WorktreeStartupFollowup
+      effectiveCreatedWithAgent?: TuiAgent
+      effectiveDraftPaste?: WorktreeStartupDraftPaste
+      activate: boolean
+    }
+  ): Promise<CreateWorktreeResult> {
+    const {
+      effectiveStartup,
+      effectiveStartupFollowup,
+      effectiveCreatedWithAgent,
+      effectiveDraftPaste,
+      activate
+    } = ctx
+    let warning: string | undefined
+    let didSpawnStartup = false
+    let startupTerminal: CreateWorktreeResult['startupTerminal']
+    if (effectiveStartup && this.ptyController?.spawn) {
+      try {
+        const startupTrustAgent = effectiveDraftPaste?.agent ?? effectiveCreatedWithAgent
+        if (startupTrustAgent) {
+          this.markLocalWorkspaceTrustedForAgent(startupTrustAgent, worktree.path)
+        }
+        const terminal = await this.createTerminal(`id:${worktree.id}`, {
+          command: effectiveStartup.command,
+          env: effectiveStartup.env,
+          ...(effectiveStartup.launchConfig ? { launchConfig: effectiveStartup.launchConfig } : {}),
+          ...(effectiveCreatedWithAgent ? { launchAgent: effectiveCreatedWithAgent } : {}),
+          startupCommandDelivery: effectiveStartup.startupCommandDelivery,
+          telemetry: effectiveStartup.telemetry
+        })
+        if (effectiveDraftPaste) {
+          this.pasteStartupDraftWhenReady(terminal.handle, effectiveDraftPaste)
+        }
+        if (effectiveStartupFollowup) {
+          this.sendStartupFollowupWhenReady(terminal.handle, effectiveStartupFollowup)
+        }
+        didSpawnStartup = true
+        startupTerminal = {
+          spawned: true,
+          handle: terminal.handle,
+          ...(terminal.tabId ? { tabId: terminal.tabId } : {}),
+          ...(terminal.paneKey ? { paneKey: terminal.paneKey } : {}),
+          ...(terminal.ptyId ? { ptyId: terminal.ptyId } : {}),
+          surface: 'background'
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        warning = `Failed to create the startup terminal for ${worktree.path}: ${message}`
+        console.warn(`[worktree-create] ${warning}`)
+      }
+    }
+    if (activate) {
+      if (effectiveStartup && !didSpawnStartup) {
+        this.notifyActivateWorktree(worktree.repoId, worktree.id, undefined, effectiveStartup)
+      } else {
+        this.notifyActivateWorktree(worktree.repoId, worktree.id)
+      }
+    } else if (this.ptyController?.spawn && !didSpawnStartup) {
+      try {
+        await this.createTerminal(`id:${worktree.id}`)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        warning = warning
+          ? `${warning} Also failed to create the initial terminal for ${worktree.path}: ${message}`
+          : `Failed to create the initial terminal for ${worktree.path}: ${message}`
+        console.warn(`[worktree-create] ${warning}`)
+      }
+    }
+    return {
+      worktree: {
+        ...worktree,
+        parentWorktreeId: null,
+        childWorktreeIds: [],
+        lineage: null,
+        git: {
+          path: worktree.path,
+          head: worktree.head,
+          branch: worktree.branch,
+          isBare: worktree.isBare,
+          isMainWorktree: worktree.isMainWorktree
+        }
+      },
+      ...(startupTerminal ? { startupTerminal } : {}),
+      ...(warning ? { warning } : {})
+    }
+  }
+
   async createManagedWorktree(args: {
     repoSelector: string
     name: string
@@ -14757,6 +14857,9 @@ export class OrcaRuntimeService {
     linkedGiteaPR?: number | null
     comment?: string
     displayName?: string
+    /** Reuse the repo's existing checkout instead of `git worktree add` — an
+     *  additional workspace instance over the shared working tree. */
+    reuseCheckout?: boolean
     telemetrySource?: WorkspaceCreateTelemetrySource
     workspaceStatus?: string
     manualOrder?: number
@@ -14935,6 +15038,85 @@ export class OrcaRuntimeService {
         ...(startupTerminal ? { startupTerminal } : {}),
         ...(warning ? { warning } : {})
       }
+    }
+    // Why: reuse-checkout workspaces skip `git worktree add` entirely and open an
+    // additional instance over the repo's existing checkout — same working tree,
+    // same branch, no isolation. Everything downstream is path-based, so keeping
+    // the repo git-enabled leaves Source Control/diffs/terminal fully working.
+    if (args.reuseCheckout) {
+      if (repo.connectionId) {
+        throw new Error(
+          'Reusing the existing checkout is not supported for remote repositories yet.'
+        )
+      }
+      const reuseGitOptions = getLocalProjectWorktreeGitOptions(this.requireStore(), repo)
+      const reuseCheckoutList = hasLocalGitOptions(reuseGitOptions)
+        ? await listWorktrees(repo.path, reuseGitOptions)
+        : await listWorktrees(repo.path)
+      const reusedCheckout = pickReuseCheckoutTarget(reuseCheckoutList, repo.path)
+      if (!reusedCheckout) {
+        throw new Error('Could not resolve the repository checkout to reuse.')
+      }
+      const reuseNow = Date.now()
+      const reuseInstanceId = randomUUID()
+      const reuseWorktreeId = getReuseCheckoutWorkspaceInstanceId(repo, reuseInstanceId)
+      const reuseDisplayName = args.displayName?.trim() || undefined
+      const reuseMeta = this.store.setWorktreeMeta(reuseWorktreeId, {
+        instanceId: reuseInstanceId,
+        ...getProjectHostSetupWorktreeMeta(this.store.getProjectHostSetups?.() ?? [], repo),
+        displayName: reuseDisplayName || args.name,
+        lastActivityAt: reuseNow,
+        createdAt: reuseNow,
+        orcaCreatedAt: reuseNow,
+        orcaCreationSource: 'runtime',
+        orcaCreationWorkspaceLayout: getWorktreeCreationLayout(repo, createSettings),
+        reuseCheckout: true,
+        // Why: the reused checkout dir and its branch predate this workspace;
+        // delete must never prune the branch or remove the shared worktree.
+        preserveBranchOnDelete: true,
+        ...(args.automationProvenance ? { automationProvenance: args.automationProvenance } : {}),
+        ...(args.linkedIssue !== undefined ? { linkedIssue: args.linkedIssue } : {}),
+        ...(args.linkedPR !== undefined ? { linkedPR: args.linkedPR } : {}),
+        ...(args.linkedLinearIssue !== undefined
+          ? { linkedLinearIssue: args.linkedLinearIssue }
+          : {}),
+        ...(args.linkedLinearIssueWorkspaceId !== undefined
+          ? { linkedLinearIssueWorkspaceId: args.linkedLinearIssueWorkspaceId }
+          : {}),
+        ...(args.linkedLinearIssueOrganizationUrlKey !== undefined
+          ? { linkedLinearIssueOrganizationUrlKey: args.linkedLinearIssueOrganizationUrlKey }
+          : {}),
+        ...(args.linkedGitLabIssue !== undefined
+          ? { linkedGitLabIssue: args.linkedGitLabIssue }
+          : {}),
+        ...(args.linkedGitLabMR !== undefined ? { linkedGitLabMR: args.linkedGitLabMR } : {}),
+        ...(args.linkedBitbucketPR !== undefined
+          ? { linkedBitbucketPR: args.linkedBitbucketPR }
+          : {}),
+        ...(args.linkedAzureDevOpsPR !== undefined
+          ? { linkedAzureDevOpsPR: args.linkedAzureDevOpsPR }
+          : {}),
+        ...(args.linkedGiteaPR !== undefined ? { linkedGiteaPR: args.linkedGiteaPR } : {}),
+        ...(effectiveCreatedWithAgent ? { createdWithAgent: effectiveCreatedWithAgent } : {}),
+        ...(args.comment !== undefined ? { comment: args.comment } : {}),
+        ...(args.manualOrder !== undefined ? { manualOrder: args.manualOrder } : {}),
+        ...(args.workspaceStatus !== undefined ? { workspaceStatus: args.workspaceStatus } : {})
+      })
+      const reuseWorktree = mergeReuseCheckoutWorkspace(
+        repo,
+        reuseWorktreeId,
+        reuseMeta,
+        reusedCheckout
+      )
+      this.invalidateResolvedWorktreeCache()
+      this.notifyWorktreesChanged(repo.id)
+      return this.finalizeReuseCheckoutCreate(reuseWorktree, {
+        effectiveStartup,
+        effectiveStartupFollowup,
+        effectiveCreatedWithAgent,
+        effectiveDraftPaste,
+        activate: args.activate === true || args.runHooks === true
+      })
     }
     const lineageInput =
       args.lineage || args.comment ? { ...args.lineage, comment: args.comment } : undefined
@@ -17120,6 +17302,27 @@ export class OrcaRuntimeService {
         if (localProvider) {
           // Why: folder workspace deletion has no Git removal phase where PTYs
           // would otherwise be swept; tear them down before hiding the workspace.
+          await killAllProcessesForWorktree(removalTarget.id, {
+            runtime: this,
+            localProvider,
+            onPtyStopped: this.onPtyStopped ?? undefined
+          }).catch((err) => {
+            console.warn(`[worktree-teardown] failed for ${removalTarget.id}:`, err)
+          })
+        }
+        this.removeWorktreeMetadataAndHistory(store, removalTarget.id)
+        this.preservedBranchCleanupByWorktreeId.delete(removalTarget.id)
+        this.invalidateResolvedWorktreeCache()
+        this.notifyWorktreesChanged(repo.id)
+        return {}
+      }
+      // Why: reuse-checkout workspaces share the repo's existing checkout — there
+      // is no dedicated git worktree to remove. Drop metadata only; NEVER run
+      // `git worktree remove` or prune the branch, which would destroy the shared
+      // checkout the primary workspace (and other instances) still use.
+      if (store.getWorktreeMeta(removalTarget.id)?.reuseCheckout === true) {
+        const localProvider = this.getLocalProvider()
+        if (localProvider) {
           await killAllProcessesForWorktree(removalTarget.id, {
             runtime: this,
             localProvider,
@@ -20012,7 +20215,7 @@ export class OrcaRuntimeService {
         if (scan.ok) {
           this.pruneLineageForMissingRepoWorktrees(repo, gitWorktrees)
         }
-        return gitWorktrees.map((gitWorktree) => {
+        const resolvedGitWorktrees = gitWorktrees.map((gitWorktree) => {
           const worktreeId = `${repo.id}::${gitWorktree.path}`
           // Why: lineage validation needs a durable instance ID even when the
           // runtime sees a workspace before the renderer's discovery-stamp path.
@@ -20038,6 +20241,34 @@ export class OrcaRuntimeService {
             comment: merged.comment
           }
         })
+        // Why: reuse-checkout instances have no real git worktree, so they never
+        // appear in the git listing. Synthesize them from metadata so terminal/cwd
+        // resolution (resolveWorktreeSelector) can find them by id, mirroring the
+        // renderer-facing worktrees:list path.
+        const reuseCheckoutTarget = pickReuseCheckoutTarget(gitWorktrees, repo.path)
+        if (!reuseCheckoutTarget) {
+          return resolvedGitWorktrees
+        }
+        const resolvedReuseWorktrees = listReuseCheckoutWorkspaces(
+          metaById,
+          repo,
+          reuseCheckoutTarget
+        ).map((worktree) => ({
+          ...worktree,
+          parentWorktreeId: null,
+          childWorktreeIds: [],
+          lineage: null,
+          git: {
+            path: worktree.path,
+            head: worktree.head,
+            branch: worktree.branch,
+            isBare: worktree.isBare,
+            isMainWorktree: worktree.isMainWorktree
+          },
+          displayName: worktree.displayName,
+          comment: worktree.comment
+        }))
+        return [...resolvedGitWorktrees, ...resolvedReuseWorktrees]
       })
     )
     const worktrees = this.attachLineageToResolvedWorktrees(perRepoWorktrees.flat())

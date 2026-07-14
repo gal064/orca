@@ -287,6 +287,13 @@ export type ComposerCardProps = {
    *  rather than used as the base for a new branch. */
   reuseSelectedBranch: boolean
   onReuseSelectedBranchChange: (next: boolean) => void
+  /** True for local git-repo targets where a workspace can reuse the existing
+   *  checkout instead of creating a new worktree — gates the reuse-checkout toggle. */
+  showReuseCheckout: boolean
+  /** Whether the new workspace should reuse the repo's existing checkout (no
+   *  `git worktree add`) instead of creating a dedicated worktree. */
+  reuseCheckout: boolean
+  onReuseCheckoutChange: (next: boolean) => void
   /** Whether the "create multiple" toggle is shown — worktree (git) targets
    *  only; folder-workspace targets create-and-close as before. */
   showCreateMultiple: boolean
@@ -1093,6 +1100,9 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   // is the explicit checkbox value driving whether reuse actually happens.
   const [reuseEligibleBranch, setReuseEligibleBranch] = useState<string | null>(null)
   const [reuseSelectedBranch, setReuseSelectedBranch] = useState(false)
+  // Why: opt-in to creating the workspace in the repo's existing checkout instead
+  // of a new git worktree — an additional instance over the shared working tree.
+  const [reuseCheckout, setReuseCheckout] = useState(false)
   const [pushTarget, setPushTarget] = useState<GitPushTarget | undefined>(undefined)
   // Why: when a repo switch wipes a prior Start-from selection, surface the
   // reset inline (e.g. "was PR #8778") so the change is recoverable visually
@@ -3649,7 +3659,10 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         undefined,
         undefined,
         undefined,
-        submitCompareBaseRef
+        submitCompareBaseRef,
+        // Why: reuse the repo's existing checkout (no new worktree) when the user
+        // toggled it on a supported local git target.
+        reuseCheckout && selectedRepoIsGit ? { reuseCheckout: true } : undefined
       )
       const worktree = result.worktree
 
@@ -3758,6 +3771,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     selectedRepoIsRemote,
     selectedRepoStartupShell,
     selectedRepoIsGit,
+    reuseCheckout,
     selectedRepoRequiresConnection,
     showProjectRequiredError,
     settings?.agentCmdOverrides,
@@ -4291,6 +4305,11 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       smartNameSelection?.kind === 'branch',
     reuseSelectedBranch,
     onReuseSelectedBranchChange: handleReuseSelectedBranchChange,
+    // Why: reuse-checkout is a local git-repo capability only — folder targets
+    // are already worktree-less, and remote repos aren't supported yet.
+    showReuseCheckout: !isProjectGroupTarget && selectedRepoIsGit && !selectedRepo?.connectionId,
+    reuseCheckout,
+    onReuseCheckoutChange: setReuseCheckout,
     // Why: the "create multiple" toggle only applies to worktree (git) targets;
     // folder-workspace targets keep the create-and-close behavior.
     showCreateMultiple: !isProjectGroupTarget,

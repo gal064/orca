@@ -50,6 +50,7 @@ import { fetchPrHeadTrackingRef } from '../github/pr-head-tracking-ref'
 import { pruneWorktreePRRefreshAliases } from '../github/pr-refresh-coordinator'
 import { getDefaultRemote } from '../git/repo'
 import { listRepoWorktrees } from '../repo-worktrees'
+import { listReuseCheckoutWorkspaces, pickReuseCheckoutTarget } from './reuse-checkout-workspace'
 import { getSshGitProvider, requireSshGitProvider } from '../providers/ssh-git-dispatch'
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import {
@@ -872,6 +873,23 @@ function listFolderWorkspaces(store: Store, repo: Repo): Worktree[] {
     })
 }
 
+// Why: reuse-checkout instances have no real git worktree, so `git worktree list`
+// never reports them. Synthesize their rows from persisted metadata and append
+// them to a git repo's listing, mirroring how folder workspaces are listed.
+function withReuseCheckoutWorkspaces(
+  store: Store,
+  repo: Repo,
+  gitWorktrees: GitWorktreeInfo[],
+  worktrees: Worktree[]
+): Worktree[] {
+  const checkout = pickReuseCheckoutTarget(gitWorktrees, repo.path)
+  if (!checkout) {
+    return worktrees
+  }
+  const reuse = listReuseCheckoutWorkspaces(store.getAllWorktreeMeta(), repo, checkout)
+  return reuse.length > 0 ? [...worktrees, ...reuse] : worktrees
+}
+
 function buildFolderDetectedWorktrees(store: Store, repo: Repo): DetectedWorktree[] {
   const settings = store.getSettings()
   return listFolderWorkspaces(store, repo).map((worktree) =>
@@ -1110,9 +1128,14 @@ export function registerWorktreeHandlers(
         pruneLineageForMissingRepoWorktrees(store, repo, gitWorktrees)
       }
       loggedWorktreeListFailures.delete(`${repo.id}:${repo.path}`)
-      return buildDetectedGitWorktrees(store, repo, gitWorktrees)
-        .filter((worktree) => worktree.visible)
-        .map((worktree) => stampAndMergeVisibleDetectedWorktree(store, repo, worktree))
+      return withReuseCheckoutWorkspaces(
+        store,
+        repo,
+        gitWorktrees,
+        buildDetectedGitWorktrees(store, repo, gitWorktrees)
+          .filter((worktree) => worktree.visible)
+          .map((worktree) => stampAndMergeVisibleDetectedWorktree(store, repo, worktree))
+      )
     } catch (err) {
       warnOnce(
         loggedWorktreeListFailures,
@@ -1427,6 +1450,24 @@ export function registerWorktreeHandlers(
           }
           // Why: folder workspaces share one filesystem root, so there is no Git
           // remove step to close shells; sweep PTYs before dropping metadata.
+          await killAllProcessesForWorktree(args.worktreeId, {
+            runtime,
+            localProvider: getLocalPtyProvider(),
+            onPtyStopped: clearProviderPtyState
+          }).catch((err) => {
+            console.warn(`[worktree-teardown] failed for ${args.worktreeId}:`, err)
+          })
+          removeWorktreeMetadataAndTransientState(store, args.worktreeId)
+          preservedBranchCleanupByWorktreeId.delete(args.worktreeId)
+          notifyWorktreesChanged(mainWindow, repoId)
+          return {}
+        }
+
+        // Why: reuse-checkout workspaces share the repo's existing checkout — there
+        // is no dedicated git worktree to remove. Drop metadata only; NEVER run
+        // `git worktree remove` or prune the branch, which would destroy the shared
+        // checkout that the primary workspace (and other instances) still use.
+        if (store.getWorktreeMeta(args.worktreeId)?.reuseCheckout === true) {
           await killAllProcessesForWorktree(args.worktreeId, {
             runtime,
             localProvider: getLocalPtyProvider(),

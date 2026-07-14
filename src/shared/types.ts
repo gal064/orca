@@ -615,6 +615,10 @@ export type WorktreeMeta = {
   baseRef?: string
   /** True when Orca checked out a pre-existing local branch that delete must not prune. */
   preserveBranchOnDelete?: boolean
+  /** True for a workspace that reuses the repo's existing checkout (no `git worktree add`).
+   *  Delete must not run `git worktree remove` on the shared checkout, and listing synthesizes
+   *  these instances from metadata since Git does not report them. */
+  reuseCheckout?: boolean
   /** See {@link Worktree.pushTarget}. Persisted so refreshed worktree lists keep the target. */
   pushTarget?: GitPushTarget
   /** Explicit marker stamped when Orca creates the worktree. */
@@ -2092,6 +2096,10 @@ export type CreateWorktreeArgs = {
    *  name. Used when creating from an existing branch whose local branch name
    *  legitimately contains `/` while the worktree directory must not. */
   branchNameOverride?: string
+  /** Create the workspace in the repo's existing checkout instead of running
+   *  `git worktree add`. Reuses `repo.path` and its current branch; produces an
+   *  additional `::workspace:` instance over the shared working tree. */
+  reuseCheckout?: boolean
   setupDecision?: SetupDecision
   sparseCheckout?: CreateSparseCheckoutRequest
   linkedIssue?: number

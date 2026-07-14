@@ -1151,6 +1151,8 @@
       "NewWorkspaceComposerCard": {
         "reuseExistingBranch": "Reuse branch",
         "reuseExistingBranchHint": "Check out the existing branch instead of creating a new one from it.",
+        "reuseCheckout": "Reuse existing checkout (no worktree)",
+        "reuseCheckoutHint": "Open the workspace in the project's existing checkout instead of creating a new worktree. Shares the working tree and current branch.",
         "createMultiple": "Create more",
         "cbb47ee0dc": "Only available for local Git projects.",
         "d861de981b": "Sparse checkout",

@@ -135,6 +135,9 @@ function renderCard(
         canReuseSelectedBranch={false}
         reuseSelectedBranch={false}
         onReuseSelectedBranchChange={() => {}}
+        showReuseCheckout={false}
+        reuseCheckout={false}
+        onReuseCheckoutChange={() => {}}
         branchNameOverride=""
         onBranchNameOverrideChange={() => {}}
         forkPushWarning={null}

@@ -156,7 +156,12 @@ export type WorktreeSlice = {
     compareBaseRef?: string,
     // Why: reserved for automation-dispatch flows so host-side provenance can
     // be minted securely; regular create callers should omit this.
-    options?: { automationProvenanceRequest?: CreateWorktreeArgs['automationProvenanceRequest'] }
+    options?: {
+      automationProvenanceRequest?: CreateWorktreeArgs['automationProvenanceRequest']
+      /** Create the workspace in the repo's existing checkout instead of a new
+       *  git worktree (an additional instance over the shared working tree). */
+      reuseCheckout?: boolean
+    }
   ) => Promise<CreateWorktreeResult>
   /** Register an in-flight background creation and make it the active surface. */
   beginPendingWorktreeCreation: (entry: PendingWorktreeCreation) => void

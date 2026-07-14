@@ -2959,6 +2959,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     options
   ) => {
     const automationProvenanceRequest = options?.automationProvenanceRequest
+    const reuseCheckout = options?.reuseCheckout === true
     try {
       for (let attempt = 0; attempt < CLIENT_WORKTREE_CREATE_MAX_ATTEMPTS; attempt += 1) {
         const candidateName = getClientWorktreeCreateCandidate(name, attempt)
@@ -3010,6 +3011,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             ...(linkedGiteaPR !== undefined ? { linkedGiteaPR } : {}),
             ...(startup ? { startup } : {}),
             ...(creationId ? { creationId } : {}),
+            ...(reuseCheckout ? { reuseCheckout: true } : {}),
             ...(automationProvenanceRequest ? { automationProvenanceRequest } : {})
           }
           const target = getActiveRuntimeTarget(settingsForRepoOwner(get(), repoId))
@@ -3053,6 +3055,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
                     ...(linkedBitbucketPR !== undefined ? { linkedBitbucketPR } : {}),
                     ...(linkedAzureDevOpsPR !== undefined ? { linkedAzureDevOpsPR } : {}),
                     ...(linkedGiteaPR !== undefined ? { linkedGiteaPR } : {}),
+                    ...(reuseCheckout ? { reuseCheckout: true } : {}),
                     ...(automationProvenanceRequest ? { automationProvenanceRequest } : {}),
                     ...(startup
                       ? {

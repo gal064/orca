@@ -116,6 +116,11 @@ type NewWorkspaceComposerCardProps = {
   canReuseSelectedBranch: boolean
   reuseSelectedBranch: boolean
   onReuseSelectedBranchChange: (next: boolean) => void
+  /** True for local git targets where the workspace can reuse the existing
+   *  checkout instead of creating a new worktree. */
+  showReuseCheckout: boolean
+  reuseCheckout: boolean
+  onReuseCheckoutChange: (next: boolean) => void
   /** Shows the footer "Create more" switch — worktree targets only. */
   showCreateMultiple?: boolean
   createMultiple?: boolean
@@ -580,6 +585,9 @@ export default function NewWorkspaceComposerCard({
   canReuseSelectedBranch,
   reuseSelectedBranch,
   onReuseSelectedBranchChange,
+  showReuseCheckout,
+  reuseCheckout,
+  onReuseCheckoutChange,
   showCreateMultiple = false,
   createMultiple = false,
   onCreateMultipleChange,
@@ -1036,6 +1044,50 @@ export default function NewWorkspaceComposerCard({
             </div>
           </div>
         </div>
+
+        {/* Why: reuse-checkout opens an additional workspace over the repo's
+            existing checkout — no `git worktree add`. Offered only for local git
+            targets; the branch/base selection above is ignored when enabled since
+            the workspace inherits the checkout's current branch. */}
+        {showReuseCheckout ? (
+          <div className="space-y-1">
+            <label className="group flex w-fit items-center gap-2 text-xs text-foreground">
+              <span
+                className={cn(
+                  'flex size-4 items-center justify-center rounded-[3px] border shadow-sm transition',
+                  reuseCheckout
+                    ? 'border-emerald-500/60 bg-emerald-500 text-white'
+                    : 'border-foreground/20 bg-background dark:border-white/20 dark:bg-muted/10'
+                )}
+              >
+                <Check
+                  className={cn(
+                    'size-3 transition-opacity',
+                    reuseCheckout ? 'opacity-100' : 'opacity-0'
+                  )}
+                />
+              </span>
+              <input
+                type="checkbox"
+                checked={reuseCheckout}
+                onChange={(event) => onReuseCheckoutChange(event.target.checked)}
+                className="sr-only"
+              />
+              <span>
+                {translate(
+                  'auto.components.NewWorkspaceComposerCard.reuseCheckout',
+                  'Reuse existing checkout (no worktree)'
+                )}
+              </span>
+            </label>
+            <p className="pl-6 text-[11px] text-muted-foreground">
+              {translate(
+                'auto.components.NewWorkspaceComposerCard.reuseCheckoutHint',
+                "Open the workspace in the project's existing checkout instead of creating a new worktree. Shares the working tree and current branch."
+              )}
+            </p>
+          </div>
+        ) : null}
 
         <div className="space-y-1" data-contextual-tour-target="workspace-creation-agent">
           <div className="flex items-center justify-between gap-2">

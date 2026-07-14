@@ -659,6 +659,66 @@ describe('registerWorktreeHandlers', () => {
     expect(addWorktreeMock).toHaveBeenCalled()
   })
 
+  it('reuses the existing checkout without running git worktree add', async () => {
+    store.getRepo.mockReturnValue({
+      id: 'repo-1',
+      path: '/workspace/repo',
+      displayName: 'repo',
+      badgeColor: '#000',
+      addedAt: 0
+    })
+    store.setWorktreeMeta.mockImplementation((_id: string, meta: unknown) => meta)
+    listWorktreesMock.mockResolvedValue([
+      {
+        path: '/workspace/repo',
+        head: 'abc123',
+        branch: 'refs/heads/main',
+        isBare: false,
+        isMainWorktree: true
+      }
+    ])
+
+    const result = (await handlers['worktrees:create'](null, {
+      repoId: 'repo-1',
+      name: 'second-session',
+      reuseCheckout: true
+    })) as CreateWorktreeResult
+
+    // No dedicated worktree is created — it reuses the primary checkout.
+    expect(addWorktreeMock).not.toHaveBeenCalled()
+    expect(result.worktree.path).toBe('/workspace/repo')
+    expect(result.worktree.branch).toBe('refs/heads/main')
+    expect(result.worktree.head).toBe('abc123')
+    // A reuse instance is never the primary worktree, and carries a `::workspace:` id.
+    expect(result.worktree.isMainWorktree).toBe(false)
+    expect(result.worktree.id).toContain('::workspace:')
+    expect(store.setWorktreeMeta).toHaveBeenCalledWith(
+      expect.stringContaining('::workspace:'),
+      expect.objectContaining({ reuseCheckout: true, preserveBranchOnDelete: true })
+    )
+  })
+
+  it('deletes a reuse-checkout workspace without touching git or the branch', async () => {
+    store.getRepo.mockReturnValue({
+      id: 'repo-1',
+      path: '/workspace/repo',
+      displayName: 'repo',
+      badgeColor: '#000',
+      addedAt: 0
+    })
+    const reuseId = 'repo-1::/workspace/repo::workspace:inst-1'
+    store.getWorktreeMeta.mockImplementation((id: string) =>
+      id === reuseId ? { reuseCheckout: true } : undefined
+    )
+
+    await handlers['worktrees:remove'](null, { worktreeId: reuseId })
+
+    // The shared checkout and its branch must survive — metadata-only removal.
+    expect(removeWorktreeMock).not.toHaveBeenCalled()
+    expect(forceDeleteLocalBranchMock).not.toHaveBeenCalled()
+    expect(killAllProcessesForWorktreeMock).toHaveBeenCalledWith(reuseId, expect.anything())
+  })
+
   it('fetches origin when creating from a local branch base containing slashes', async () => {
     runtimeStub.resolveRemoteTrackingBase.mockResolvedValue(null)
     listWorktreesMock.mockResolvedValue([

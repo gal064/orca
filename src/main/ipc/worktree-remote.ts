@@ -28,6 +28,7 @@ import type {
 import { getPRForBranch } from '../github/client'
 import { listWorktrees, addWorktree, addSparseWorktree } from '../git/worktree'
 import {
+  buildReuseCheckoutMeta,
   getReuseCheckoutWorkspaceInstanceId,
   mergeReuseCheckoutWorkspace,
   pickReuseCheckoutTarget
@@ -1579,6 +1580,39 @@ export async function createRemoteWorktree(
     ? sanitizeWorktreeDisplayName(args.displayName)
     : undefined
 
+  // Why: reuse-checkout workspaces skip `git worktree add` and open an additional
+  // workspace over the SSH repo's existing checkout — same working tree/branch, no
+  // isolation. Resolve the checkout through the SSH provider since repo.path is a
+  // remote path a local git call cannot reach.
+  if (args.reuseCheckout) {
+    const reuseWorktrees = await provider.listWorktrees(repo.path)
+    const reusedCheckout = pickReuseCheckoutTarget(reuseWorktrees, repo.path)
+    if (!reusedCheckout) {
+      throw new Error('Could not resolve the repository checkout to reuse.')
+    }
+    const reuseInstanceId = randomUUID()
+    const reuseWorktreeId = getReuseCheckoutWorkspaceInstanceId(repo, reuseInstanceId)
+    const now = Date.now()
+    const reuseMeta = store.setWorktreeMeta(
+      reuseWorktreeId,
+      buildReuseCheckoutMeta({
+        args,
+        instanceId: reuseInstanceId,
+        now,
+        orcaCreationSource: 'desktop',
+        workspaceLayout: getWorktreeCreationLayout(repo, settings),
+        projectHostSetupMeta: store.getProjectHostSetups
+          ? getProjectHostSetupWorktreeMeta(store.getProjectHostSetups(), repo)
+          : {},
+        displayName: requestedDisplayName || args.name,
+        createdWithAgent: isTuiAgent(args.createdWithAgent) ? args.createdWithAgent : undefined
+      })
+    )
+    const worktree = mergeReuseCheckoutWorkspace(repo, reuseWorktreeId, reuseMeta, reusedCheckout)
+    recordWorkspaceLineageForCreatedWorktree(store, args, worktree, now)
+    return { worktree }
+  }
+
   // Why: resolving the create base can probe repo refs through generic git.exec.
   // Register the repo root first so relays do not report a valid base as stale.
   await registerRequiredSshWorktreeCreateRoots(repo.connectionId!, [repo.path])
@@ -2039,48 +2073,21 @@ export async function createLocalWorktree(
     const reuseInstanceId = randomUUID()
     const reuseWorktreeId = getReuseCheckoutWorkspaceInstanceId(repo, reuseInstanceId)
     const now = Date.now()
-    const reuseMeta = store.setWorktreeMeta(reuseWorktreeId, {
-      instanceId: reuseInstanceId,
-      ...(store.getProjectHostSetups
-        ? getProjectHostSetupWorktreeMeta(store.getProjectHostSetups(), repo)
-        : {}),
-      displayName: requestedDisplayName || requestedName,
-      lastActivityAt: now,
-      createdAt: now,
-      orcaCreatedAt: now,
-      orcaCreationSource: 'desktop',
-      orcaCreationWorkspaceLayout: getWorktreeCreationLayout(repo, settings),
-      reuseCheckout: true,
-      // Why: the reused checkout dir and its branch predate this workspace; delete
-      // must never prune the branch or remove the shared worktree.
-      preserveBranchOnDelete: true,
-      ...(args.automationProvenance ? { automationProvenance: args.automationProvenance } : {}),
-      ...(isTuiAgent(args.createdWithAgent) ? { createdWithAgent: args.createdWithAgent } : {}),
-      ...(args.linkedIssue !== undefined ? { linkedIssue: args.linkedIssue } : {}),
-      ...(args.linkedPR !== undefined ? { linkedPR: args.linkedPR } : {}),
-      ...(args.linkedLinearIssue !== undefined
-        ? { linkedLinearIssue: args.linkedLinearIssue }
-        : {}),
-      ...(args.linkedLinearIssueWorkspaceId !== undefined
-        ? { linkedLinearIssueWorkspaceId: args.linkedLinearIssueWorkspaceId }
-        : {}),
-      ...(args.linkedLinearIssueOrganizationUrlKey !== undefined
-        ? { linkedLinearIssueOrganizationUrlKey: args.linkedLinearIssueOrganizationUrlKey }
-        : {}),
-      ...(args.linkedGitLabIssue !== undefined
-        ? { linkedGitLabIssue: args.linkedGitLabIssue }
-        : {}),
-      ...(args.linkedGitLabMR !== undefined ? { linkedGitLabMR: args.linkedGitLabMR } : {}),
-      ...(args.linkedBitbucketPR !== undefined
-        ? { linkedBitbucketPR: args.linkedBitbucketPR }
-        : {}),
-      ...(args.linkedAzureDevOpsPR !== undefined
-        ? { linkedAzureDevOpsPR: args.linkedAzureDevOpsPR }
-        : {}),
-      ...(args.linkedGiteaPR !== undefined ? { linkedGiteaPR: args.linkedGiteaPR } : {}),
-      ...(args.manualOrder !== undefined ? { manualOrder: args.manualOrder } : {}),
-      ...(args.workspaceStatus !== undefined ? { workspaceStatus: args.workspaceStatus } : {})
-    })
+    const reuseMeta = store.setWorktreeMeta(
+      reuseWorktreeId,
+      buildReuseCheckoutMeta({
+        args,
+        instanceId: reuseInstanceId,
+        now,
+        orcaCreationSource: 'desktop',
+        workspaceLayout: getWorktreeCreationLayout(repo, settings),
+        projectHostSetupMeta: store.getProjectHostSetups
+          ? getProjectHostSetupWorktreeMeta(store.getProjectHostSetups(), repo)
+          : {},
+        displayName: requestedDisplayName || requestedName,
+        createdWithAgent: isTuiAgent(args.createdWithAgent) ? args.createdWithAgent : undefined
+      })
+    )
     const worktree = mergeReuseCheckoutWorkspace(repo, reuseWorktreeId, reuseMeta, reusedCheckout)
     recordWorkspaceLineageForCreatedWorktree(store, args, worktree, now)
     return { worktree }

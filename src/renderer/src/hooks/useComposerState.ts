@@ -4305,9 +4305,9 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       smartNameSelection?.kind === 'branch',
     reuseSelectedBranch,
     onReuseSelectedBranchChange: handleReuseSelectedBranchChange,
-    // Why: reuse-checkout is a local git-repo capability only — folder targets
-    // are already worktree-less, and remote repos aren't supported yet.
-    showReuseCheckout: !isProjectGroupTarget && selectedRepoIsGit && !selectedRepo?.connectionId,
+    // Why: reuse-checkout applies to any git-repo target (local, SSH, and
+    // remote-server) — folder targets are already worktree-less, so exclude only those.
+    showReuseCheckout: !isProjectGroupTarget && selectedRepoIsGit,
     reuseCheckout,
     onReuseCheckoutChange: setReuseCheckout,
     // Why: the "create multiple" toggle only applies to worktree (git) targets;

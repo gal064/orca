@@ -105,6 +105,9 @@ export const WorktreeCreate = z
       .optional(),
     runHooks: OptionalBoolean,
     activate: OptionalBoolean,
+    // Why: without an explicit field Zod strips this key, so a remote-server
+    // client's "reuse existing checkout" request would silently create a real worktree.
+    reuseCheckout: OptionalBoolean,
     parentWorkspace: OptionalString,
     envParentWorkspace: OptionalString,
     parentWorktree: OptionalString,

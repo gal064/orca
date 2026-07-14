@@ -1,4 +1,13 @@
-import type { GitWorktreeInfo, Repo, Worktree, WorktreeMeta } from '../../shared/types'
+import type {
+  AutomationWorkspaceProvenance,
+  GitWorktreeInfo,
+  OrcaWorkspaceLayout,
+  Repo,
+  TuiAgent,
+  WorkspaceStatus,
+  Worktree,
+  WorktreeMeta
+} from '../../shared/types'
 import { DEFAULT_WORKSPACE_STATUS_ID } from '../../shared/workspace-statuses'
 import { FOLDER_WORKSPACE_INSTANCE_SEPARATOR } from '../../shared/worktree-id'
 
@@ -27,6 +36,78 @@ export function pickReuseCheckoutTarget(
   repoPath: string
 ): GitWorktreeInfo | undefined {
   return worktrees.find((gw) => gw.isMainWorktree) ?? worktrees.find((gw) => gw.path === repoPath)
+}
+
+// Fields of a create request that a reuse-checkout meta copies verbatim. Typed to
+// the WorktreeMeta destination (nullable variants) so both the runtime and desktop
+// (local + SSH) create callers — whose arg types differ slightly — are assignable.
+type ReuseCheckoutMetaArgs = {
+  automationProvenance?: AutomationWorkspaceProvenance
+  linkedIssue?: number | null
+  linkedPR?: number | null
+  linkedLinearIssue?: string | null
+  linkedLinearIssueWorkspaceId?: string | null
+  linkedLinearIssueOrganizationUrlKey?: string | null
+  linkedGitLabIssue?: number | null
+  linkedGitLabMR?: number | null
+  linkedBitbucketPR?: number | null
+  linkedAzureDevOpsPR?: number | null
+  linkedGiteaPR?: number | null
+  comment?: string
+  manualOrder?: number
+  workspaceStatus?: WorkspaceStatus
+}
+
+// Build the persisted metadata for a reuse-checkout instance. Shared by all three
+// create paths (runtime, desktop-local, desktop-SSH) so the marker fields stay in
+// lockstep; callers resolve their own project-host-setup meta, display name, and
+// creation source since those differ per surface.
+export function buildReuseCheckoutMeta(input: {
+  args: ReuseCheckoutMetaArgs
+  instanceId: string
+  now: number
+  orcaCreationSource: NonNullable<WorktreeMeta['orcaCreationSource']>
+  workspaceLayout: OrcaWorkspaceLayout
+  projectHostSetupMeta: Partial<WorktreeMeta>
+  displayName: string
+  createdWithAgent: TuiAgent | undefined
+}): Partial<WorktreeMeta> {
+  const { args } = input
+  return {
+    instanceId: input.instanceId,
+    ...input.projectHostSetupMeta,
+    displayName: input.displayName,
+    lastActivityAt: input.now,
+    createdAt: input.now,
+    orcaCreatedAt: input.now,
+    orcaCreationSource: input.orcaCreationSource,
+    orcaCreationWorkspaceLayout: input.workspaceLayout,
+    reuseCheckout: true,
+    // Why: the reused checkout dir and its branch predate this workspace; delete
+    // must never prune the branch or remove the shared worktree.
+    preserveBranchOnDelete: true,
+    ...(args.automationProvenance ? { automationProvenance: args.automationProvenance } : {}),
+    ...(input.createdWithAgent ? { createdWithAgent: input.createdWithAgent } : {}),
+    ...(args.linkedIssue !== undefined ? { linkedIssue: args.linkedIssue } : {}),
+    ...(args.linkedPR !== undefined ? { linkedPR: args.linkedPR } : {}),
+    ...(args.linkedLinearIssue !== undefined ? { linkedLinearIssue: args.linkedLinearIssue } : {}),
+    ...(args.linkedLinearIssueWorkspaceId !== undefined
+      ? { linkedLinearIssueWorkspaceId: args.linkedLinearIssueWorkspaceId }
+      : {}),
+    ...(args.linkedLinearIssueOrganizationUrlKey !== undefined
+      ? { linkedLinearIssueOrganizationUrlKey: args.linkedLinearIssueOrganizationUrlKey }
+      : {}),
+    ...(args.linkedGitLabIssue !== undefined ? { linkedGitLabIssue: args.linkedGitLabIssue } : {}),
+    ...(args.linkedGitLabMR !== undefined ? { linkedGitLabMR: args.linkedGitLabMR } : {}),
+    ...(args.linkedBitbucketPR !== undefined ? { linkedBitbucketPR: args.linkedBitbucketPR } : {}),
+    ...(args.linkedAzureDevOpsPR !== undefined
+      ? { linkedAzureDevOpsPR: args.linkedAzureDevOpsPR }
+      : {}),
+    ...(args.linkedGiteaPR !== undefined ? { linkedGiteaPR: args.linkedGiteaPR } : {}),
+    ...(args.comment !== undefined ? { comment: args.comment } : {}),
+    ...(args.manualOrder !== undefined ? { manualOrder: args.manualOrder } : {}),
+    ...(args.workspaceStatus !== undefined ? { workspaceStatus: args.workspaceStatus } : {})
+  }
 }
 
 // Like mergeWorktree, but keeps the real branch/head of the reused checkout while

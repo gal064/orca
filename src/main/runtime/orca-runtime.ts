@@ -666,6 +666,7 @@ import {
 import { listRepoWorktrees } from '../repo-worktrees'
 import { createWorktreeLinkedPaths, removeWorktreeLinkedPaths } from '../ipc/worktree-symlinks'
 import {
+  buildReuseCheckoutMeta,
   getReuseCheckoutWorkspaceInstanceId,
   listReuseCheckoutWorkspaces,
   mergeReuseCheckoutWorkspace,
@@ -15044,15 +15045,13 @@ export class OrcaRuntimeService {
     // same branch, no isolation. Everything downstream is path-based, so keeping
     // the repo git-enabled leaves Source Control/diffs/terminal fully working.
     if (args.reuseCheckout) {
-      if (repo.connectionId) {
-        throw new Error(
-          'Reusing the existing checkout is not supported for remote repositories yet.'
-        )
-      }
-      const reuseGitOptions = getLocalProjectWorktreeGitOptions(this.requireStore(), repo)
-      const reuseCheckoutList = hasLocalGitOptions(reuseGitOptions)
-        ? await listWorktrees(repo.path, reuseGitOptions)
-        : await listWorktrees(repo.path)
+      // Why: listRepoWorktrees routes by connectionId (local git or the SSH
+      // provider) and returns [] while a provider is still reattaching, which
+      // falls through to the "could not resolve" error below.
+      const reuseGitOptions = repo.connectionId
+        ? {}
+        : getLocalProjectWorktreeGitOptions(this.requireStore(), repo)
+      const reuseCheckoutList = await listRepoWorktrees(repo, reuseGitOptions)
       const reusedCheckout = pickReuseCheckoutTarget(reuseCheckoutList, repo.path)
       if (!reusedCheckout) {
         throw new Error('Could not resolve the repository checkout to reuse.')
@@ -15061,47 +15060,22 @@ export class OrcaRuntimeService {
       const reuseInstanceId = randomUUID()
       const reuseWorktreeId = getReuseCheckoutWorkspaceInstanceId(repo, reuseInstanceId)
       const reuseDisplayName = args.displayName?.trim() || undefined
-      const reuseMeta = this.store.setWorktreeMeta(reuseWorktreeId, {
-        instanceId: reuseInstanceId,
-        ...getProjectHostSetupWorktreeMeta(this.store.getProjectHostSetups?.() ?? [], repo),
-        displayName: reuseDisplayName || args.name,
-        lastActivityAt: reuseNow,
-        createdAt: reuseNow,
-        orcaCreatedAt: reuseNow,
-        orcaCreationSource: 'runtime',
-        orcaCreationWorkspaceLayout: getWorktreeCreationLayout(repo, createSettings),
-        reuseCheckout: true,
-        // Why: the reused checkout dir and its branch predate this workspace;
-        // delete must never prune the branch or remove the shared worktree.
-        preserveBranchOnDelete: true,
-        ...(args.automationProvenance ? { automationProvenance: args.automationProvenance } : {}),
-        ...(args.linkedIssue !== undefined ? { linkedIssue: args.linkedIssue } : {}),
-        ...(args.linkedPR !== undefined ? { linkedPR: args.linkedPR } : {}),
-        ...(args.linkedLinearIssue !== undefined
-          ? { linkedLinearIssue: args.linkedLinearIssue }
-          : {}),
-        ...(args.linkedLinearIssueWorkspaceId !== undefined
-          ? { linkedLinearIssueWorkspaceId: args.linkedLinearIssueWorkspaceId }
-          : {}),
-        ...(args.linkedLinearIssueOrganizationUrlKey !== undefined
-          ? { linkedLinearIssueOrganizationUrlKey: args.linkedLinearIssueOrganizationUrlKey }
-          : {}),
-        ...(args.linkedGitLabIssue !== undefined
-          ? { linkedGitLabIssue: args.linkedGitLabIssue }
-          : {}),
-        ...(args.linkedGitLabMR !== undefined ? { linkedGitLabMR: args.linkedGitLabMR } : {}),
-        ...(args.linkedBitbucketPR !== undefined
-          ? { linkedBitbucketPR: args.linkedBitbucketPR }
-          : {}),
-        ...(args.linkedAzureDevOpsPR !== undefined
-          ? { linkedAzureDevOpsPR: args.linkedAzureDevOpsPR }
-          : {}),
-        ...(args.linkedGiteaPR !== undefined ? { linkedGiteaPR: args.linkedGiteaPR } : {}),
-        ...(effectiveCreatedWithAgent ? { createdWithAgent: effectiveCreatedWithAgent } : {}),
-        ...(args.comment !== undefined ? { comment: args.comment } : {}),
-        ...(args.manualOrder !== undefined ? { manualOrder: args.manualOrder } : {}),
-        ...(args.workspaceStatus !== undefined ? { workspaceStatus: args.workspaceStatus } : {})
-      })
+      const reuseMeta = this.store.setWorktreeMeta(
+        reuseWorktreeId,
+        buildReuseCheckoutMeta({
+          args,
+          instanceId: reuseInstanceId,
+          now: reuseNow,
+          orcaCreationSource: 'runtime',
+          workspaceLayout: getWorktreeCreationLayout(repo, createSettings),
+          projectHostSetupMeta: getProjectHostSetupWorktreeMeta(
+            this.store.getProjectHostSetups?.() ?? [],
+            repo
+          ),
+          displayName: reuseDisplayName || args.name,
+          createdWithAgent: effectiveCreatedWithAgent
+        })
+      )
       const reuseWorktree = mergeReuseCheckoutWorkspace(
         repo,
         reuseWorktreeId,

@@ -106,6 +106,7 @@ export const WORKTREE_METHODS: RpcMethod[] = [
           pushTarget: params.pushTarget,
           runHooks: params.runHooks === true,
           activate: params.activate === true,
+          reuseCheckout: params.reuseCheckout === true,
           setupDecision: params.setupDecision,
           createdWithAgent: params.createdWithAgent ?? params.startupAgent,
           automationProvenance,

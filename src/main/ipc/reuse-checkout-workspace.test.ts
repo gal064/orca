@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GitWorktreeInfo, Repo, WorktreeMeta } from '../../shared/types'
 import {
+  buildReuseCheckoutMeta,
   getReuseCheckoutWorkspaceInstanceId,
   isReuseCheckoutWorkspaceInstanceId,
   listReuseCheckoutWorkspaces,
@@ -89,6 +90,65 @@ describe('mergeReuseCheckoutWorkspace', () => {
     expect(worktree.branch).toBe('refs/heads/main')
     expect(worktree.isMainWorktree).toBe(false)
     expect(worktree.displayName).toBe('My Session')
+  })
+})
+
+describe('buildReuseCheckoutMeta', () => {
+  const layout = { path: '/workspace/repo', nestWorkspaces: false }
+
+  it('always stamps the reuse + branch-preservation markers and creation source', () => {
+    const meta = buildReuseCheckoutMeta({
+      args: {},
+      instanceId: 'inst-1',
+      now: 1234,
+      orcaCreationSource: 'ssh',
+      workspaceLayout: layout,
+      projectHostSetupMeta: {},
+      displayName: 'Session',
+      createdWithAgent: undefined
+    })
+    expect(meta).toMatchObject({
+      instanceId: 'inst-1',
+      displayName: 'Session',
+      createdAt: 1234,
+      lastActivityAt: 1234,
+      orcaCreationSource: 'ssh',
+      orcaCreationWorkspaceLayout: layout,
+      // Why: these two are the safety-critical markers listing + deletion key off.
+      reuseCheckout: true,
+      preserveBranchOnDelete: true
+    })
+    // Absent optional inputs must not leak empty keys into the meta.
+    expect(meta.createdWithAgent).toBeUndefined()
+    expect(meta.linkedIssue).toBeUndefined()
+  })
+
+  it('copies provided linked-artifact, agent, and project-host-setup fields', () => {
+    const meta = buildReuseCheckoutMeta({
+      args: {
+        linkedIssue: 42,
+        linkedPR: 7,
+        linkedLinearIssue: 'ENG-1',
+        comment: 'note',
+        manualOrder: 99
+      },
+      instanceId: 'inst-2',
+      now: 5,
+      orcaCreationSource: 'desktop',
+      workspaceLayout: layout,
+      projectHostSetupMeta: { projectHostSetupId: 'phs-1' },
+      displayName: 'x',
+      createdWithAgent: 'codex'
+    })
+    expect(meta).toMatchObject({
+      linkedIssue: 42,
+      linkedPR: 7,
+      linkedLinearIssue: 'ENG-1',
+      comment: 'note',
+      manualOrder: 99,
+      createdWithAgent: 'codex',
+      projectHostSetupId: 'phs-1'
+    })
   })
 })
 

@@ -698,6 +698,59 @@ describe('registerWorktreeHandlers', () => {
     )
   })
 
+  it('reuses an SSH repo checkout via the provider without adding a remote worktree', async () => {
+    const repo = {
+      id: 'repo-ssh',
+      path: '/remote/repo',
+      displayName: 'ssh',
+      badgeColor: '#000',
+      addedAt: 0,
+      connectionId: 'conn-1',
+      worktreeBaseRef: 'origin/main'
+    }
+    const provider = {
+      addWorktree: vi.fn().mockResolvedValue(undefined),
+      // Why: repo.path is a remote path, so the checkout must be resolved through
+      // the SSH provider rather than the local git binary.
+      listWorktrees: vi.fn().mockResolvedValue([
+        {
+          path: '/remote/repo',
+          head: 'ssh123',
+          branch: 'refs/heads/main',
+          isBare: false,
+          isMainWorktree: true
+        }
+      ])
+    }
+    store.getRepos.mockReturnValue([repo])
+    store.getRepo.mockReturnValue(repo)
+    getSshGitProviderMock.mockReturnValue(provider)
+    store.setWorktreeMeta.mockImplementation((_id: string, meta: unknown) => meta)
+
+    const result = (await handlers['worktrees:create'](null, {
+      repoId: 'repo-ssh',
+      name: 'second-session',
+      reuseCheckout: true
+    })) as CreateWorktreeResult
+
+    // Neither the local nor the remote (SSH) worktree-add path runs.
+    expect(provider.addWorktree).not.toHaveBeenCalled()
+    expect(addWorktreeMock).not.toHaveBeenCalled()
+    expect(result.worktree.path).toBe('/remote/repo')
+    expect(result.worktree.branch).toBe('refs/heads/main')
+    expect(result.worktree.head).toBe('ssh123')
+    expect(result.worktree.isMainWorktree).toBe(false)
+    expect(result.worktree.id).toContain('::workspace:')
+    expect(store.setWorktreeMeta).toHaveBeenCalledWith(
+      expect.stringContaining('::workspace:'),
+      expect.objectContaining({
+        reuseCheckout: true,
+        preserveBranchOnDelete: true,
+        orcaCreationSource: 'desktop'
+      })
+    )
+  })
+
   it('deletes a reuse-checkout workspace without touching git or the branch', async () => {
     store.getRepo.mockReturnValue({
       id: 'repo-1',

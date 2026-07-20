@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { connect, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { DaemonServer } from './daemon-server'
 import { DaemonClient } from './client'
 import { encodeNdjson } from './ndjson'
@@ -29,7 +29,7 @@ function createMockSubprocess(): SubprocessHandle & {
     write: vi.fn(),
     resize: vi.fn(),
     kill: vi.fn(() => setTimeout(() => onExitCb?.(0), 5)),
-    forceKill: vi.fn(),
+    forceKill: vi.fn(() => onExitCb?.(137)),
     signal: vi.fn(),
     onData(cb) {
       onDataCb = cb
@@ -49,6 +49,9 @@ function createMockSubprocess(): SubprocessHandle & {
 
 type DaemonServerPrivate = {
   server: Server | null
+  host: {
+    kill: (sessionId: string, opts?: { immediate?: boolean }) => void | Promise<void>
+  }
   clients: Map<
     string,
     {
@@ -178,6 +181,134 @@ describe('DaemonServer', () => {
       })
     })
 
+    it('keeps RPC responsive and creates one subprocess while spawn preparation is pending', async () => {
+      let finishPreparation!: () => void
+      const preparation = new Promise<void>((resolve) => {
+        finishPreparation = resolve
+      })
+      const preparePtySpawn = vi.fn(() => preparation)
+      const spawnSubprocess = vi.fn(() => createMockSubprocess())
+      server = new DaemonServer({
+        socketPath,
+        tokenPath,
+        preparePtySpawn,
+        spawnSubprocess
+      })
+      await server.start()
+      const c = await connectClient()
+
+      const firstCreate = c.request<{ isNew: boolean }>('createOrAttach', {
+        sessionId: 'prepared-session',
+        cols: 80,
+        rows: 24
+      })
+      const concurrentCreate = c.request<{ isNew: boolean }>('createOrAttach', {
+        sessionId: 'prepared-session',
+        cols: 80,
+        rows: 24
+      })
+      await vi.waitFor(() => expect(preparePtySpawn).toHaveBeenCalledTimes(2))
+
+      // The old spawnSync probe blocked this ping and all live PTY traffic.
+      await expect(c.request('ping', undefined)).resolves.toEqual({ pong: true })
+      expect(spawnSubprocess).not.toHaveBeenCalled()
+
+      finishPreparation()
+      const results = await Promise.all([firstCreate, concurrentCreate])
+      expect(results.map((result) => result.isNew).sort()).toEqual([false, true])
+      expect(spawnSubprocess).toHaveBeenCalledOnce()
+    })
+
+    it.each(['cancelCreateOrAttach', 'kill'] as const)(
+      'prevents a pending subprocess after %s and permits later session reuse',
+      async (requestType) => {
+        let finishPreparation!: () => void
+        const preparation = new Promise<void>((resolve) => {
+          finishPreparation = resolve
+        })
+        const preparePtySpawn = vi.fn(() => preparation)
+        const spawnSubprocess = vi.fn(() => createMockSubprocess())
+        server = new DaemonServer({
+          socketPath,
+          tokenPath,
+          preparePtySpawn,
+          spawnSubprocess
+        })
+        await server.start()
+        const c = await connectClient()
+
+        const creates = [
+          c.request('createOrAttach', {
+            sessionId: 'canceled-preparation',
+            cols: 80,
+            rows: 24
+          }),
+          c.request('createOrAttach', {
+            sessionId: 'canceled-preparation',
+            cols: 80,
+            rows: 24
+          })
+        ]
+        const canceledCreates = Promise.all(
+          creates.map((create) =>
+            expect(create).rejects.toThrow('Attach canceled for session canceled-preparation')
+          )
+        )
+        await vi.waitFor(() => expect(preparePtySpawn).toHaveBeenCalledTimes(2))
+
+        const cancelRequest =
+          requestType === 'kill'
+            ? c.request('kill', { sessionId: 'canceled-preparation', immediate: true })
+            : c.request('cancelCreateOrAttach', { sessionId: 'canceled-preparation' })
+        await expect(cancelRequest).resolves.toEqual({})
+        finishPreparation()
+        await canceledCreates
+        expect(spawnSubprocess).not.toHaveBeenCalled()
+
+        await expect(
+          c.request('createOrAttach', {
+            sessionId: 'canceled-preparation',
+            cols: 80,
+            rows: 24
+          })
+        ).resolves.toMatchObject({ isNew: true })
+        expect(spawnSubprocess).toHaveBeenCalledOnce()
+      }
+    )
+
+    it('cancels pending subprocess preparation during daemon shutdown', async () => {
+      let finishPreparation!: () => void
+      const preparation = new Promise<void>((resolve) => {
+        finishPreparation = resolve
+      })
+      const preparePtySpawn = vi.fn(() => preparation)
+      const spawnSubprocess = vi.fn(() => createMockSubprocess())
+      server = new DaemonServer({
+        socketPath,
+        tokenPath,
+        preparePtySpawn,
+        spawnSubprocess
+      })
+      await server.start()
+      const daemon = server as unknown as DaemonServerPrivate
+
+      const create = daemon.routeRequest('shutdown-client', {
+        id: 'shutdown-create',
+        type: 'createOrAttach',
+        payload: { sessionId: 'shutdown-pending', cols: 80, rows: 24 }
+      })
+      const canceledCreate = expect(create).rejects.toThrow(
+        'Attach canceled for session shutdown-pending'
+      )
+      await vi.waitFor(() => expect(preparePtySpawn).toHaveBeenCalledOnce())
+
+      const shutdown = server.shutdown()
+      finishPreparation()
+      await canceledCreate
+      await shutdown
+      expect(spawnSubprocess).not.toHaveBeenCalled()
+    })
+
     it('persists only an allowlisted launch identity across reattach', async () => {
       await startServer()
       const c = await connectClient()
@@ -287,6 +418,36 @@ describe('DaemonServer', () => {
       })
 
       expect(result).toBeDefined()
+    })
+
+    it('does not acknowledge kill until asynchronous teardown completes', async () => {
+      await startServer()
+      const daemon = server as unknown as DaemonServerPrivate
+      let finishKill!: () => void
+      const teardown = new Promise<void>((resolve) => {
+        finishKill = resolve
+      })
+      const kill = vi.spyOn(daemon.host, 'kill').mockReturnValue(teardown)
+
+      let acknowledged = false
+      const routed = daemon
+        .routeRequest('client-1', {
+          id: 'kill-1',
+          type: 'kill',
+          payload: { sessionId: 'agent-session', immediate: true }
+        })
+        .then((result) => {
+          acknowledged = true
+          return result
+        })
+
+      await Promise.resolve()
+      expect(kill).toHaveBeenCalledWith('agent-session', { immediate: true })
+      expect(acknowledged).toBe(false)
+
+      finishKill()
+      await expect(routed).resolves.toEqual({})
+      expect(acknowledged).toBe(true)
     })
 
     it('handles getCwd', async () => {
@@ -625,6 +786,28 @@ describe('DaemonServer', () => {
 
       const c = new DaemonClient({ socketPath, tokenPath })
       await expect(c.ensureConnected()).rejects.toThrow()
+    })
+
+    it('still terminates via the shutdown RPC when disposal cannot prove physical exit', async () => {
+      await startServer()
+      const daemon = server as unknown as DaemonServerPrivate & {
+        host: { dispose: () => Promise<void> }
+      }
+      // Why: an unreapable child rejects dispose after its exit deadline; the
+      // daemon must exit anyway or its replacement flow strands it as an orphan.
+      daemon.host.dispose = vi.fn(() =>
+        Promise.reject(new Error('Timed out waiting for physical PTY exit'))
+      )
+
+      const c = await connectClient()
+      // The daemon may self-terminate before the reply flushes; callers treat
+      // that as success, so only the observable teardown below is asserted.
+      await c.request('shutdown', { killSessions: true }).catch(() => {})
+
+      await waitFor(() => daemon.server === null)
+      await waitFor(() => !existsSync(socketPath))
+      const late = new DaemonClient({ socketPath, tokenPath })
+      await expect(late.ensureConnected()).rejects.toThrow()
     })
   })
 })

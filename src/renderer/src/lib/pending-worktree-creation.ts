@@ -58,6 +58,9 @@ export type WorktreeCreationRequest = {
   compareBaseRef?: string
   setupDecision: SetupDecision
   sparseCheckout?: CreateSparseCheckoutRequest
+  // Why: the quick composer routes through this background request; without it the
+  // reuse-checkout toggle is silently dropped and a new worktree is created anyway.
+  reuseCheckout?: boolean
   telemetrySource?: WorkspaceCreateTelemetrySource
   linkedIssue?: number
   linkedPR?: number

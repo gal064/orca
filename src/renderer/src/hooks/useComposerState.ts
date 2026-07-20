@@ -1107,9 +1107,9 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   // is the explicit checkbox value driving whether reuse actually happens.
   const [reuseEligibleBranch, setReuseEligibleBranch] = useState<string | null>(null)
   const [reuseSelectedBranch, setReuseSelectedBranch] = useState(false)
-  // Why: opt-in to creating the workspace in the repo's existing checkout instead
+  // Why: default to creating the workspace in the repo's existing checkout instead
   // of a new git worktree — an additional instance over the shared working tree.
-  const [reuseCheckout, setReuseCheckout] = useState(false)
+  const [reuseCheckout, setReuseCheckout] = useState(true)
   const [pushTarget, setPushTarget] = useState<GitPushTarget | undefined>(undefined)
   // Why: when a repo switch wipes a prior Start-from selection, surface the
   // reset inline (e.g. "was PR #8778") so the change is recoverable visually
@@ -4194,6 +4194,9 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
                 }
               }
             : {}),
+          // Why: reuse the repo's existing checkout (no new worktree) when the user
+          // toggled it on a supported git target — mirrors the full composer's submit.
+          ...(reuseCheckout && selectedRepoIsGit ? { reuseCheckout: true } : {}),
           ...(telemetrySource ? { telemetrySource } : {}),
           ...(submitLinkedIssueNumber != null ? { linkedIssue: submitLinkedIssueNumber } : {}),
           ...(submitLinkedPR != null ? { linkedPR: submitLinkedPR } : {}),
@@ -4277,6 +4280,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       selectedRepoIsRemote,
       selectedRepoStartupShell,
       selectedRepoIsGit,
+      reuseCheckout,
       selectedRepoSettings,
       selectedRepoRequiresConnection,
       selectedWorkspaceTarget,

@@ -312,6 +312,33 @@ describe('runBackgroundWorktreeCreation', () => {
     expect(createCall[24]).toBe('refs/remotes/origin/main')
   })
 
+  // Why: the quick composer dropped reuseCheckout because this flow never forwarded
+  // the store's trailing options arg — regression guard for that gap.
+  it('forwards reuseCheckout through the store options arg when the toggle is on', async () => {
+    store.createWorktree.mockResolvedValue({
+      worktree: { id: 'repo-runtime::/workspace/repo', repoId: 'repo-runtime' }
+    })
+
+    runBackgroundWorktreeCreation(makeRequest({ reuseCheckout: true }))
+
+    await vi.waitFor(() => expect(store.createWorktree).toHaveBeenCalled())
+    const createCall = store.createWorktree.mock.calls[0] as unknown[]
+    // options is the trailing arg, one past compareBaseRef (index 24).
+    expect(createCall[25]).toEqual({ reuseCheckout: true })
+  })
+
+  it('omits the reuseCheckout options arg when the toggle is off', async () => {
+    store.createWorktree.mockResolvedValue({
+      worktree: { id: 'repo-runtime::/workspace/repo', repoId: 'repo-runtime' }
+    })
+
+    runBackgroundWorktreeCreation(makeRequest())
+
+    await vi.waitFor(() => expect(store.createWorktree).toHaveBeenCalled())
+    const createCall = store.createWorktree.mock.calls[0] as unknown[]
+    expect(createCall[25]).toBeUndefined()
+  })
+
   it('appends stderr provisioning events for the active VM recipe create', async () => {
     let provisionEventCallback:
       | ((event: { provisionId: string; stream: 'stdout' | 'stderr'; chunk: string }) => void)

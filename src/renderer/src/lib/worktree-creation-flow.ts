@@ -138,35 +138,36 @@ async function executeWorktreeCreation(
 
   let result: CreateWorktreeResult
   try {
-    result = await useAppStore
-      .getState()
-      .createWorktree(
-        preparedRequest.repoId,
-        preparedRequest.name,
-        preparedRequest.baseBranch,
-        preparedRequest.setupDecision,
-        preparedRequest.sparseCheckout,
-        preparedRequest.telemetrySource,
-        preparedRequest.displayName,
-        preparedRequest.linkedIssue,
-        preparedRequest.linkedPR,
-        preparedRequest.pushTarget,
-        preparedRequest.agent ?? undefined,
-        preparedRequest.linkedLinearIssue,
-        preparedRequest.branchNameOverride,
-        preparedRequest.workspaceStatus,
-        preparedRequest.linkedGitLabMR,
-        preparedRequest.linkedGitLabIssue,
-        preparedRequest.startup,
-        preparedRequest.pendingFirstAgentMessageRename,
-        creationId,
-        preparedRequest.linkedLinearIssueWorkspaceId,
-        preparedRequest.linkedLinearIssueOrganizationUrlKey,
-        preparedRequest.linkedBitbucketPR,
-        preparedRequest.linkedAzureDevOpsPR,
-        preparedRequest.linkedGiteaPR,
-        preparedRequest.compareBaseRef
-      )
+    result = await useAppStore.getState().createWorktree(
+      preparedRequest.repoId,
+      preparedRequest.name,
+      preparedRequest.baseBranch,
+      preparedRequest.setupDecision,
+      preparedRequest.sparseCheckout,
+      preparedRequest.telemetrySource,
+      preparedRequest.displayName,
+      preparedRequest.linkedIssue,
+      preparedRequest.linkedPR,
+      preparedRequest.pushTarget,
+      preparedRequest.agent ?? undefined,
+      preparedRequest.linkedLinearIssue,
+      preparedRequest.branchNameOverride,
+      preparedRequest.workspaceStatus,
+      preparedRequest.linkedGitLabMR,
+      preparedRequest.linkedGitLabIssue,
+      preparedRequest.startup,
+      preparedRequest.pendingFirstAgentMessageRename,
+      creationId,
+      preparedRequest.linkedLinearIssueWorkspaceId,
+      preparedRequest.linkedLinearIssueOrganizationUrlKey,
+      preparedRequest.linkedBitbucketPR,
+      preparedRequest.linkedAzureDevOpsPR,
+      preparedRequest.linkedGiteaPR,
+      preparedRequest.compareBaseRef,
+      // Why: the store's trailing options arg is where reuseCheckout reaches the
+      // backend; the quick composer omitted it, so the toggle never took effect.
+      preparedRequest.reuseCheckout ? { reuseCheckout: true } : undefined
+    )
   } catch (error) {
     // Why: a missing entry means the user cancelled mid-flight — abandon
     // silently rather than surfacing an error for work they already dismissed.

@@ -13443,7 +13443,22 @@
           "max": "Máximo",
           "on": "Activado",
           "off": "Desactivado"
-        }
+        },
+        "noCommandsOrSkills": "No hay comandos o habilidades coincidentes",
+        "commands": "Comandos",
+        "skills": "Habilidades",
+        "loadingSkills": "Cargando habilidades…",
+        "skillsUnavailableHost": "Las habilidades no están disponibles para este host",
+        "skillsLoadFailed": "No se pudieron cargar las habilidades de este host",
+        "retrySkills": "Reintentar",
+        "skillCommandCollision": "También es un nombre de habilidad - el agente decide",
+        "skillMultipleSources": "{{sourceCount}} fuentes - el agente resuelve",
+        "skillScopeProject": "Proyecto",
+        "skillScopePersonal": "Personal",
+        "skillScopeBuiltIn": "Integrado",
+        "skillScopePlugin": "Plugin",
+        "skillsLoaded": "Habilidades cargadas",
+        "noCommands": "No hay comandos coincidentes"
       },
       "tool": {
         "running": "Ejecutando…",

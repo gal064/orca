@@ -398,6 +398,9 @@ export type UseComposerStateResult = {
   submitQuick: (agent: TuiAgent | null) => Promise<void>
   /** Invoked by the Enter handler to re-check whether submission should fire. */
   createDisabled: boolean
+  /** Selects the repo a nested Add Project flow just added, clearing any
+   *  folder-group target so the composer lands on the new project. */
+  selectAddedProjectRepo: (repoId: string) => void
 }
 
 export type InitialWorkspaceRunSeedInput = {
@@ -2829,6 +2832,19 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       workspaceHostScope
     ]
   )
+  const selectAddedProjectRepo = useCallback(
+    (nextRepoId: string): void => {
+      // Why: the nested Add Project flow hands back a repo id. Selecting it
+      // must also clear a folder-group target, whose onRepoChange handler
+      // only accepts repos inside the selected group.
+      initialProjectGroupAppliedRef.current = true
+      setSelectedProjectGroupId(null)
+      setProjectError(null)
+      handleRepoChange(nextRepoId)
+    },
+    [handleRepoChange]
+  )
+
   const showProjectRequiredError = useCallback((): void => {
     setProjectError('Choose or add a project before creating a workspace.')
     requestAnimationFrame(() => {
@@ -4463,6 +4479,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     nameInputRef,
     submit,
     submitQuick,
-    createDisabled
+    createDisabled,
+    selectAddedProjectRepo
   }
 }

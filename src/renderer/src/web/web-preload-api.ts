@@ -495,6 +495,14 @@ function createWebPreloadApi(): Partial<PreloadApi> {
       relaunch: () => Promise.resolve(window.location.reload()),
       restart: () => Promise.resolve(window.location.reload()),
       reload: () => Promise.resolve(window.location.reload()),
+      persistBeforeUnloadSync: ({ sessions, ui }) => {
+        // Why: beforeunload cannot await the paired runtime, so the web adapter
+        // guarantees immediate browser-local durability for the final snapshot.
+        for (const { state, hostId } of sessions) {
+          writeJson(sessionStorageKeyForHost(hostId), sanitizeWebRuntimeWorkspaceSession(state))
+        }
+        writeJson(UI_STORAGE_KEY, mergeWebUIState(readLocalWebUIState(), ui))
+      },
       awaitFirstWindowStartupServices: () => Promise.resolve(),
       startupDiagnostic: () => Promise.resolve(),
       getKeyboardInputSourceId: () => Promise.resolve(null),
@@ -1620,6 +1628,9 @@ function createFileApi(): NonNullable<Partial<PreloadApi>['fs']> {
     onLocalLogTailChanged: () => noopUnsubscribe,
     downloadFile: async () => {
       throw new Error('Remote file download is unavailable in paired web clients.')
+    },
+    downloadFolder: async () => {
+      throw new Error('Remote folder download is unavailable in paired web clients.')
     },
     saveDownloadedFile: async () => {
       throw new Error('Remote file download is unavailable in paired web clients.')
@@ -2763,11 +2774,7 @@ function createComputerUsePermissionsApi(): NonNullable<
 function createSkillsApi(): NonNullable<Partial<PreloadApi>['skills']> {
   return {
     discover: (target) =>
-      callRuntimeResult<SkillDiscoveryResult>('skills.discover', target, 15_000).catch(() => ({
-        skills: [],
-        sources: [],
-        scannedAt: Date.now()
-      })),
+      callRuntimeResult<SkillDiscoveryResult>('skills.discover', target, 15_000),
     // Why: browser clients have no local skill homes, and remote-host
     // freshness stays disabled until its update rail has equivalent coverage.
     freshnessInventory: (): Promise<SkillFreshnessInventory> =>

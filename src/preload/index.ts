@@ -142,6 +142,7 @@ import type {
   EnrichedDetectedPort
 } from '../shared/ssh-types'
 import type {
+  AgentStatusClearIpcPayload,
   AgentStatusIpcPayload,
   MigrationUnsupportedPtyEntry
 } from '../shared/agent-status-types'
@@ -184,15 +185,12 @@ import type {
   NativeChatSubscriptionFrame
 } from './api-types'
 import {
-  ORCA_EDITOR_PREPARE_HOT_EXIT_EVENT,
-  type EditorPrepareHotExitDetail
-} from '../shared/editor-save-events'
-import {
   ORCA_APP_RESTART_ABORTED_EVENT,
   ORCA_APP_RESTART_STARTED_EVENT,
   ORCA_UPDATER_QUIT_AND_INSTALL_ABORTED_EVENT,
   ORCA_UPDATER_QUIT_AND_INSTALL_STARTED_EVENT
 } from '../shared/updater-renderer-events'
+import { ORCA_RENDERER_UNLOAD_PREVENTED_EVENT } from '../shared/renderer-shutdown-events'
 import {
   ORCA_INTERNAL_FILE_DRAG_TYPE,
   createNativeFileDropPayload,
@@ -227,11 +225,26 @@ import type {
   ReactErrorBoundaryReportResult
 } from '../shared/crash-reporting'
 import type { PreloadApi } from './api-types'
+import {
+  createUpdaterQuitAbortRelay,
+  prepareRendererForAppRestart
+} from './renderer-restart-preparation'
 
 type NativeFileDropCallback = (data: NativeFileDropPayload) => void
 
 const nativeFileDropCallbacks: NativeFileDropCallback[] = []
 let nativeFileDropListenerRegistered = false
+const updaterQuitAbortRelay = createUpdaterQuitAbortRelay(
+  window,
+  ORCA_UPDATER_QUIT_AND_INSTALL_ABORTED_EVENT
+)
+
+ipcRenderer.on('updater:status', (_event, status: UpdateStatus) => {
+  updaterQuitAbortRelay.handleStatus(status)
+})
+ipcRenderer.on('window:unload-prevented', () => {
+  window.dispatchEvent(new Event(ORCA_RENDERER_UNLOAD_PREVENTED_EVENT))
+})
 
 function getLinuxDisplayServer(): 'wayland' | 'x11' | null {
   if (process.platform !== 'linux') {
@@ -245,54 +258,6 @@ function getLinuxDisplayServer(): 'wayland' | 'x11' | null {
     return 'wayland'
   }
   return process.env.DISPLAY ? 'x11' : null
-}
-
-type AppRestartPrepOptions = {
-  startedEventName: string
-  abortedEventName: string
-}
-
-function requestEditorHotExitBackup(): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    let claimed = false
-    window.dispatchEvent(
-      new CustomEvent<EditorPrepareHotExitDetail>(ORCA_EDITOR_PREPARE_HOT_EXIT_EVENT, {
-        detail: {
-          claim: () => {
-            claimed = true
-          },
-          resolve,
-          reject: (message) => {
-            reject(new Error(message))
-          }
-        }
-      })
-    )
-
-    // Why: restart paths can run before the editor autosave controller mounts.
-    // With no claimant, there are no renderer-owned dirty buffers to back up.
-    if (!claimed) {
-      resolve()
-    }
-  })
-}
-
-async function prepareRendererForAppRestart({
-  startedEventName,
-  abortedEventName
-}: AppRestartPrepOptions): Promise<void> {
-  window.dispatchEvent(new Event(startedEventName))
-
-  try {
-    await requestEditorHotExitBackup()
-  } catch (error) {
-    window.dispatchEvent(new Event(abortedEventName))
-    throw error
-  }
-
-  // Dispatch beforeunload now so terminal buffers are captured while panes are
-  // still mounted; update installs later bypass the ordinary close sequence.
-  window.dispatchEvent(new Event('beforeunload'))
 }
 
 const onNativeFileDrop = (_event: Electron.IpcRendererEvent, data: NativeFileDropPayload): void => {
@@ -473,7 +438,7 @@ const api = {
       ipcRenderer.invoke('app:getFeatureWallAssetBaseUrl'),
     relaunch: (): Promise<void> => ipcRenderer.invoke('app:relaunch'),
     restart: async (): Promise<void> => {
-      await prepareRendererForAppRestart({
+      await prepareRendererForAppRestart(window, {
         startedEventName: ORCA_APP_RESTART_STARTED_EVENT,
         abortedEventName: ORCA_APP_RESTART_ABORTED_EVENT
       })
@@ -485,6 +450,16 @@ const api = {
       }
     },
     reload: (): Promise<void> => ipcRenderer.invoke('app:reload'),
+    persistBeforeUnloadSync: (
+      args: Parameters<PreloadApi['app']['persistBeforeUnloadSync']>[0]
+    ) => {
+      const result = ipcRenderer.sendSync('app:persist-before-unload-sync', args) as {
+        ok?: unknown
+      }
+      if (result?.ok !== true) {
+        throw new Error('Failed to persist renderer state before unload.')
+      }
+    },
     awaitFirstWindowStartupServices: (): Promise<void> =>
       ipcRenderer.invoke('app:awaitFirstWindowStartupServices'),
     startupDiagnostic: (event: string, details?: Record<string, unknown>): Promise<void> =>
@@ -1060,6 +1035,7 @@ const api = {
         data: string
         seq?: number
         rawLength?: number
+        transformed?: boolean
         background?: boolean
         droppedOutput?: boolean
       }) => void
@@ -1071,6 +1047,7 @@ const api = {
           data: string
           seq?: number
           rawLength?: number
+          transformed?: boolean
           background?: boolean
           droppedOutput?: boolean
         }
@@ -2763,14 +2740,15 @@ const api = {
     download: () => ipcRenderer.invoke('updater:download'),
     dismissNudge: () => ipcRenderer.invoke('updater:dismissNudge'),
     quitAndInstall: async (): Promise<void> => {
-      await prepareRendererForAppRestart({
+      await prepareRendererForAppRestart(window, {
         startedEventName: ORCA_UPDATER_QUIT_AND_INSTALL_STARTED_EVENT,
         abortedEventName: ORCA_UPDATER_QUIT_AND_INSTALL_ABORTED_EVENT
       })
+      updaterQuitAbortRelay.markPrepared()
       try {
         return await ipcRenderer.invoke('updater:quitAndInstall')
       } catch (error) {
-        window.dispatchEvent(new Event(ORCA_UPDATER_QUIT_AND_INSTALL_ABORTED_EVENT))
+        updaterQuitAbortRelay.abort()
         throw error
       }
     },
@@ -2834,6 +2812,11 @@ const api = {
       connectionId: string
     }): Promise<{ canceled: true } | { canceled: false; destinationPath: string }> =>
       ipcRenderer.invoke('fs:downloadFile', args),
+    downloadFolder: (args: {
+      dirPath: string
+      connectionId: string
+    }): Promise<{ canceled: true } | { canceled: false; destinationPath: string }> =>
+      ipcRenderer.invoke('fs:downloadFolder', args),
     saveDownloadedFile: (args: {
       suggestedName: string
       content: string
@@ -4337,6 +4320,7 @@ const api = {
           pairingUrl: string
           endpoint: string
           deviceId: string
+          connectionMode: MobilePairingConnectionMode
         }
     > => ipcRenderer.invoke('mobile:getPairingQR', args),
 
@@ -4395,8 +4379,8 @@ const api = {
       ipcRenderer.on('agentStatus:set', listener)
       return () => ipcRenderer.removeListener('agentStatus:set', listener)
     },
-    onClear: (callback: (data: { paneKey: string }) => void): (() => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, data: { paneKey: string }) =>
+    onClear: (callback: (data: AgentStatusClearIpcPayload) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: AgentStatusClearIpcPayload) =>
         callback(data)
       ipcRenderer.on('agentStatus:clear', listener)
       return () => ipcRenderer.removeListener('agentStatus:clear', listener)

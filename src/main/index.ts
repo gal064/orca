@@ -14,6 +14,7 @@ import {
   getCanonicalUserDataPath,
   migrateMobilePairingDataToCanonicalUserDataPath
 } from './persistence'
+import { initSessionParseCachePersistence } from './ai-vault/session-parse-cache-persistence'
 import { ensureActiveOrcaProfile, initOrcaProfilePaths } from './orca-profiles/profile-index-store'
 import { getOrcaCloudAuthConfig } from './orca-profiles/profile-cloud-auth-config'
 import { getProfileUserDataPath } from './orca-profiles/profile-storage-paths'
@@ -650,6 +651,13 @@ if (hasSingleInstanceLock) {
   // orca-dev in dev mode) but before app.setName('Orca') inside whenReady
   // (which would change the resolved path on case-sensitive filesystems).
   initDataPath()
+  // Why: the parse cache file must live under the canonical userData path
+  // captured above — late app.getPath('userData') can resolve differently
+  // across restarts, silently defeating persistence (reused=0 forever).
+  initSessionParseCachePersistence({
+    filePath: join(getCanonicalUserDataPath(), 'ai-vault', 'session-parse-cache.json'),
+    appVersion: app.getVersion()
+  })
   initOrcaProfilePaths()
   // Why: same timing constraint as initDataPath — capture the userData path
   // before app.setName changes it. See persistence.ts:20-28.
@@ -1202,11 +1210,11 @@ function openMainWindow(): BrowserWindow {
       }
     }
   )
-  agentHookServer.setPaneStatusClearListener((paneKey) => {
+  agentHookServer.setPaneStatusClearListener((clear) => {
     if (mainWindow?.isDestroyed()) {
       return
     }
-    mainWindow?.webContents.send('agentStatus:clear', { paneKey })
+    mainWindow?.webContents.send('agentStatus:clear', clear)
   })
   setMigrationUnsupportedPtyListener((event) => {
     if (mainWindow?.isDestroyed()) {
@@ -1758,7 +1766,11 @@ app.whenReady().then(async () => {
     }
   )
   electronApp.setAppUserModelId(devInstanceIdentity.appUserModelId)
-  app.setName(devInstanceIdentity.name)
+  // Why: setName drives the macOS safeStorage Keychain item name. Use the stable
+  // appName (not the per-branch `name`) so dev branches share one key and don't
+  // re-prompt per branch; the per-branch label still shows via window title,
+  // renderer identity, and the app-menu label passed to registerAppMenu below.
+  app.setName(devInstanceIdentity.appName)
 
   // Why: managed WSL launchers live outside the Windows app bundle, so keep
   // their launcher and bridge contract synchronized across app updates.
@@ -2130,6 +2142,7 @@ app.whenReady().then(async () => {
   logStartupMilestone('i18n-ready')
 
   registerAppMenu({
+    appMenuLabel: devInstanceIdentity.name,
     onCheckForUpdates: (options) => runUserInitiatedUpdateCheck(options),
     onBeforeReload: ({ ignoreCache, webContentsId }) => {
       if (mainWindow?.webContents.id === webContentsId) {

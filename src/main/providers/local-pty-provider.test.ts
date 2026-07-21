@@ -12,6 +12,7 @@ const {
   spawnMock,
   prepareMacosTccLoginShellMock,
   resolveAgentForegroundProcessMock,
+  readWindowsConptyProcessIdsMock,
   captureDescendantSnapshotMock,
   terminateDescendantSnapshotMock
 } = vi.hoisted(() => ({
@@ -23,6 +24,7 @@ const {
   spawnMock: vi.fn(),
   prepareMacosTccLoginShellMock: vi.fn(),
   resolveAgentForegroundProcessMock: vi.fn(),
+  readWindowsConptyProcessIdsMock: vi.fn(),
   captureDescendantSnapshotMock: vi.fn(),
   terminateDescendantSnapshotMock: vi.fn()
 }))
@@ -77,6 +79,10 @@ vi.mock('./windows-powershell-executable', () => ({
 vi.mock('./agent-foreground-process', () => ({
   resolveAgentForegroundProcessWithAvailability: (...args: unknown[]) =>
     resolveAgentForegroundProcessMock(...args)
+}))
+
+vi.mock('./windows-conpty-process-membership', () => ({
+  readWindowsConptyProcessIds: (...args: unknown[]) => readWindowsConptyProcessIdsMock(...args)
 }))
 
 vi.mock('../wsl', () => ({
@@ -156,6 +162,8 @@ describe('LocalPtyProvider', () => {
         processName: fallbackProcess
       })
     )
+    readWindowsConptyProcessIdsMock.mockReset()
+    readWindowsConptyProcessIdsMock.mockResolvedValue(null)
 
     exitCb = undefined
     mockProc = {
@@ -220,8 +228,60 @@ describe('LocalPtyProvider', () => {
 
       const second = await provider.spawn({ cols: 120, rows: 40, sessionId: first.id })
 
-      expect(second).toEqual({ id: 'serve-session-1', pid: 12345, isReattach: true })
+      expect(second).toEqual({
+        id: 'serve-session-1',
+        pid: 12345,
+        wslDistro: null,
+        isReattach: true
+      })
       expect(mockProc.resize).toHaveBeenCalledWith(120, 40)
+      expect(spawnMock).not.toHaveBeenCalled()
+    })
+
+    it('keeps a native UNC session native on a conflicting WSL reattach', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      const first = await provider.spawn({
+        cols: 80,
+        rows: 24,
+        sessionId: 'native-session',
+        cwd: '\\\\server\\share\\repo',
+        shellOverride: 'powershell.exe'
+      })
+      spawnMock.mockClear()
+
+      const second = await provider.spawn({
+        cols: 120,
+        rows: 40,
+        sessionId: first.id,
+        shellOverride: 'wsl.exe',
+        terminalWindowsWslDistro: 'Ubuntu'
+      })
+
+      expect(first.wslDistro).toBeNull()
+      expect(second.wslDistro).toBeNull()
+      expect(spawnMock).not.toHaveBeenCalled()
+    })
+
+    it('keeps the first WSL distro on a conflicting distro reattach', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      const first = await provider.spawn({
+        cols: 80,
+        rows: 24,
+        sessionId: 'wsl-session',
+        cwd: '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo'
+      })
+      spawnMock.mockClear()
+
+      const second = await provider.spawn({
+        cols: 120,
+        rows: 40,
+        sessionId: first.id,
+        shellOverride: 'wsl.exe',
+        terminalWindowsWslDistro: 'Debian'
+      })
+
+      expect(first.wslDistro).toBe('Ubuntu')
+      expect(second.wslDistro).toBe('Ubuntu')
       expect(spawnMock).not.toHaveBeenCalled()
     })
 
@@ -1427,6 +1487,68 @@ describe('LocalPtyProvider', () => {
 
       await expect(foreground).resolves.toBeNull()
     })
+
+    it('confirms a still-active agent from ConPTY console presence without a whole-table scan', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      mockProc.process = 'powershell.exe'
+      resolveAgentForegroundProcessMock.mockResolvedValue({
+        available: true,
+        processName: 'claude'
+      })
+      // A child beyond the shell is still attached to this console.
+      readWindowsConptyProcessIdsMock.mockResolvedValue(new Set([12345, 999]))
+      const { id } = await provider.spawn({ cols: 80, rows: 24 })
+
+      // First call establishes the agent identity via the scan.
+      await expect(provider.getForegroundProcess(id)).resolves.toBe('claude')
+      // node-pty still only names the shell, but console presence confirms the
+      // agent — no second whole-table scan.
+      await expect(provider.getForegroundProcess(id)).resolves.toBe('claude')
+      expect(resolveAgentForegroundProcessMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('falls through to the scan when the ConPTY console shows only the shell', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      mockProc.process = 'powershell.exe'
+      resolveAgentForegroundProcessMock.mockResolvedValue({
+        available: true,
+        processName: 'claude'
+      })
+      readWindowsConptyProcessIdsMock.mockResolvedValue(new Set([12345]))
+      const { id } = await provider.spawn({ cols: 80, rows: 24 })
+
+      await expect(provider.getForegroundProcess(id)).resolves.toBe('claude')
+      await expect(provider.getForegroundProcess(id)).resolves.toBe('claude')
+      expect(resolveAgentForegroundProcessMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the cached agent when both the console probe and process snapshot are inconclusive', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      mockProc.process = 'powershell.exe'
+      resolveAgentForegroundProcessMock
+        .mockResolvedValueOnce({ available: true, processName: 'claude' })
+        .mockResolvedValue({ available: true, processName: null })
+      readWindowsConptyProcessIdsMock.mockResolvedValue(null)
+      const { id } = await provider.spawn({ cols: 80, rows: 24 })
+
+      await expect(provider.getForegroundProcess(id)).resolves.toBe('claude')
+      await expect(provider.getForegroundProcess(id)).resolves.toBe('claude')
+      expect(resolveAgentForegroundProcessMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('retires the cached agent after verified shell-only membership and a no-agent scan', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      mockProc.process = 'powershell.exe'
+      resolveAgentForegroundProcessMock
+        .mockResolvedValueOnce({ available: true, processName: 'claude' })
+        .mockResolvedValue({ available: true, processName: null })
+      readWindowsConptyProcessIdsMock.mockResolvedValue(new Set([12345]))
+      const { id } = await provider.spawn({ cols: 80, rows: 24 })
+
+      await expect(provider.getForegroundProcess(id)).resolves.toBe('claude')
+      await expect(provider.getForegroundProcess(id)).resolves.toBeNull()
+      expect(resolveAgentForegroundProcessMock).toHaveBeenCalledTimes(2)
+    })
   })
 
   describe('confirmForegroundProcess', () => {
@@ -1458,6 +1580,47 @@ describe('LocalPtyProvider', () => {
       onDataCb('hello world')
 
       expect(dataHandler).toHaveBeenCalledWith({ id, data: 'hello world' })
+    })
+
+    it('classifies startup queries before runtime and public data listeners', async () => {
+      const runtimeData = vi.fn()
+      const dataHandler = vi.fn()
+      provider.configure({ onData: runtimeData })
+      provider.onData(dataHandler)
+      const { id } = await provider.spawn({
+        cols: 80,
+        rows: 24,
+        startupIngress: {
+          colors: { foreground: '#2e3434', background: '#ffffff' },
+          deadlineMs: 5_000,
+          echoProjection: 'windows-conpty-esc-stripped'
+        }
+      })
+      const onDataCb = mockProc.onData.mock.calls[0][0]
+      const query = '\x1b]10;?\x07'
+      const echo = ']10;rgb:2e2e/3434/3434\\'
+
+      onDataCb(query)
+      onDataCb(echo)
+      onDataCb('prompt')
+
+      expect(mockProc.write).toHaveBeenCalledWith('\x1b]10;rgb:2e2e/3434/3434\x1b\\')
+      expect(runtimeData.mock.calls.map((call) => call.slice(1))).toEqual([
+        ['', expect.any(Number), query.length, true],
+        ['', expect.any(Number), echo.length, true],
+        ['prompt', expect.any(Number)]
+      ])
+      expect(dataHandler.mock.calls.map(([payload]) => payload)).toEqual([
+        { id, data: '', sequenceChars: query.length, seq: query.length, transformed: true },
+        {
+          id,
+          data: '',
+          sequenceChars: echo.length,
+          seq: query.length + echo.length,
+          transformed: true
+        },
+        { id, data: 'prompt' }
+      ])
     })
 
     it('notifies exit listeners when PTY exits', async () => {

@@ -5,6 +5,7 @@ import type { IBuffer, IDisposable } from '@xterm/xterm'
 import { resolveCursorAgentImeAnchor } from '@/lib/pane-manager/terminal-ime-anchor'
 import { detectAgentStatusFromTitle, agentTypeToIconAgent, isClaudeAgent } from '@/lib/agent-status'
 import { resolvePaneTitleDecision } from './terminal-title-evidence'
+import { resolveLiveAgentStatusConnectionRouting } from '@/lib/agent-status-connection-ownership'
 import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { useAppStore } from '@/store'
 import { getWorktreeMapFromState } from '@/store/selectors'
@@ -131,6 +132,7 @@ import { recordTerminalOutput } from '@/lib/pane-manager/pane-scroll'
 import { ensureArabicShapingJoinerForText } from '@/lib/pane-manager/terminal-arabic-shaping-joiner'
 import { clearTerminalScrollbackAndFollowOutput } from '@/lib/pane-manager/terminal-scrollback-clear'
 import {
+  enforceTerminalCurrentScrollIntent,
   getTerminalScrollIntentKind,
   markTerminalFollowOutput
 } from '@/lib/pane-manager/terminal-scroll-intent'
@@ -2565,6 +2567,21 @@ export function connectPanePty(
   let hasConsideredInitialCacheTimerSeed = false
   let allowInitialIdleCacheSeed = false
 
+  const resolveCurrentAgentStatusRouting = () => {
+    const ptyId = activePanePtyBinding ?? transport.getPtyId()
+    const state = useAppStore.getState()
+    if (disposed || !ptyId) {
+      return undefined
+    }
+    return resolveLiveAgentStatusConnectionRouting({
+      state,
+      paneKey: cacheKey,
+      ptyId,
+      expectedConnectionId: worktreeConnectionId,
+      runtimeEnvironmentId: transport.getRuntimeEnvironmentId?.() ?? runtimeEnvironmentId
+    })
+  }
+
   const onTitleChange = (
     title: string,
     rawTitle: string,
@@ -2631,7 +2648,8 @@ export function connectPanePty(
 
   const applyInitialAgentStatus = (terminalTitle?: string): void => {
     const initialStatus = paneStartup?.initialAgentStatus
-    if (!initialStatus) {
+    const routing = resolveCurrentAgentStatusRouting()
+    if (!initialStatus || !routing) {
       return
     }
     const statusPayload = {
@@ -2645,17 +2663,23 @@ export function connectPanePty(
     if (paneStartup.launchConfig) {
       useAppStore
         .getState()
-        .setAgentStatus(cacheKey, statusPayload, terminalTitle, undefined, undefined, {
+        .setAgentStatus(cacheKey, statusPayload, terminalTitle, undefined, routing, {
           launchConfig: paneStartup.launchConfig,
           ...(launchToken ? { launchToken } : {})
         })
       return
     }
-    useAppStore.getState().setAgentStatus(cacheKey, statusPayload, terminalTitle)
+    useAppStore
+      .getState()
+      .setAgentStatus(cacheKey, statusPayload, terminalTitle, undefined, routing)
   }
 
   const seedCommandCodeOutputWorkingStatus = (prompt: string): void => {
     clearCommandCodeOutputDoneTimer()
+    const routing = resolveCurrentAgentStatusRouting()
+    if (!routing) {
+      return
+    }
     const currentState = useAppStore.getState()
     const currentEntry = currentState.agentStatusByPaneKey[cacheKey]
     const currentTitle = currentState.runtimePaneTitlesByTabId?.[deps.tabId]?.[pane.id]
@@ -2674,7 +2698,9 @@ export function connectPanePty(
         prompt: normalizedPrompt || (currentEntry?.state === 'working' ? currentEntry.prompt : ''),
         agentType: 'command-code'
       },
-      currentTitle
+      currentTitle,
+      undefined,
+      routing
     )
   }
 
@@ -2699,6 +2725,10 @@ export function connectPanePty(
         return
       }
       const currentState = useAppStore.getState()
+      const routing = resolveCurrentAgentStatusRouting()
+      if (!routing) {
+        return
+      }
       const currentEntry = currentState.agentStatusByPaneKey[cacheKey]
       if (currentEntry?.agentType !== 'command-code' || currentEntry.state !== 'working') {
         return
@@ -2715,7 +2745,9 @@ export function connectPanePty(
           prompt: currentPrompt || normalizedPrompt,
           agentType: 'command-code'
         },
-        currentTitle
+        currentTitle,
+        undefined,
+        routing
       )
     }, COMMAND_CODE_OUTPUT_DONE_SETTLE_MS)
   }
@@ -2734,6 +2766,7 @@ export function connectPanePty(
     options: {
       seedInitialAgentStatus?: boolean
       updateTabPtyId?: 'always' | 'if-missing'
+      replacePtyId?: string
       sampleVisibleForegroundAgent?: boolean
     } = {}
   ): void => {
@@ -2751,7 +2784,11 @@ export function connectPanePty(
     deps.syncPanePtyLayoutBinding(pane.id, ptyId)
     const tabPtyIds = useAppStore.getState().ptyIdsByTabId?.[deps.tabId] ?? []
     if (options.updateTabPtyId !== 'if-missing' || !tabPtyIds.includes(ptyId)) {
-      deps.updateTabPtyId(deps.tabId, ptyId)
+      if (options.replacePtyId) {
+        deps.updateTabPtyId(deps.tabId, ptyId, options.replacePtyId)
+      } else {
+        deps.updateTabPtyId(deps.tabId, ptyId)
+      }
     }
     if (options.seedInitialAgentStatus) {
       applyInitialAgentStatus()
@@ -2791,6 +2828,11 @@ export function connectPanePty(
     // Why: Command Code has no prompt-start hook. Seed the visible working row
     // once the PTY exists, then let real hook events refine or complete it.
     bindActivePanePty(ptyId, { seedInitialAgentStatus: true })
+  }
+  const onPtyRebind = (ptyId: string, replacedPtyId: string): void => {
+    // Why: provider handle rotation keeps the existing pane/session generation;
+    // replace its stale store identity without fresh-spawn exit semantics.
+    bindActivePanePty(ptyId, { replacePtyId: replacedPtyId })
   }
   // ─── Attention signal: BEL ────────────────────────────────────────────
   //
@@ -3080,6 +3122,9 @@ export function connectPanePty(
     }
   }
   const onAgentExited = (): void => {
+    // Why: eligibility can disappear transiently during reconnect, but a
+    // confirmed shell-title transition is authoritative for native-chat exit.
+    deps.onAgentExitedRef.current(pane.leafId)
     clearSuppressedTitleSideEffects()
     clearCommandInferredPaneAgent()
     requestKnownDroidReconfirmation()
@@ -3123,7 +3168,8 @@ export function connectPanePty(
   // Why: folder workspaces can inherit their SSH target from child repos, so
   // use the shared resolver instead of only looking up repo-backed worktrees.
   const worktree = getWorktreeMapFromState(state).get(deps.worktreeId)
-  const connectionId = getConnectionId(deps.worktreeId) ?? null
+  const worktreeConnectionId = getConnectionId(deps.worktreeId)
+  const connectionId = worktreeConnectionId ?? null
   const tab = (state.tabsByWorktree[deps.worktreeId] ?? []).find((t) => t.id === deps.tabId)
   const shellOverride = tab?.shellOverride
   // Why: a serve/remote-runtime pane has no SSH connectionId and a Linux cwd, so
@@ -3305,6 +3351,7 @@ export function connectPanePty(
     ...(paneStartup?.telemetry ? { telemetry: paneStartup.telemetry } : {}),
     onPtyExit: onExit,
     onPtySpawn,
+    onPtyRebind,
     ...(mainSideEffectAuthority
       ? {}
       : {
@@ -3336,6 +3383,10 @@ export function connectPanePty(
             // shift (OSC title update landing in between) and the status would
             // be stored against a title that was never paired with it.
             const currentState = useAppStore.getState()
+            const routing = resolveCurrentAgentStatusRouting()
+            if (!routing) {
+              return
+            }
             const title = currentState.runtimePaneTitlesByTabId?.[deps.tabId]?.[pane.id]
             const authoritativePaneAgent = getAuthoritativePaneAgent()
             const agentType = resolveCompatibleAgentTypeForOwner(
@@ -3357,13 +3408,13 @@ export function connectPanePty(
                 statusPayload,
                 statusTitle,
                 undefined,
-                undefined,
+                routing,
                 {
                   launchToken
                 }
               )
             } else {
-              currentState.setAgentStatus(cacheKey, statusPayload, statusTitle)
+              currentState.setAgentStatus(cacheKey, statusPayload, statusTitle, undefined, routing)
             }
             const trackingEnabled = syncAgentTaskCompleteTrackingEnabled()
             if (payload.state === 'working' && trackingEnabled) {
@@ -4893,7 +4944,8 @@ export function connectPanePty(
       // scheduler's deferred drain cannot land older bytes on top of the replay.
       flushTerminalOutput(pane.terminal)
       replayIntoTerminal(pane, deps.replayingPanesRef, data, {
-        shouldRefreshViewportSynchronously: shouldRefreshForegroundSynchronously
+        shouldRefreshViewportSynchronously: shouldRefreshForegroundSynchronously,
+        shouldReleaseRenderPause: () => deps.isVisibleRef.current
       })
     }
 
@@ -4902,7 +4954,8 @@ export function connectPanePty(
       // merely after the write was queued.
       flushTerminalOutput(pane.terminal)
       return replayIntoTerminalAsync(pane, deps.replayingPanesRef, data, {
-        shouldRefreshViewportSynchronously: shouldRefreshForegroundSynchronously
+        shouldRefreshViewportSynchronously: shouldRefreshForegroundSynchronously,
+        shouldReleaseRenderPause: () => deps.isVisibleRef.current
       })
     }
 
@@ -5201,6 +5254,12 @@ export function connectPanePty(
     let hiddenOutputRestoreGeneration = 0
     // Flood-backpressure suppression (HIDDEN_OUTPUT_RESTORE_FLOOD_SUPPRESS_MS).
     let hiddenOutputRestoreFloodSuppressedUntil = 0
+    // Why: queued replay writes still paint after deadline abandonment; the
+    // fallback drain must not write snapshot-covered live bytes a second time.
+    let hiddenOutputRestoreReplayingSnapshot: {
+      seq?: number
+      pendingDeliveryStartSeq?: number
+    } | null = null
     let hiddenOutputRestoreFloodRepaintTimer: ReturnType<typeof setTimeout> | null = null
     // Why: after a snapshot restore, main can still drain ACK-backlog chunks
     // whose bytes the snapshot already covers — writing them unguarded
@@ -6297,6 +6356,8 @@ export function connectPanePty(
         ? []
         : hiddenOutputRestorePendingChunks.slice()
       const hadPendingOverflow = hiddenOutputRestorePendingOverflow
+      const replayingSnapshot = hiddenOutputRestoreReplayingSnapshot
+      hiddenOutputRestoreReplayingSnapshot = null
       hiddenOutputRestoreGeneration += 1
       if (
         hiddenOutputSnapshotScrollRestore?.valid &&
@@ -6332,7 +6393,21 @@ export function connectPanePty(
       if (hadPendingOverflow) {
         return
       }
-      const pendingData = pendingChunks.map((chunk) => chunk.data).join('')
+      const replayedSeq = typeof replayingSnapshot?.seq === 'number' ? replayingSnapshot.seq : null
+      let pendingData = ''
+      for (const chunk of pendingChunks) {
+        const sliced =
+          replayedSeq === null ? chunk.data : getChunkDataAfterSnapshot(chunk, replayedSeq)
+        pendingData += sliced ?? chunk.data
+      }
+      if (replayingSnapshot && replayedSeq !== null) {
+        setRestoredSnapshotBaseline(expectedPtyId, replayingSnapshot)
+        for (const chunk of pendingChunks) {
+          if (typeof chunk.seq === 'number' && restoredSnapshotExpectedStartSeq !== null) {
+            restoredSnapshotExpectedStartSeq = Math.max(restoredSnapshotExpectedStartSeq, chunk.seq)
+          }
+        }
+      }
       if (pendingData) {
         writePtyOutputToXterm(pendingData, true)
       }
@@ -6377,6 +6452,7 @@ export function connectPanePty(
       resetHiddenRendererRiskState()
       hiddenOutputRestoreNeeded = false
       hiddenOutputRestorePtyId = null
+      hiddenOutputRestoreReplayingSnapshot = null
       hiddenOutputRestoreGeneration += 1
     }
 
@@ -6468,6 +6544,7 @@ export function connectPanePty(
       cols: number
       rows: number
       seq?: number
+      pendingDeliveryStartSeq?: number
       alternateScreen?: boolean
       scrollbackAnsi?: string
       pendingEscapeTailAnsi?: string
@@ -6503,6 +6580,14 @@ export function connectPanePty(
               return
             }
             scrollRestore.started = true
+            if (typeof snapshot.seq === 'number') {
+              hiddenOutputRestoreReplayingSnapshot = {
+                seq: snapshot.seq,
+                ...(typeof snapshot.pendingDeliveryStartSeq === 'number'
+                  ? { pendingDeliveryStartSeq: snapshot.pendingDeliveryStartSeq }
+                  : {})
+              }
+            }
             discardTerminalOutput(pane.terminal)
             if (
               hasSnapshotDimensions &&
@@ -6599,7 +6684,7 @@ export function connectPanePty(
                     }
                   }
                 },
-                { shouldContinue: isCurrentRestore }
+                { shouldContinue: isCurrentRestore, retryIfUnmeasurable: true }
               )
               pendingHiddenSnapshotFit = fit
               try {
@@ -6769,6 +6854,7 @@ export function connectPanePty(
           // still draining from main's ACK backlog below that point are
           // duplicates the dataCallback reconciliation must suppress.
           setRestoredSnapshotBaseline(currentPtyId, snapshot)
+          hiddenOutputRestoreReplayingSnapshot = null
           const needsFreshSnapshot = hiddenOutputRestoreFreshSnapshotNeeded
           hiddenOutputRestoreFreshSnapshotNeeded = false
           const drainOutcome = drainPendingLiveChunksAfterSnapshot(snapshot.seq)
@@ -7035,6 +7121,7 @@ export function connectPanePty(
         return
       }
       if (!foreground && orderedRendererData.length === 0) {
+        recordRendererOrderedSeq(rendererMeta)
         schedulePendingStartupCommandDelivery()
         return
       }
@@ -7148,6 +7235,7 @@ export function connectPanePty(
       // Why: createOrAttach snapshots precede bytes emitted before its IPC
       // reply. Paint the authoritative replay first, then admit those live
       // chunks so the replay clear cannot erase newer output.
+      let deliveredDeferredChunks = 0
       for (const chunk of chunks) {
         if (
           chunk.ptyId !== currentPtyId ||
@@ -7157,6 +7245,23 @@ export function connectPanePty(
           continue
         }
         dataCallback(chunk.data, chunk.meta, chunk.streamGeneration)
+        deliveredDeferredChunks += 1
+      }
+      if (deliveredDeferredChunks > 0) {
+        // Why: replay restores the viewport before these newer bytes parse;
+        // settle the bounded deferred slice, then apply the latest user intent.
+        flushTerminalOutput(pane.terminal, { maxChars: MAX_DEFERRED_REATTACH_LIVE_CHARS })
+        void waitForTerminalReplayWritesParsed(pane.terminal).then(() => {
+          if (
+            disposed ||
+            !deps.isVisibleRef.current ||
+            transport.getPtyId() !== currentPtyId ||
+            transportStreamGeneration !== currentGeneration
+          ) {
+            return
+          }
+          enforceTerminalCurrentScrollIntent(pane.terminal)
+        })
       }
     }
 
@@ -7458,15 +7563,21 @@ export function connectPanePty(
                 window.api.pty.signal(reattachPtyId, 'SIGWINCH')
               }
             },
-            { shouldContinue: isCurrentReattachPayload }
+            { shouldContinue: isCurrentReattachPayload, retryIfUnmeasurable: true }
           )
           pendingReattachFit = fit
+          let fitCompleted = false
           try {
-            await fit.completion
+            fitCompleted = await fit.completion
           } finally {
             if (pendingReattachFit === fit) {
               pendingReattachFit = null
             }
+          }
+          if (fitCompleted && isCurrentReattachPayload() && deps.isVisibleRef.current) {
+            // Why: reattach resize is fire-and-forget; verify the provider's
+            // applied grid while this reveal still owns the visible pane.
+            ptySizeReassertion.request({ fit: false })
           }
         } else if (isCurrentReattachPayload() && !isRemoteRuntimePtyId(reattachPtyId)) {
           window.api.pty.signal(reattachPtyId, 'SIGWINCH')
@@ -7817,18 +7928,29 @@ export function connectPanePty(
     )?.ptyId
     const hasSleepingAgentSession = Boolean(getSleepingRecordForPane(storeSnapshot))
 
+    // Why: a setup sibling can publish its PTY while the main pane waits for split geometry;
+    // the tab-level fallback must not steal a PTY already owned by that sibling transport.
+    const tabFallbackPtyId =
+      existingPtyId &&
+      !Array.from(deps.paneTransportsRef.current.entries()).some(
+        ([candidatePaneId, candidateTransport]) =>
+          candidatePaneId !== pane.id && candidateTransport.getPtyId() === existingPtyId
+      )
+        ? existingPtyId
+        : null
+
     const restoredSessionId = restoredPtyId ?? null
     const sleptRemoteRuntimeSessionId =
       restoredSessionId && isRemoteRuntimePtyId(restoredSessionId) && hasSleepingAgentSession
         ? restoredSessionId
         : null
     const detachedLivePtyId =
-      existingPtyId && !hadExistingPaneTransportAtConnect && !sleptRemoteRuntimeSessionId
+      tabFallbackPtyId && !hadExistingPaneTransportAtConnect && !sleptRemoteRuntimeSessionId
         ? restoredSessionId
-          ? restoredSessionId === existingPtyId
+          ? restoredSessionId === tabFallbackPtyId
             ? restoredSessionId
             : null
-          : existingPtyId
+          : tabFallbackPtyId
         : null
     const detachedRemoteLeafPtyId =
       restoredSessionId && isRemoteRuntimePtyId(restoredSessionId) && !hasSleepingAgentSession

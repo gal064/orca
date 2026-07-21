@@ -117,6 +117,9 @@ export type AgentStatusSlice = {
   migrationUnsupportedByPtyId: Record<string, MigrationUnsupportedPtyEntry>
   /** Monotonic tick that advances when agent-status freshness boundaries pass. */
   agentStatusEpoch: number
+  /** SSH connections whose transient rows were cleared and must reject renderer callbacks
+   *  until a later reconnect establishes a new connection lifecycle. */
+  transientClearedAgentStatusConnectionIds: Record<string, true>
   /** Arm the shared freshness timer after an external mirror writes live rows. */
   scheduleAgentStatusFreshness: () => void
 
@@ -162,7 +165,12 @@ export type AgentStatusSlice = {
     },
     terminalTitle?: string,
     timing?: { updatedAt?: number; stateStartedAt?: number },
-    routing?: { tabId?: string; worktreeId?: string; terminalHandle?: string },
+    routing?: {
+      tabId?: string
+      worktreeId?: string
+      terminalHandle?: string
+      connectionId?: string | null
+    },
     metadata?: {
       providerSession?: AgentProviderSessionMetadata
       launchConfig?: SleepingAgentLaunchConfig
@@ -206,6 +214,9 @@ export type AgentStatusSlice = {
   /** Remove all entries whose paneKey starts with the given prefix.
    *  Used when a tab is closed — same prefix-sweep as cacheTimerByKey cleanup. */
   removeAgentStatusByTabPrefix: (tabIdPrefix: string) => void
+
+  /** Remove stale live rows while preserving pane launch and resume identity. */
+  clearTransientAgentStatuses: (connectionId: string, clearedAt: number) => void
 
   /** Remove a single entry AND suppress re-retention on its next disappearance.
    *  Used for USER-INITIATED teardown — the dashboard/hover X button, and
@@ -1148,6 +1159,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
     runtimeAgentOrchestrationByPaneKey: {},
     migrationUnsupportedByPtyId: {},
     agentStatusEpoch: 0,
+    transientClearedAgentStatusConnectionIds: {},
     retainedAgentsByPaneKey: {},
     sleepingAgentSessionsByPaneKey: {},
     agentLaunchConfigByPaneKey: {},
@@ -1785,6 +1797,11 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
             existing?.worktreeId ??
             findAgentPaneWorktreeId(s, paneKey) ??
             undefined,
+          ...(routing?.connectionId !== undefined
+            ? { connectionId: routing.connectionId }
+            : existing?.connectionId !== undefined
+              ? { connectionId: existing.connectionId }
+              : {}),
           tabId: statusTabId,
           terminalTitle: effectiveTitle,
           stateHistory: history,
@@ -2178,6 +2195,47 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         }
       })
       queueMicrotask(() => freshness.schedule())
+    },
+
+    clearTransientAgentStatuses: (connectionId, clearedAt) => {
+      if (connectionId.length === 0 || !Number.isFinite(clearedAt)) {
+        return
+      }
+      let removed = false
+      set((s) => {
+        let next: Record<string, AgentStatusEntry> | null = null
+        for (const [paneKey, existing] of Object.entries(s.agentStatusByPaneKey)) {
+          // Why: undefined is an unstamped legacy/renderer-owned row. Its host
+          // cannot be proven, so normal pane teardown remains its safe cleanup.
+          if (existing.connectionId !== connectionId || existing.updatedAt > clearedAt) {
+            continue
+          }
+          next ??= { ...s.agentStatusByPaneKey }
+          delete next[paneKey]
+        }
+        const wasAlreadyBlocked = connectionId in s.transientClearedAgentStatusConnectionIds
+        if (!next && wasAlreadyBlocked) {
+          return s
+        }
+        removed = next !== null
+        // Why: transport loss is reversible. Keep launch, resume, retention,
+        // and acknowledgement maps intact for same-pane relay replay.
+        return {
+          ...(next
+            ? {
+                agentStatusByPaneKey: next,
+                agentStatusEpoch: s.agentStatusEpoch + 1,
+                sortEpoch: s.sortEpoch + 1
+              }
+            : {}),
+          transientClearedAgentStatusConnectionIds: wasAlreadyBlocked
+            ? s.transientClearedAgentStatusConnectionIds
+            : { ...s.transientClearedAgentStatusConnectionIds, [connectionId]: true }
+        }
+      })
+      if (removed) {
+        queueMicrotask(() => freshness.schedule())
+      }
     },
 
     dropAgentStatus: (paneKey) => {

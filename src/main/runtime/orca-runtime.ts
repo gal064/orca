@@ -15327,6 +15327,21 @@ export class OrcaRuntimeService {
         ownership: detectedWorktree.ownership === 'orca-managed' ? 'orca-managed' : 'unknown-legacy'
       } satisfies DetectedWorktree
     })
+    // Why: reuse-checkout workspaces have no real git worktree, so an authoritative
+    // scan omits them; without synthesizing them here the renderer's purge deletes
+    // them on restart (deterministic over SSH). Only add them when the scan is
+    // authoritative and the main checkout is present.
+    const reuseCheckoutTarget = scan.ok
+      ? pickReuseCheckoutTarget(scan.worktrees, repo.path)
+      : undefined
+    if (reuseCheckoutTarget) {
+      const reuseDetected = listReuseCheckoutWorkspaces(
+        this.requireStore().getAllWorktreeMeta(),
+        repo,
+        reuseCheckoutTarget
+      ).map((worktree) => this.toRuntimeDetectedWorktree(repo, worktree))
+      detected.push(...reuseDetected)
+    }
     return {
       repoId: repo.id,
       authoritative: scan.ok,

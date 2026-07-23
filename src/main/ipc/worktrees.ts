@@ -898,7 +898,7 @@ function listFolderWorkspaces(store: Store, repo: Repo): Worktree[] {
 // never reports them. Synthesize their rows from persisted metadata and append
 // them to a git repo's listing, mirroring how folder workspaces are listed.
 function withReuseCheckoutWorkspaces(
-  store: Store,
+  allMeta: Record<string, WorktreeMeta>,
   repo: Repo,
   gitWorktrees: GitWorktreeInfo[],
   worktrees: Worktree[]
@@ -907,7 +907,7 @@ function withReuseCheckoutWorkspaces(
   if (!checkout) {
     return worktrees
   }
-  const reuse = listReuseCheckoutWorkspaces(store.getAllWorktreeMeta(), repo, checkout)
+  const reuse = listReuseCheckoutWorkspaces(allMeta, repo, checkout)
   return reuse.length > 0 ? [...worktrees, ...reuse] : worktrees
 }
 
@@ -918,6 +918,32 @@ function buildFolderDetectedWorktrees(store: Store, repo: Repo): DetectedWorktre
       repo,
       worktree,
       meta: store.getWorktreeMeta(worktree.id),
+      settings,
+      knownOrcaLayouts: [],
+      isLegacyRepoForVisibility: true
+    })
+  )
+}
+
+// Why: reuse-checkout workspaces have no real git worktree, so an authoritative
+// detected scan omits them and the renderer's purge deletes them on restart. Add
+// synthesized detected rows so they survive, mirroring buildFolderDetectedWorktrees.
+function buildReuseCheckoutDetectedWorktrees(
+  store: Store,
+  repo: Repo,
+  allMeta: Record<string, WorktreeMeta>,
+  gitWorktrees: GitWorktreeInfo[]
+): DetectedWorktree[] {
+  const checkout = pickReuseCheckoutTarget(gitWorktrees, repo.path)
+  if (!checkout) {
+    return []
+  }
+  const settings = store.getSettings()
+  return listReuseCheckoutWorkspaces(allMeta, repo, checkout).map((worktree) =>
+    toDetectedWorktree({
+      repo,
+      worktree,
+      meta: allMeta[worktree.id],
       settings,
       knownOrcaLayouts: [],
       isLegacyRepoForVisibility: true
@@ -1035,8 +1061,11 @@ export function registerWorktreeHandlers(
 
   ipcMain.handle('worktrees:listAll', async () => {
     const repos = store.getRepos()
+    // Why: snapshot all worktree metadata once for the batch (SSH fallback index
+    // + reuse-checkout synthesis) so a large repo fleet does not re-read per repo.
+    const allWorktreeMeta = store.getAllWorktreeMeta()
     const sshWorktreeMetaIndex = repos.some((repo) => repo.connectionId)
-      ? createSshWorktreeMetaIndex(Object.entries(store.getAllWorktreeMeta()))
+      ? createSshWorktreeMetaIndex(Object.entries(allWorktreeMeta))
       : new Map()
 
     // Why: each local repo listing can spawn `git worktree list`; cap fan-out
@@ -1079,9 +1108,14 @@ export function registerWorktreeHandlers(
           pruneLineageForMissingRepoWorktrees(store, repo, gitWorktrees)
         }
         loggedWorktreeListFailures.delete(`${repo.id}:${repo.path}`)
-        return buildDetectedGitWorktrees(store, repo, gitWorktrees)
-          .filter((worktree) => worktree.visible)
-          .map((worktree) => stampAndMergeVisibleDetectedWorktree(store, repo, worktree))
+        return withReuseCheckoutWorkspaces(
+          allWorktreeMeta,
+          repo,
+          gitWorktrees,
+          buildDetectedGitWorktrees(store, repo, gitWorktrees)
+            .filter((worktree) => worktree.visible)
+            .map((worktree) => stampAndMergeVisibleDetectedWorktree(store, repo, worktree))
+        )
       } catch (err) {
         warnOnce(
           loggedWorktreeListFailures,
@@ -1149,8 +1183,10 @@ export function registerWorktreeHandlers(
         pruneLineageForMissingRepoWorktrees(store, repo, gitWorktrees)
       }
       loggedWorktreeListFailures.delete(`${repo.id}:${repo.path}`)
+      // Why: read metadata lazily on the success path only — a failed local scan
+      // must return [] without touching the store (keeps failure behavior intact).
       return withReuseCheckoutWorkspaces(
-        store,
+        store.getAllWorktreeMeta(),
         repo,
         gitWorktrees,
         buildDetectedGitWorktrees(store, repo, gitWorktrees)
@@ -1222,7 +1258,15 @@ export function registerWorktreeHandlers(
           repoId: repo.id,
           authoritative: true,
           source: 'git',
-          worktrees: buildDetectedGitWorktrees(store, repo, gitWorktrees)
+          worktrees: [
+            ...buildDetectedGitWorktrees(store, repo, gitWorktrees),
+            ...buildReuseCheckoutDetectedWorktrees(
+              store,
+              repo,
+              store.getAllWorktreeMeta(),
+              gitWorktrees
+            )
+          ]
         }
       } catch (err) {
         warnOnce(

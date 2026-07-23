@@ -33189,3 +33189,71 @@ describe('OrcaRuntimeService', () => {
     })
   })
 })
+
+describe('OrcaRuntimeService.listDetectedManagedWorktrees reuse-checkout', () => {
+  const reuseId = `${TEST_REPO_ID}::${TEST_REPO_PATH}::workspace:inst-1`
+  const mainCheckout = {
+    path: TEST_REPO_PATH,
+    head: 'abc123',
+    branch: 'refs/heads/main',
+    isBare: false,
+    isMainWorktree: true
+  }
+
+  function makeRuntimeWithReuseMeta(): OrcaRuntimeService {
+    return new OrcaRuntimeService({
+      ...store,
+      getAllWorktreeMeta: () => ({
+        [reuseId]: {
+          displayName: 'reuse ws',
+          comment: '',
+          linkedIssue: null,
+          linkedPR: null,
+          linkedLinearIssue: null,
+          isArchived: false,
+          isUnread: false,
+          isPinned: false,
+          sortOrder: 0,
+          lastActivityAt: 0,
+          reuseCheckout: true,
+          instanceId: 'inst-1'
+        }
+      }),
+      getWorktreeMeta: (id: string) => store.getAllWorktreeMeta()[id]
+    } as never)
+  }
+
+  it('synthesizes reuse-checkout workspaces on an authoritative scan so the renderer purge cannot drop them', async () => {
+    const runtime = makeRuntimeWithReuseMeta()
+    // Why: reuse-checkout workspaces have no real git worktree, so the scan omits
+    // them; the detected path must add them back (this is the SSH-restart bug).
+    vi.spyOn(
+      runtime as unknown as {
+        listRepoWorktreesForResolution: (repo: unknown) => Promise<unknown>
+      },
+      'listRepoWorktreesForResolution'
+    ).mockResolvedValue({ ok: true, worktrees: [mainCheckout] })
+
+    const result = await runtime.listDetectedManagedWorktrees(TEST_REPO_ID)
+
+    expect(result.authoritative).toBe(true)
+    const reuse = result.worktrees.find((worktree) => worktree.id === reuseId)
+    expect(reuse).toBeDefined()
+    expect(reuse?.visible).toBe(true)
+  })
+
+  it('does not synthesize reuse-checkout rows when the scan is non-authoritative (no purge risk)', async () => {
+    const runtime = makeRuntimeWithReuseMeta()
+    vi.spyOn(
+      runtime as unknown as {
+        listRepoWorktreesForResolution: (repo: unknown) => Promise<unknown>
+      },
+      'listRepoWorktreesForResolution'
+    ).mockRejectedValue(new Error('provider offline'))
+
+    const result = await runtime.listDetectedManagedWorktrees(TEST_REPO_ID)
+
+    expect(result.authoritative).toBe(false)
+    expect(result.worktrees.some((worktree) => worktree.id === reuseId)).toBe(false)
+  })
+})

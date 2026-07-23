@@ -2495,6 +2495,66 @@ describe('registerWorktreeHandlers', () => {
     expect(listWorktreesMock).toHaveBeenCalledTimes(1)
   })
 
+  // Why: reuse-checkout workspaces have no real git worktree, so an authoritative
+  // scan omits them; without synthesizing them on the detected path the renderer's
+  // purge deletes them on restart (deterministic over SSH). See feat/reuse-checkout-workspace.
+  it('synthesizes reuse-checkout workspaces in the detected list so an authoritative scan cannot purge them', async () => {
+    const reuseId = 'repo-1::/workspace/repo::workspace:inst-1'
+    const reuseMeta = makeWorktreeMeta({
+      displayName: 'reuse ws',
+      reuseCheckout: true,
+      instanceId: 'inst-1'
+    })
+    store.getAllWorktreeMeta.mockReturnValue({ [reuseId]: reuseMeta })
+    store.getWorktreeMeta.mockImplementation((id: string) =>
+      id === reuseId ? reuseMeta : undefined
+    )
+    listWorktreesMock.mockResolvedValue([
+      {
+        path: '/workspace/repo',
+        head: 'main-head',
+        branch: 'refs/heads/main',
+        isBare: false,
+        isMainWorktree: true
+      }
+    ])
+
+    const result = (await handlers['worktrees:listDetected'](null, {
+      repoId: 'repo-1'
+    })) as { authoritative: boolean; worktrees: Worktree[] }
+
+    expect(result.authoritative).toBe(true)
+    const reuse = result.worktrees.find((worktree) => worktree.id === reuseId)
+    expect(reuse).toBeDefined()
+    expect((reuse as unknown as { visible: boolean }).visible).toBe(true)
+  })
+
+  it('includes reuse-checkout workspaces in worktrees:listAll', async () => {
+    const reuseId = 'repo-1::/workspace/repo::workspace:inst-1'
+    const reuseMeta = makeWorktreeMeta({
+      displayName: 'reuse ws',
+      reuseCheckout: true,
+      instanceId: 'inst-1'
+    })
+    store.getAllWorktreeMeta.mockReturnValue({ [reuseId]: reuseMeta })
+    store.getWorktreeMeta.mockImplementation((id: string) =>
+      id === reuseId ? reuseMeta : undefined
+    )
+    listWorktreesMock.mockResolvedValue([
+      {
+        path: '/workspace/repo',
+        head: 'main-head',
+        branch: 'refs/heads/main',
+        isBare: false,
+        isMainWorktree: true
+      }
+    ])
+
+    const result = (await handlers['worktrees:listAll'](null, undefined)) as Worktree[]
+
+    expect(result.some((worktree) => worktree.id === reuseId)).toBe(true)
+  })
+
   it('coalesces concurrent authoritative detected worktree scans', async () => {
     listWorktreesMock.mockImplementation(async () => {
       await Promise.resolve()

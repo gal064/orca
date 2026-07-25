@@ -639,7 +639,8 @@
         "nativeDropTooManyPathsDescription": "한 번에 {{value0}}개 이하의 파일을 드롭하세요.",
         "nativeDropTooManyPaths": "드롭에 파일이 너무 많습니다.",
         "nativeDropPathsTooLargeDescription": "파일 수를 줄이거나 더 짧은 경로 목록을 사용하세요.",
-        "nativeDropPathsTooLarge": "드롭 경로 목록이 너무 큽니다."
+        "nativeDropPathsTooLarge": "드롭 경로 목록이 너무 큽니다.",
+        "ownerChanged": "Couldn't verify which host owns this workspace. Try again after it reconnects."
       },
       "useIpcEvents": {
         "0e3cf53060": "브라우저 탭 {{value0}}을(를) 찾을 수 없습니다",
@@ -3304,6 +3305,16 @@
             "footerDetailAria": "Usage footer detail",
             "detailedTooltip": "막대, 레이블, 백분율을 포함한 전체 사용량",
             "compactTooltip": "압축된 사용: 가장 좁은 창만 사용"
+          },
+          "RemoteServerUpdateStatusSegment": {
+            "updating": "Updating {{value0}}/{{value1}}",
+            "updatingTooltip": "Remote Orca Server updates are in progress",
+            "failed": "{{value0}} server updates failed",
+            "failedTooltip": "Open Remote Orca Server updates to review and retry",
+            "updated": "{{value0}} servers updated",
+            "updatedTooltip": "Remote Orca Server updates completed",
+            "failedOne": "1 server update failed",
+            "updatedOne": "1 server updated"
           }
         }
       },
@@ -5416,7 +5427,7 @@
           "dfbc12c8c8": "USB 장치와 통신하는 하드웨어 디버깅 및 장치 도구입니다.",
           "bf51e4a542": "USB 장치",
           "f903bf20b5": "네트워크의 개발 서버를 검색하고 액세스합니다.",
-          "e7bb06007c": "로컬 네트워크",
+          "e7bb06007c": "LAN",
           "4a73f5217a": "다른 로컬 앱을 제어하는 ​​스크립트를 위한 Apple 이벤트.",
           "e119f0d66b": "자동화",
           "7ca17b62c8": "프로젝트, 워크트리 또는 심볼릭 링크된 파일이 macOS 보호 폴더에 닿을 때 권장됩니다.",
@@ -5460,15 +5471,15 @@
             "toggleLabel": "새 카드 스타일 전환"
           },
           "nativeChat": {
-            "title": "네이티브 채팅",
+            "title": "Chat UI",
             "description": "지원되는 에이전트 터미널 세션의 데스크톱 채팅 화면을 미리 봅니다.",
-            "copy": "지원되는 에이전트 터미널 창에서 전환할 수 있는 네이티브 채팅 보기를 추가합니다. 대화 기록 충실도, 스트리밍, 터미널 동작 일치를 조정하는 동안 실험적으로 제공됩니다.",
-            "toggleLabel": "기본 채팅 전환",
+            "copy": "지원되는 에이전트 터미널 창에서 전환할 수 있는 Chat UI 보기를 추가합니다. 대화 기록 충실도, 스트리밍, 터미널 동작 일치를 조정하는 동안 실험적으로 제공됩니다.",
+            "toggleLabel": "Chat UI 전환",
             "defaultTitle": "기본 보기",
             "defaultCopy": "지원되는 에이전트의 새 터미널 탭을 여는 방식을 선택합니다.",
-            "defaultViewLabel": "기본 기본 채팅 보기",
+            "defaultViewLabel": "기본 Chat UI 보기",
             "defaultViewTerminal": "Terminal 채팅",
-            "defaultViewNative": "네이티브 채팅"
+            "defaultViewNative": "Chat UI"
           },
           "agentDashboard": {
             "title": "Agent Dashboard",
@@ -5887,7 +5898,7 @@
           "668016be7a": "컴퓨터와 휴대폰에서.",
           "1dc87a7fbc": "Tailscale",
           "51d29927eb": "설치",
-          "9fc5d203ff": "Orca Mobile은 이 컴퓨터에 직접 연결됩니다. 동일한 로컬 네트워크가 아닌 곳에서 사용하려면 컴퓨터와 휴대폰을 동일한 개인 오버레이 네트워크에 놓은 다음 해당 네트워크 주소를 선택하여 QR 코드를 생성하세요.",
+          "9fc5d203ff": "Orca Mobile은 이 컴퓨터에 직접 연결됩니다. 동일한 LAN이 아닌 곳에서 사용하려면 컴퓨터와 휴대폰을 동일한 개인 오버레이 네트워크에 놓은 다음 해당 네트워크 주소를 선택하여 QR 코드를 생성하세요.",
           "39fad211d9": "tailnet을 사용하여 Wi-Fi 외부에서 연결",
           "a9db5d771d": "네트워크 인터페이스 새로 고침",
           "b2c384cfd6": "인터페이스를 찾을 수 없습니다.",
@@ -5918,7 +5929,7 @@
           "6436e56546": "모바일 페어링을 위한 QR 코드",
           "1b1b70279a": "아직 페어링된 기기가 없습니다.",
           "1592afcc7a": "아직 페어링된 기기가 없습니다. Orca 모바일 앱으로 QR 코드를 스캔하세요.",
-          "relayDegradedNotice": "Relay couldn’t be reached — this code only works on your local network. Regenerate to try again."
+          "relayDegradedNotice": "Relay에 연결할 수 없습니다 — 이 코드는 LAN 또는 Tailscale에서만 작동합니다. 다시 생성해 보세요."
         },
         "MobileSettingsPane": {
           "9a3c280e49": "GitHub 릴리스",
@@ -6266,7 +6277,10 @@
           "addPlannedHostToHost": "{{host}} 추가",
           "addPlannedHostConfirm": "이 프로젝트를 이 호스트에서 사용할 예정이라는 사실만 기록합니다. 폴더 추가나 클론은 나중에 할 수 있습니다.",
           "projectRuntime": "프로젝트 런타임",
-          "projectRuntimeDescription": "이 프로젝트를 Windows에서 실행할지 WSL에서 실행할지 선택합니다."
+          "projectRuntimeDescription": "이 프로젝트를 Windows에서 실행할지 WSL에서 실행할지 선택합니다.",
+          "hostStateDisconnected": "Disconnected",
+          "hostStateUnknown": "Unknown",
+          "nestedHostLabel": "{{value0}} via {{value1}}"
         },
         "RepositorySourceControlAiActionRows": {
           "548a6e1281": "명령 템플릿",
@@ -6398,7 +6412,13 @@
           "serverDetails": "서버 세부 정보",
           "advertiseThisApp": "이 앱을 서버로 알리기",
           "advertiseThisAppHelp": "브라우저, 모바일 클라이언트 또는 다른 Orca 클라이언트가 실행 중인 이 앱에 다시 연결할 수 있도록 액세스 링크를 만듭니다.",
-          "runtimeReachable": "{{value0}}에 연결할 수 있습니다."
+          "runtimeReachable": "{{value0}}에 연결할 수 있습니다.",
+          "updateAvailableOne": "1 update available",
+          "updatesAvailable": "{{value0}} updates available",
+          "versionUnavailable": "Orca version unavailable",
+          "updateServer": "Update",
+          "reviewServerUpdates": "Server updates",
+          "orcaVersion": "Orca v{{value0}}"
         },
         "RuntimePairingGeneratedUrlRows": {
           "0495f68959": "{{value0}} 복사"
@@ -7540,14 +7560,14 @@
         "developer": {
           "permissions": {
             "search": {
-              "3363889768": "로컬 네트워크, USB 및 블루투스",
+              "3363889768": "LAN, USB 및 블루투스",
               "6c82846f66": "장치",
               "11653d3f42": "mdns",
               "78a10b826f": "Bonjour",
               "e3fbc48083": "블루투스",
               "c4a4a02ea4": "USB",
               "fa3239cd42": "로컬 네트워크",
-              "acad3d4743": "terminal 세션에서 사용되는 장치 및 로컬 네트워크 도구를 허용합니다.",
+              "acad3d4743": "terminal 세션에서 사용되는 장치 도구와 LAN 액세스를 허용합니다.",
               "3e0131e45d": "icloud",
               "ce07159ff5": "데스크탑",
               "a0c19119fb": "다운로드",
@@ -7645,7 +7665,7 @@
               "worktrees": "worktrees"
             },
             "nativeChat": {
-              "title": "네이티브 채팅",
+              "title": "Chat UI",
               "description": "지원되는 에이전트 터미널 세션의 데스크톱 채팅 화면을 미리 봅니다.",
               "grok": "grok"
             },
@@ -9224,9 +9244,9 @@
           "anywhereTitle": "Orca Relay",
           "anywhereDescription": "휴대폰이 모바일 네트워크 또는 모든 Wi‑Fi에서 연결 가능합니다. 로그인이 필요합니다.",
           "signInRequired": "Orca Mobile Relay를 사용하려면 로그인하세요.",
-          "relayUnavailable": "이 빌드에서는 Orca Relay를 사용할 수 없습니다. 로컬 네트워크를 사용하세요.",
+          "relayUnavailable": "이 빌드에서는 Orca Relay를 사용할 수 없습니다. LAN을 사용하세요.",
           "signInAgain": "다시 로그인",
-          "localTitle": "로컬 네트워크"
+          "localTitle": "LAN"
         },
         "MobilePairingSetupSection": {
           "title": "휴대폰 페어링",
@@ -9272,6 +9292,57 @@
           "title": "Editor Font Family",
           "description": "Font used by file editors and diff views. Leave empty to follow the terminal font.",
           "placeholder": "Same as terminal font"
+        },
+        "GeneralRemoteServerUpdates": {
+          "serverCount": "{{value0}} paired servers",
+          "availableCount": "{{value0}} ready to update",
+          "currentCount": "{{value0}} up to date",
+          "manualCount": "{{value0}} manual",
+          "offlineCount": "{{value0}} offline",
+          "title": "Remote Orca Servers",
+          "description": "Check and update paired Orca servers from this client.",
+          "updating": "Updating servers…",
+          "reviewUpdates": "{{value0}} updates available",
+          "reviewServers": "Server updates",
+          "serverCountOne": "1 paired server",
+          "reviewUpdateOne": "1 update available"
+        },
+        "RemoteServerUpdateDialog": {
+          "versionUnavailable": "Version unavailable",
+          "restartingHelp": "Waiting for the replacement server to reconnect on the new version.",
+          "retry": "Retry",
+          "update": "Update",
+          "title": "Update Remote Orca Servers",
+          "description": "Review paired servers and update supported installs from this Orca client.",
+          "restartWarning": "Updating restarts these servers. {{value0}} live tabs and {{value1}} terminal panes may briefly disconnect.",
+          "checking": "Checking paired servers…",
+          "empty": "No paired Remote Orca Servers.",
+          "checkAgain": "Check again",
+          "updating": "Updating servers…",
+          "updateAll": "Update {{value0}} servers",
+          "noUpdates": "No updates available",
+          "updateOne": "Update server",
+          "downloadProgress": "{{value0}} download progress",
+          "liveTabOne": "1 live tab",
+          "liveTabs": "{{value0}} live tabs",
+          "livePaneOne": "1 live pane",
+          "livePanes": "{{value0}} live panes"
+        },
+        "RemoteServerUpdateStatus": {
+          "checking": "Checking…",
+          "available": "Update available",
+          "current": "Up to date",
+          "manual": "Manual update",
+          "offline": "Offline",
+          "queued": "Queued",
+          "checkingUpdate": "Checking update…",
+          "downloading": "Downloading…",
+          "restarting": "Restarting…",
+          "updated": "Updated",
+          "failed": "Update failed",
+          "serviceManagerHelp": "Update Orca through the service manager that starts this server.",
+          "unpackedHelp": "Development builds must be updated from their source checkout.",
+          "legacyHelp": "Update this server manually once to enable remote updates."
         }
       },
       "right": {
@@ -9753,7 +9824,6 @@
             "b715ef615b": "{{value1}}보다 {{value0}} commits 앞서 있음",
             "c1a8f3e204": "{{value0}}보다 1 commit 뒤처짐",
             "d2b9g4f315": "{{value1}}보다 {{value0}} commits 뒤처짐",
-            "e9c2a5d416": "{{value0}}와 동일한 상태",
             "4b4a7de138": "브라우저에서 검토 페이지 열기",
             "createPrIntentCommitBlockedSummary": "커밋이 차단됨: {{value0}} 이슈를 수정한 후 PR 만들기를 다시 시도하세요.",
             "pushRecovery": {
@@ -9771,7 +9841,11 @@
               "834cb3f23d": "AI로 수정",
               "783a808870": "닫기"
             },
-            "97e7124eac": "Source Control을 새로 고칠 수 없습니다. 다시 시도하세요."
+            "97e7124eac": "Source Control을 새로 고칠 수 없습니다. 다시 시도하세요.",
+            "b8c2e1a904": "{{value0}} → {{value1}}",
+            "a4e93c21d7": "현재 브랜치: {{value0}}",
+            "c7d4e2f801": "베이스 ref 변경: {{value0}}",
+            "f3a1b8c204": "upstream"
           },
           "SourceControlAgentActionDialog": {
             "8e856842d1": "선택한 agent를 시작할 수 없습니다.",
@@ -10921,7 +10995,7 @@
             "preview": "미리 보기",
             "stable": "안정 버전"
           },
-          "relayDegradedNotice": "Relay couldn’t be reached — this code only works on your local network."
+          "relayDegradedNotice": "Relay에 연결할 수 없습니다 — 이 코드는 LAN 또는 Tailscale에서만 작동합니다."
         },
         "MobilePage": {
           "e17393c6a3": "휴대폰 미리보기",
@@ -13455,6 +13529,17 @@
       }
     },
     "runtime": {
+      "remoteServerUpdateErrors": {
+        "manualRequired": "This server must be updated manually through its service manager.",
+        "notAvailable": "The server no longer reports an available update. Check again.",
+        "notDownloaded": "The server update has not finished downloading.",
+        "legacyServer": "Update this server manually once to enable remote updates.",
+        "updaterTimeout": "Timed out waiting for the server updater.",
+        "requestedVersionUnavailable": "The server updater did not offer the requested Orca version.",
+        "updateUnavailable": "The server did not report an available update.",
+        "downloadIncomplete": "The server update did not finish downloading.",
+        "reconnectTimeout": "The server did not reconnect on the updated version."
+      },
       "webRuntimeSession": {
         "remoteHostDisconnected": "The workspace is not connected to a remote Orca host."
       }

@@ -839,7 +839,14 @@ const TerminalResolveActive = z.object({
 })
 
 const TerminalResolvePane = z.object({
-  paneKey: requiredString('Missing pane key')
+  paneKey: requiredString('Missing pane key'),
+  worktreeId: OptionalString
+})
+
+const TerminalRecoverPane = z.object({
+  paneKey: requiredString('Missing pane key'),
+  worktreeId: requiredString('Missing worktree ID'),
+  expectedTerminal: requiredString('Missing expected terminal handle').optional()
 })
 
 const TerminalRead = TerminalHandle.extend({
@@ -1110,7 +1117,18 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
     name: 'terminal.resolvePane',
     params: TerminalResolvePane,
     handler: async (params, { runtime }) => ({
-      terminal: runtime.resolveTerminalPane(params.paneKey)
+      terminal: runtime.resolveTerminalPane(params.paneKey, params.worktreeId)
+    })
+  }),
+  defineMethod({
+    name: 'terminal.recoverPane',
+    params: TerminalRecoverPane,
+    handler: async (params, { runtime }) => ({
+      terminal: await runtime.recoverTerminalPane(
+        params.paneKey,
+        params.worktreeId,
+        params.expectedTerminal
+      )
     })
   }),
   defineMethod({
@@ -1968,6 +1986,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         stream.pendingOutputOverflowed = false
         stream.buffering = true
         const requestId = request.requestId
+        let sentSnapshotOutputSeq: number | undefined
         try {
           const scrollbackRows = normalizeMultiplexSnapshotScrollbackRows(request.scrollbackRows)
           let serialized = await serializeBudgetedRequestedSnapshot(
@@ -2009,6 +2028,7 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
               return
             }
           }
+          sentSnapshotOutputSeq = serialized?.seq
           sendSnapshotFrames((opcode, payload) => sendFrame(stream.streamId, opcode, payload), {
             kind: 'scrollback',
             cols: serialized?.cols ?? size?.cols ?? 80,
@@ -2036,7 +2056,17 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             const pendingOutput = stream.pendingOutput.splice(0)
             if (shouldFlushPendingOutput) {
               for (const chunk of pendingOutput) {
-                stream.outputBatcher.push(chunk.data, chunk.meta)
+                // Why: an untagged reply resets the client to the snapshot's
+                // high-water, so covered bytes would render twice; tagged
+                // snapshots feed a side consumer and the live view still
+                // needs every buffered chunk.
+                const uncoveredData =
+                  typeof requestId === 'number'
+                    ? chunk.data
+                    : getOutputAfterSnapshotSeq(chunk, sentSnapshotOutputSeq)
+                if (uncoveredData) {
+                  stream.outputBatcher.push(uncoveredData, chunk.meta)
+                }
               }
             }
             stream.pendingOutputBytes = 0

@@ -639,7 +639,8 @@
         "nativeDropTooManyPathsDescription": "每次最多拖放 {{value0}} 个文件。",
         "nativeDropTooManyPaths": "拖放包含过多文件。",
         "nativeDropPathsTooLargeDescription": "请减少文件数量或使用更短的路径列表。",
-        "nativeDropPathsTooLarge": "拖放的路径列表过大。"
+        "nativeDropPathsTooLarge": "拖放的路径列表过大。",
+        "ownerChanged": "Couldn't verify which host owns this workspace. Try again after it reconnects."
       },
       "useIpcEvents": {
         "0e3cf53060": "未找到浏览器选项卡 {{value0}}",
@@ -3304,6 +3305,16 @@
             "footerDetailAria": "Usage footer detail",
             "detailedTooltip": "完整使用情况，包含条形图、标签和百分比",
             "compactTooltip": "精简使用情况：仅显示最吃紧的窗口"
+          },
+          "RemoteServerUpdateStatusSegment": {
+            "updating": "Updating {{value0}}/{{value1}}",
+            "updatingTooltip": "Remote Orca Server updates are in progress",
+            "failed": "{{value0}} server updates failed",
+            "failedTooltip": "Open Remote Orca Server updates to review and retry",
+            "updated": "{{value0}} servers updated",
+            "updatedTooltip": "Remote Orca Server updates completed",
+            "failedOne": "1 server update failed",
+            "updatedOne": "1 server updated"
           }
         }
       },
@@ -5416,7 +5427,7 @@
           "dfbc12c8c8": "与 USB 设备通信的硬件调试和设备工具。",
           "bf51e4a542": "USB 设备",
           "f903bf20b5": "发现和访问网络上的开发服务器。",
-          "e7bb06007c": "本地网络",
+          "e7bb06007c": "局域网",
           "4a73f5217a": "用于控制其他本地应用程序的脚本的 Apple 事件。",
           "e119f0d66b": "自动化",
           "7ca17b62c8": "当项目、worktree 或符号链接文件会访问 macOS 受保护文件夹时推荐启用。",
@@ -5460,15 +5471,15 @@
             "toggleLabel": "切换新卡片样式"
           },
           "nativeChat": {
-            "title": "原生聊天",
+            "title": "Chat UI",
             "description": "预览受支持的智能体终端会话的桌面聊天界面。",
-            "copy": "添加可从受支持的智能体终端窗格切换的原生聊天视图。在我们调整记录保真度、流式传输和终端一致性期间，此功能仍处于实验阶段。",
-            "toggleLabel": "切换原生聊天",
+            "copy": "添加可从受支持的智能体终端窗格切换的 Chat UI 视图。在我们调整记录保真度、流式传输和终端一致性期间，此功能仍处于实验阶段。",
+            "toggleLabel": "切换 Chat UI",
             "defaultTitle": "默认视图",
             "defaultCopy": "选择如何打开受支持智能体的新终端标签页。",
-            "defaultViewLabel": "默认原生聊天视图",
+            "defaultViewLabel": "默认 Chat UI 视图",
             "defaultViewTerminal": "终端聊天",
-            "defaultViewNative": "原生聊天"
+            "defaultViewNative": "Chat UI"
           },
           "agentDashboard": {
             "title": "Agent Dashboard",
@@ -5887,7 +5898,7 @@
           "668016be7a": "在您的计算机和手机上。",
           "1dc87a7fbc": "Tailscale",
           "51d29927eb": "安装",
-          "9fc5d203ff": "Orca 手机端 直接连接到此计算机。要在远离同一本地网络的地方使用它，请将您的计算机和手机置于同一私有覆盖网络上，然后使用所选的网络地址生成二维码。",
+          "9fc5d203ff": "Orca 手机端 直接连接到此计算机。要在远离同一局域网的地方使用它，请将您的计算机和手机置于同一私有覆盖网络上，然后使用所选的网络地址生成二维码。",
           "39fad211d9": "使用尾网连接 Wi-Fi 外部",
           "a9db5d771d": "刷新网络接口",
           "b2c384cfd6": "没有找到接口",
@@ -5918,7 +5929,7 @@
           "6436e56546": "用于手机配对的二维码",
           "1b1b70279a": "尚未配对任何设备。",
           "1592afcc7a": "尚未配对任何设备。使用 Orca 手机应用程序扫描二维码。",
-          "relayDegradedNotice": "Relay couldn’t be reached — this code only works on your local network. Regenerate to try again."
+          "relayDegradedNotice": "无法连接 Relay — 此二维码仅在局域网或 Tailscale 内可用。请重新生成后再试。"
         },
         "MobileSettingsPane": {
           "9a3c280e49": "GitHub 发布",
@@ -6266,7 +6277,10 @@
           "addPlannedHostToHost": "添加 {{host}}",
           "addPlannedHostConfirm": "这仅记录项目应在此主机上可用。你可以稍后添加文件夹或克隆。",
           "projectRuntime": "项目运行时",
-          "projectRuntimeDescription": "选择此项目运行在 Windows 还是 WSL。"
+          "projectRuntimeDescription": "选择此项目运行在 Windows 还是 WSL。",
+          "hostStateDisconnected": "Disconnected",
+          "hostStateUnknown": "Unknown",
+          "nestedHostLabel": "{{value0}} via {{value1}}"
         },
         "RepositorySourceControlAiActionRows": {
           "548a6e1281": "提示词模板",
@@ -6398,7 +6412,13 @@
           "serverDetails": "服务器详细信息",
           "advertiseThisApp": "将此应用作为服务器公布",
           "advertiseThisAppHelp": "创建访问链接，让浏览器、移动客户端或另一个 Orca 客户端连接回这个正在运行的应用。",
-          "runtimeReachable": "可连接到 {{value0}}。"
+          "runtimeReachable": "可连接到 {{value0}}。",
+          "updateAvailableOne": "1 update available",
+          "updatesAvailable": "{{value0}} updates available",
+          "versionUnavailable": "Orca version unavailable",
+          "updateServer": "Update",
+          "reviewServerUpdates": "Server updates",
+          "orcaVersion": "Orca v{{value0}}"
         },
         "RuntimePairingGeneratedUrlRows": {
           "0495f68959": "复制 {{value0}}"
@@ -7540,14 +7560,14 @@
         "developer": {
           "permissions": {
             "search": {
-              "3363889768": "本地网络、USB 和蓝牙",
+              "3363889768": "局域网、USB 和蓝牙",
               "6c82846f66": "设备",
               "11653d3f42": "域名服务器",
               "78a10b826f": "你好",
               "e3fbc48083": "蓝牙",
               "c4a4a02ea4": "USB",
-              "fa3239cd42": "本地网络",
-              "acad3d4743": "允许从终端会话使用设备和本地网络工具。",
+              "fa3239cd42": "局域网",
+              "acad3d4743": "允许从终端会话使用设备工具和局域网访问。",
               "3e0131e45d": "云",
               "ce07159ff5": "桌面",
               "a0c19119fb": "下载",
@@ -7645,7 +7665,7 @@
               "worktrees": "工作树"
             },
             "nativeChat": {
-              "title": "原生聊天",
+              "title": "Chat UI",
               "description": "预览受支持的智能体终端会话的桌面聊天界面。",
               "grok": "grok"
             },
@@ -9224,9 +9244,9 @@
           "anywhereTitle": "Orca Relay",
           "anywhereDescription": "手机可通过蜂窝网络或任意 Wi‑Fi 连接。需要登录。",
           "signInRequired": "请登录以使用 Orca Mobile Relay。",
-          "relayUnavailable": "此版本不支持 Orca Relay。请使用本地网络。",
+          "relayUnavailable": "此版本不支持 Orca Relay。请使用局域网。",
           "signInAgain": "重新登录",
-          "localTitle": "本地网络"
+          "localTitle": "局域网"
         },
         "MobilePairingSetupSection": {
           "title": "配对手机",
@@ -9272,6 +9292,57 @@
           "title": "Editor Font Family",
           "description": "Font used by file editors and diff views. Leave empty to follow the terminal font.",
           "placeholder": "Same as terminal font"
+        },
+        "GeneralRemoteServerUpdates": {
+          "serverCount": "{{value0}} paired servers",
+          "availableCount": "{{value0}} ready to update",
+          "currentCount": "{{value0}} up to date",
+          "manualCount": "{{value0}} manual",
+          "offlineCount": "{{value0}} offline",
+          "title": "Remote Orca Servers",
+          "description": "Check and update paired Orca servers from this client.",
+          "updating": "Updating servers…",
+          "reviewUpdates": "{{value0}} updates available",
+          "reviewServers": "Server updates",
+          "serverCountOne": "1 paired server",
+          "reviewUpdateOne": "1 update available"
+        },
+        "RemoteServerUpdateDialog": {
+          "versionUnavailable": "Version unavailable",
+          "restartingHelp": "Waiting for the replacement server to reconnect on the new version.",
+          "retry": "Retry",
+          "update": "Update",
+          "title": "Update Remote Orca Servers",
+          "description": "Review paired servers and update supported installs from this Orca client.",
+          "restartWarning": "Updating restarts these servers. {{value0}} live tabs and {{value1}} terminal panes may briefly disconnect.",
+          "checking": "Checking paired servers…",
+          "empty": "No paired Remote Orca Servers.",
+          "checkAgain": "Check again",
+          "updating": "Updating servers…",
+          "updateAll": "Update {{value0}} servers",
+          "noUpdates": "No updates available",
+          "updateOne": "Update server",
+          "downloadProgress": "{{value0}} download progress",
+          "liveTabOne": "1 live tab",
+          "liveTabs": "{{value0}} live tabs",
+          "livePaneOne": "1 live pane",
+          "livePanes": "{{value0}} live panes"
+        },
+        "RemoteServerUpdateStatus": {
+          "checking": "Checking…",
+          "available": "Update available",
+          "current": "Up to date",
+          "manual": "Manual update",
+          "offline": "Offline",
+          "queued": "Queued",
+          "checkingUpdate": "Checking update…",
+          "downloading": "Downloading…",
+          "restarting": "Restarting…",
+          "updated": "Updated",
+          "failed": "Update failed",
+          "serviceManagerHelp": "Update Orca through the service manager that starts this server.",
+          "unpackedHelp": "Development builds must be updated from their source checkout.",
+          "legacyHelp": "Update this server manually once to enable remote updates."
         }
       },
       "right": {
@@ -9753,7 +9824,6 @@
             "b715ef615b": "领先 {{value1}} {{value0}} 个提交",
             "c1a8f3e204": "落后 {{value0}} 1 个提交",
             "d2b9g4f315": "落后 {{value1}} {{value0}} 个提交",
-            "e9c2a5d416": "与 {{value0}} 同步",
             "4b4a7de138": "在浏览器中打开审查页面",
             "createPrIntentCommitBlockedSummary": "提交被阻止：{{value0}} 修复问题后重试创建 PR。",
             "pushRecovery": {
@@ -9771,7 +9841,11 @@
               "834cb3f23d": "使用 AI 修复",
               "783a808870": "关闭"
             },
-            "97e7124eac": "无法刷新 Source Control。请重试。"
+            "97e7124eac": "无法刷新 Source Control。请重试。",
+            "b8c2e1a904": "{{value0}} → {{value1}}",
+            "a4e93c21d7": "当前分支：{{value0}}",
+            "c7d4e2f801": "更改基引用：{{value0}}",
+            "f3a1b8c204": "upstream"
           },
           "SourceControlAgentActionDialog": {
             "8e856842d1": "无法启动选定的智能体。",
@@ -10921,7 +10995,7 @@
             "preview": "预览版",
             "stable": "稳定版"
           },
-          "relayDegradedNotice": "Relay couldn’t be reached — this code only works on your local network."
+          "relayDegradedNotice": "无法连接 Relay — 此二维码仅在局域网或 Tailscale 内可用。"
         },
         "MobilePage": {
           "e17393c6a3": "手机预览",
@@ -13455,6 +13529,17 @@
       }
     },
     "runtime": {
+      "remoteServerUpdateErrors": {
+        "manualRequired": "This server must be updated manually through its service manager.",
+        "notAvailable": "The server no longer reports an available update. Check again.",
+        "notDownloaded": "The server update has not finished downloading.",
+        "legacyServer": "Update this server manually once to enable remote updates.",
+        "updaterTimeout": "Timed out waiting for the server updater.",
+        "requestedVersionUnavailable": "The server updater did not offer the requested Orca version.",
+        "updateUnavailable": "The server did not report an available update.",
+        "downloadIncomplete": "The server update did not finish downloading.",
+        "reconnectTimeout": "The server did not reconnect on the updated version."
+      },
       "webRuntimeSession": {
         "remoteHostDisconnected": "The workspace is not connected to a remote Orca host."
       }

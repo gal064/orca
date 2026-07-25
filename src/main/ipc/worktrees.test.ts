@@ -255,6 +255,14 @@ import {
 } from './worktree-remote'
 import { invalidateAuthorizedRootsCache, resolveRegisteredWorktreePath } from './filesystem-auth'
 import {
+  reviewHeadRemoteRefComponent,
+  REVIEW_HEAD_FETCH_TIMEOUT_MS
+} from '../../shared/review-head-tracking-ref'
+
+// Why: durable review-head refs are scoped by remote identity (name + URL hash).
+const ORIGIN_REMOTE_URL = 'git@github.com:org/repo.git'
+const ORIGIN_HEAD_COMPONENT = reviewHeadRemoteRefComponent('origin', ORIGIN_REMOTE_URL)
+import {
   __getDetectedWorktreeScanCacheStatsForTests,
   __resetDetectedWorktreeScanCacheForTests,
   registerWorktreeHandlers
@@ -2133,6 +2141,9 @@ describe('registerWorktreeHandlers', () => {
       }
     })
     gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: `${ORIGIN_REMOTE_URL}\n`, stderr: '' }
+      }
       if (args[0] === 'rev-parse') {
         return { stdout: 'abc123\n', stderr: '' }
       }
@@ -2146,9 +2157,15 @@ describe('registerWorktreeHandlers', () => {
       isCrossRepository: true
     })
 
-    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['fetch', 'origin', 'refs/pull/1738/head'], {
-      cwd: '/workspace/repo'
-    })
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
+      [
+        'fetch',
+        '--no-tags',
+        'origin',
+        `+refs/pull/1738/head:refs/orca/pull/${ORIGIN_HEAD_COMPONENT}/1738`
+      ],
+      { cwd: '/workspace/repo', timeout: REVIEW_HEAD_FETCH_TIMEOUT_MS }
+    )
     expect(result).toMatchObject({
       baseBranch: 'abc123',
       headSha: 'abc123',
@@ -2417,6 +2434,127 @@ describe('registerWorktreeHandlers', () => {
       source: 'git',
       worktrees: [expect.objectContaining({ path: '/workspace/repo' })]
     })
+  })
+
+  it('hydrates detected worktrees with instance-validated legacy lineage after an update', async () => {
+    const parentPath = '/workspace/assigned-issues'
+    const childPath = '/workspace/issue-9276-nested-ssh-runtime-routing'
+    const parentId = `repo-1::${parentPath}`
+    const childId = `repo-1::${childPath}`
+    const metaById: Record<string, { instanceId: string }> = {
+      [parentId]: { instanceId: 'parent-instance' },
+      [childId]: { instanceId: 'child-instance' }
+    }
+    store.getWorktreeMeta.mockImplementation((id: string) => metaById[id])
+    store.setWorktreeMeta.mockImplementation((id: string, updates: object) => ({
+      ...metaById[id],
+      ...updates
+    }))
+    store.getAllWorktreeLineage.mockReturnValue({
+      [childId]: {
+        worktreeId: childId,
+        worktreeInstanceId: 'child-instance',
+        parentWorktreeId: parentId,
+        parentWorktreeInstanceId: 'parent-instance',
+        origin: 'cli',
+        capture: { source: 'explicit-cli-flag', confidence: 'explicit' },
+        createdAt: 1
+      }
+    })
+    listWorktreesMock.mockResolvedValue([
+      {
+        path: childPath,
+        head: 'child-head',
+        branch: 'refs/heads/child',
+        isBare: false,
+        isMainWorktree: false
+      },
+      {
+        path: parentPath,
+        head: 'parent-head',
+        branch: 'refs/heads/parent',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
+
+    const result = (await handlers['worktrees:listDetected'](null, {
+      repoId: 'repo-1'
+    })) as { worktrees: (Worktree & { lineage?: unknown; parentWorktreeId?: string | null })[] }
+
+    expect(result.worktrees).toEqual([
+      expect.objectContaining({
+        id: childId,
+        parentWorktreeId: parentId,
+        lineage: expect.objectContaining({ parentWorktreeInstanceId: 'parent-instance' })
+      }),
+      expect.objectContaining({
+        id: parentId,
+        parentWorktreeId: null,
+        childWorktreeIds: [childId],
+        lineage: null
+      })
+    ])
+  })
+
+  it('hydrates folder-repo detected rows with instance-validated legacy lineage', async () => {
+    const folderRepo = {
+      id: 'repo-1',
+      path: '/workspace/folder',
+      displayName: 'folder',
+      badgeColor: '#000',
+      addedAt: 0,
+      kind: 'folder' as const
+    }
+    const parentId = `${folderRepo.id}::${folderRepo.path}`
+    const childId = `${parentId}::workspace:child-instance`
+    const metaById: Record<string, Record<string, unknown>> = {
+      [parentId]: makeWorktreeMeta({
+        instanceId: 'parent-instance',
+        projectId: 'repo:repo-1',
+        hostId: 'local',
+        projectHostSetupId: 'repo-1'
+      }),
+      [childId]: makeWorktreeMeta({
+        instanceId: 'child-instance',
+        projectId: 'repo:repo-1',
+        hostId: 'local',
+        projectHostSetupId: 'repo-1'
+      })
+    }
+    store.getRepos.mockReturnValue([folderRepo])
+    store.getRepo.mockReturnValue(folderRepo)
+    store.getAllWorktreeMeta.mockReturnValue(metaById)
+    store.getWorktreeMeta.mockImplementation((worktreeId: string) => metaById[worktreeId])
+    store.getAllWorktreeLineage.mockReturnValue({
+      [childId]: {
+        worktreeId: childId,
+        worktreeInstanceId: 'child-instance',
+        parentWorktreeId: parentId,
+        parentWorktreeInstanceId: 'parent-instance',
+        origin: 'cli',
+        capture: { source: 'explicit-cli-flag', confidence: 'explicit' },
+        createdAt: 1
+      }
+    })
+
+    const result = (await handlers['worktrees:listDetected'](null, {
+      repoId: folderRepo.id
+    })) as { worktrees: (Worktree & { lineage?: unknown; parentWorktreeId?: string | null })[] }
+
+    expect(result.worktrees).toEqual([
+      expect.objectContaining({
+        id: parentId,
+        parentWorktreeId: null,
+        childWorktreeIds: [childId],
+        lineage: null
+      }),
+      expect.objectContaining({
+        id: childId,
+        parentWorktreeId: parentId,
+        lineage: expect.objectContaining({ parentWorktreeInstanceId: 'parent-instance' })
+      })
+    ])
   })
 
   it('hides agent scratch created inside a linked checkout from desktop listings', async () => {
@@ -3114,9 +3252,104 @@ describe('registerWorktreeHandlers', () => {
     })
   })
 
+  it('fetches a fork PR head via the SSH pull-head RPC, not git.exec', async () => {
+    const durableLocalRef = `refs/orca/pull/${ORIGIN_HEAD_COMPONENT}/42`
+    const fetchGitHubPullRequestHead = vi.fn(async () => durableLocalRef)
+    const exec = vi.fn(async (args: string[]) => {
+      if (args[0] === 'remote') {
+        return { stdout: 'origin\n', stderr: '' }
+      }
+      if (args[0] === 'rev-parse' && args[2] === `${durableLocalRef}^{commit}`) {
+        return { stdout: 'fork-head-sha\n', stderr: '' }
+      }
+      throw new Error(`unexpected git call: ${args.join(' ')}`)
+    })
+    getSshGitProviderMock.mockReturnValue({
+      exec,
+      fetchGitHubPullRequestHead,
+      fetchRemoteTrackingRef: vi.fn()
+    })
+    store.getRepo.mockReturnValue({
+      id: 'repo-1',
+      path: '/workspace/repo',
+      displayName: 'repo',
+      badgeColor: '#000',
+      addedAt: 0,
+      connectionId: 'conn-1',
+      worktreeBaseRef: null
+    })
+
+    const result = await handlers['worktrees:resolvePrBase'](null, {
+      repoId: 'repo-1',
+      prNumber: 42,
+      headRefName: 'contributor/fix',
+      isCrossRepository: true
+    })
+
+    expect(fetchGitHubPullRequestHead).toHaveBeenCalledWith('/workspace/repo', 'origin', 42)
+    expect(exec).not.toHaveBeenCalledWith(expect.arrayContaining(['fetch']), expect.anything())
+    expect(result).toMatchObject({
+      baseBranch: 'fork-head-sha',
+      headSha: 'fork-head-sha',
+      branchNameOverride: 'contributor/fix'
+    })
+  })
+
+  it('fetches a fork PR head from origin, not the first remote, over SSH', async () => {
+    const durableLocalRef = `refs/orca/pull/${ORIGIN_HEAD_COMPONENT}/42`
+    const fetchGitHubPullRequestHead = vi.fn(async () => durableLocalRef)
+    // Why: `fork` is listed first, but fork PR heads live on the hosting remote (origin).
+    const exec = vi.fn(async (args: string[]) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return {
+          stdout: `git@github.com:org/${args[2] === 'origin' ? 'repo' : 'fork'}.git\n`,
+          stderr: ''
+        }
+      }
+      if (args[0] === 'remote') {
+        return { stdout: 'fork\norigin\n', stderr: '' }
+      }
+      if (args[0] === 'rev-parse' && args[2] === `${durableLocalRef}^{commit}`) {
+        return { stdout: 'fork-head-sha\n', stderr: '' }
+      }
+      throw new Error(`unexpected git call: ${args.join(' ')}`)
+    })
+    getSshGitProviderMock.mockReturnValue({
+      exec,
+      fetchGitHubPullRequestHead,
+      fetchRemoteTrackingRef: vi.fn()
+    })
+    store.getRepo.mockReturnValue({
+      id: 'repo-1',
+      path: '/workspace/repo',
+      displayName: 'repo',
+      badgeColor: '#000',
+      addedAt: 0,
+      connectionId: 'conn-1',
+      worktreeBaseRef: null
+    })
+
+    const result = await handlers['worktrees:resolvePrBase'](null, {
+      repoId: 'repo-1',
+      prNumber: 42,
+      headRefName: 'contributor/fix',
+      isCrossRepository: true
+    })
+
+    expect(fetchGitHubPullRequestHead).toHaveBeenCalledWith('/workspace/repo', 'origin', 42)
+    expect(result).toMatchObject({
+      baseBranch: 'fork-head-sha',
+      headSha: 'fork-head-sha',
+      branchNameOverride: 'contributor/fix'
+    })
+  })
+
   it('resolves a fork PR base even when push-target discovery fails', async () => {
     getPullRequestPushTargetMock.mockRejectedValueOnce(new Error('lookup failed'))
     gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: `${ORIGIN_REMOTE_URL}\n`, stderr: '' }
+      }
       if (args[0] === 'rev-parse') {
         return { stdout: 'abc123\n', stderr: '' }
       }
@@ -3130,9 +3363,15 @@ describe('registerWorktreeHandlers', () => {
       isCrossRepository: true
     })
 
-    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['fetch', 'origin', 'refs/pull/1849/head'], {
-      cwd: '/workspace/repo'
-    })
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
+      [
+        'fetch',
+        '--no-tags',
+        'origin',
+        `+refs/pull/1849/head:refs/orca/pull/${ORIGIN_HEAD_COMPONENT}/1849`
+      ],
+      { cwd: '/workspace/repo', timeout: REVIEW_HEAD_FETCH_TIMEOUT_MS }
+    )
     expect(result).toEqual({
       baseBranch: 'abc123',
       headSha: 'abc123',
@@ -3150,6 +3389,9 @@ describe('registerWorktreeHandlers', () => {
         throw new Error(
           'fatal: could not find remote ref refs/heads/feat/onboarding-model-choice-782'
         )
+      }
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: `${ORIGIN_REMOTE_URL}\n`, stderr: '' }
       }
       if (args[0] === 'rev-parse') {
         return { stdout: 'abc123\n', stderr: '' }
@@ -3171,9 +3413,15 @@ describe('registerWorktreeHandlers', () => {
       ],
       { cwd: '/workspace/repo' }
     )
-    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['fetch', 'origin', 'refs/pull/1849/head'], {
-      cwd: '/workspace/repo'
-    })
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
+      [
+        'fetch',
+        '--no-tags',
+        'origin',
+        `+refs/pull/1849/head:refs/orca/pull/${ORIGIN_HEAD_COMPONENT}/1849`
+      ],
+      { cwd: '/workspace/repo', timeout: REVIEW_HEAD_FETCH_TIMEOUT_MS }
+    )
     expect(result).toEqual({
       baseBranch: 'abc123',
       headSha: 'abc123',
@@ -3200,7 +3448,7 @@ describe('registerWorktreeHandlers', () => {
     })
 
     expect(gitExecFileAsyncMock).not.toHaveBeenCalledWith(
-      ['fetch', 'origin', 'refs/pull/1849/head'],
+      expect.arrayContaining(['fetch', '--no-tags']),
       expect.anything()
     )
     expect(result).toMatchObject({

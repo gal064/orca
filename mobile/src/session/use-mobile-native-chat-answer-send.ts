@@ -9,7 +9,8 @@ import {
   type AskAnswerSelection,
   type AskPrompt
 } from './mobile-native-chat-ask'
-import { sendMobileNativeChatMessage } from './mobile-native-chat-send'
+import { sendMobileNativeChatMessageWithOutcome } from './mobile-native-chat-send'
+import { healMobileNativeChatStaleInput } from './mobile-native-chat-stale-input'
 import {
   resolveNativeChatTranscriptAgent,
   shouldStepNativeChatAskAnswer
@@ -102,7 +103,8 @@ export function useMobileNativeChatAnswerSend(args: {
       // A new answer supersedes any still-pending keystroke writes.
       cancelPending()
       const generation = generationRef.current
-      const sendTerminal = (body: string, enter: boolean): Promise<boolean> => {
+      let sawUnknownOutcome = false
+      const sendTerminal = async (body: string, enter: boolean): Promise<boolean> => {
         const activeRoute = activeRouteRef.current
         if (
           !activeRoute.enabled ||
@@ -111,9 +113,9 @@ export function useMobileNativeChatAnswerSend(args: {
           activeRoute.streamIdentity !== streamIdentity ||
           handleRef.current !== handle
         ) {
-          return Promise.resolve(false)
+          return false
         }
-        return sendMobileNativeChatMessage({
+        const outcome = await sendMobileNativeChatMessageWithOutcome({
           client,
           terminal: handle,
           text: body,
@@ -122,6 +124,10 @@ export function useMobileNativeChatAnswerSend(args: {
             ? { mobileClient: { id: deviceTokenRef.current, type: 'mobile' } }
             : {})
         })
+        if (outcome === 'unknown') {
+          sawUnknownOutcome = true
+        }
+        return outcome === 'accepted'
       }
       const wait = (ms: number): Promise<boolean> =>
         new Promise((resolve) => {
@@ -136,13 +142,43 @@ export function useMobileNativeChatAnswerSend(args: {
         })
       const fail = (): false => {
         if (generationRef.current === generation) {
-          onSendError('Answer not sent')
+          // Why: keystrokes that may have landed (ack lost / path cutover) must
+          // not read as a definite failure — a blind resend could double-step
+          // the selector.
+          onSendError(
+            sawUnknownOutcome
+              ? 'Answer unconfirmed — check chat before retrying'
+              : 'Answer not sent'
+          )
         }
         return false
       }
       // Grok commits pasted labels; Claude and Codex need their selector-specific
       // keystrokes paced so each step renders before the next lands.
       if (!shouldStepNativeChatAskAnswer(agentRef.current)) {
+        // This shape pastes the label into the composer and commits it, so an
+        // orphaned image paste would be submitted along with the answer (#10228).
+        // The selector shapes below deliberately skip the heal: their keys are
+        // `enter: false` for an active overlay, and a single-select answer is a
+        // bare option digit that cannot submit the line at all, so clearing there
+        // would consume the marker still protecting the next real message.
+        // Desktop splits it identically — use-native-chat-interactive-send.ts
+        // routes only the pasted-label shape through the clearing sender.
+        if (
+          !(await healMobileNativeChatStaleInput({
+            client,
+            terminal: handle,
+            deviceToken: deviceTokenRef.current
+          }))
+        ) {
+          if (generationRef.current === generation) {
+            onSendError('Answer not sent')
+          }
+          return false
+        }
+        if (generationRef.current !== generation) {
+          return false
+        }
         return (await sendTerminal(formatAskAnswer(prompt, selections), true)) || fail()
       }
       const groups =

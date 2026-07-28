@@ -13,6 +13,7 @@ import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import { TerminalKittyKeyboardModeTracker } from '../../../../shared/terminal-kitty-keyboard-mode-tracker'
 import { isRuntimeOwnedSshTargetId } from '../../../../shared/execution-host'
 import { createTerminalZeroDimensionsMessage } from '../../../../shared/terminal-zero-dimensions-diagnostic'
+import { isWorktreeRemovalFenceError } from '../../../../shared/worktree-removal-fence-error'
 import { parseTerminalOscColorQuery } from '../../../../shared/terminal-osc-color-reply'
 import {
   HIDDEN_STARTUP_RENDERER_QUERY_PENDING_CHARS,
@@ -75,13 +76,15 @@ import {
 } from './replay-guard'
 import {
   isTerminalWritePipelineCertifiedDead,
-  registerUndeliverableWriteHandler
+  registerUndeliverableWriteHandler,
+  requestTerminalWritePipelineProbe
 } from '@/lib/pane-manager/terminal-write-pipeline-health'
 import {
   captureTerminalPaneRecoveryGeneration,
   registerTerminalPaneRecoveryInstance,
   requestTerminalPaneRecovery
 } from './terminal-pane-recovery'
+import { shouldDropQuarantinedTerminalInput } from './terminal-input-quarantine'
 import {
   isDocumentVisibilityProvenStale,
   registerStaleDocumentVisibilityRecovery
@@ -3356,6 +3359,8 @@ export function connectPanePty(
   const MAX_DEFERRED_REATTACH_LIVE_CHUNKS = 1_024
   const markTerminalInputSent = (): void => {
     lastTerminalInputAt = performance.now()
+    // Why: input must probe a wedged xterm even when the PTY produces no renderer output.
+    requestTerminalWritePipelineProbe(pane.terminal)
   }
   const recordTerminalInputForHibernation = (): void => {
     useAppStore.getState().recordTerminalInput(cacheKey)
@@ -3603,8 +3608,8 @@ export function connectPanePty(
   // pre-existing session when a late reattach resolves, so a remount racing
   // a slow-but-alive connect costs a wasted view rebuild, not a shell.
   const TRANSPORT_CONNECT_SETTLE_GRACE_MS = 60_000
-  const requestRecoveryForUndeliverableInput = (): void => {
-    if (transport.isConnected?.() && transport.getPtyId() !== null) {
+  const requestRecoveryForUndeliverableInput = (providerRejected = false): void => {
+    if (!providerRejected && transport.isConnected?.() && transport.getPtyId() !== null) {
       return
     }
     // Why: input rejected while a connect/reattach is still settling is "not
@@ -3632,7 +3637,11 @@ export function connectPanePty(
       // and a disconnected remote pane would otherwise remount-churn on every
       // cooldown window while typing. Local panes keep the lenient gate.
       requireAuthoritativeLiveness:
-        Boolean(transport.getConnectionId?.()) || isRemoteRuntimePtyId(undeliverablePtyId)
+        Boolean(transport.getConnectionId?.()) || isRemoteRuntimePtyId(undeliverablePtyId),
+      // Why only the rejected path: it is the only one whose remount can land on
+      // a fresh shell. A stalled-pipeline remount always reattaches to the same
+      // shell, so its half-typed line is still on screen and intact.
+      endpointReplaced: providerRejected
     })
   }
   // Why: the write-pipeline health watch (scheduler stall probe, replay-guard
@@ -3713,6 +3722,15 @@ export function connectPanePty(
       sendDesktopQueryReplyImmediate(data)
       return
     }
+    // Why after the query-reply branch: device replies are not user input and
+    // must always reach the shell, or a program querying during reattach hangs.
+    // Why at all: a replaced endpoint reattaches to a fresh shell, so the tail
+    // of the interrupted line would be submitted by the user's own Enter and a
+    // compound command could run its surviving half (#10065 follow-up).
+    if (shouldDropQuarantinedTerminalInput(deps.tabId, data)) {
+      clearPendingTerminalInputIntent()
+      return
+    }
     const intent = pendingTerminalInputIntent
     // Why: real xterm can deliver the terminal byte even when our DOM keydown
     // listener missed the press. Exact Ctrl+C/Escape bytes are still safe to
@@ -3727,12 +3745,12 @@ export function connectPanePty(
         cancelSuspendedShellCommandInference()
       }
       clearPendingTerminalInputIntent()
-      markTerminalInputSent()
       const writePromise = transport
         .sendInputAccepted(data)
         .then((accepted) => {
           if (accepted) {
-            recordTerminalInputForHibernationFallback()
+            // Why: rejected writes use transport recovery and must not arm a parser probe.
+            markAcceptedTerminalInputSent()
             observeAcceptedShellCommandInput(data)
             observeAcceptedTerminalInput(data, acknowledgedIntent)
             interruptInference.observeInputIntent(acknowledgedIntent)
@@ -4203,6 +4221,14 @@ export function connectPanePty(
       if (disposed) {
         return
       }
+      if (isWorktreeRemovalFenceError(message)) {
+        // Why: main fences a spawn/reattach whose worktree (or an overlapping
+        // parent/child root) is being deleted. That is expected teardown, not a
+        // user-facing failure — the pane unmounts once removal completes, so never
+        // surface the raw fence error. Covers the parent-removal-fences-child case
+        // that startFreshSpawn's own-worktree isDeleting skip cannot see.
+        return
+      }
       deps.onPtyErrorRef?.current?.(pane.id, message)
     }
 
@@ -4552,6 +4578,9 @@ export function connectPanePty(
             ? launchConfig.agentEnv
             : resolveTuiAgentLaunchEnv(agent, state.settings?.agentDefaultEnv),
         ...(launchConfig?.agentCommand ? { agentCommand: launchConfig.agentCommand } : {}),
+        ...(launchConfig?.ompResumeFilePath
+          ? { ompResumeFilePath: launchConfig.ompResumeFilePath }
+          : {}),
         platform: resumePlatform
       })
       if (!startupPlan) {
@@ -4740,6 +4769,13 @@ export function connectPanePty(
       startupOverride?: PendingStartupCommand | null,
       options: FreshSpawnOptions = {}
     ): Promise<string | null> => {
+      if (useAppStore.getState().deleteStateByWorktreeId?.[deps.worktreeId]?.isDeleting) {
+        // Why: the worktree is being deleted; its PTYs were just killed for the
+        // filesystem teardown. A fresh shell must not spawn into a directory the
+        // removal is about to delete (main fences it anyway), and the pane is
+        // about to unmount — so skip the doomed respawn instead of racing it.
+        return Promise.resolve(null)
+      }
       clearPaneMode2031State()
       clearHiddenOutputRestoreState()
       // Why: a canceled old replay clear can preserve xterm's native
@@ -5305,6 +5341,11 @@ export function connectPanePty(
               onError(message)
             }
           },
+          onWriteUnavailable: (): void => {
+            if (isCurrent()) {
+              requestRecoveryForUndeliverableInput(true)
+            }
+          },
           onRecoveryStateChange: (state: PtyTransportRecoveryState): void => {
             if (isCurrent()) {
               // Why: cached pixels remain visible while detached; expose transport truth for diagnostics and recovery UI.
@@ -5825,7 +5866,7 @@ export function connectPanePty(
       writeTerminalOutput(pane.terminal, data, {
         foreground: foregroundOutput,
         beforeWrite: beforeTerminalOutputWrite,
-        // Why: claim the delivery's parse-deferred ACK credit (null outside a delivery); the FIRST scheduler write carries it all and fires when bytes are consumed.
+        // Why: every scheduler write claims one child so a split delivery is credited only after all children parse or discard.
         ackCredit: takeCurrentTerminalDeliveryCredit() ?? undefined,
         onBackgroundBacklogDropped: markHiddenOutputRestoreNeeded,
         latencySensitive:
@@ -7275,6 +7316,30 @@ export function connectPanePty(
       if (!isCurrentReattachPayload()) {
         return false
       }
+      // Strict precedence snapshot > replay > coldRestore: paint exactly one, else overlapping tails duplicate TUI output on worktree switch.
+      const hasStructuralReplay = Boolean(
+        connectResult?.snapshot || connectResult?.replay || connectResult?.coldRestore
+      )
+      const resumeComesFromPassiveHibernation = Boolean(
+        coldRestoreStartup &&
+        !coldRestoreStartup.useLiveEntry &&
+        coldRestoreStartup.sleepingRecordEntry &&
+        isPassiveCompletedHibernationEvidence(coldRestoreStartup.sleepingRecordEntry.record)
+      )
+      // Why: reattach drops startup commands; only passive hibernation is authority to retire an empty adopted shell and resume its provider session.
+      if (!hasStructuralReplay && connectResult?.isReattach && resumeComesFromPassiveHibernation) {
+        transport.disconnect()
+        if (staleSessionId) {
+          deps.clearExitedPanePtyLayoutBinding(pane.id, staleSessionId)
+          deps.clearTabPtyId(deps.tabId, staleSessionId)
+        } else {
+          deps.syncPanePtyLayoutBinding(pane.id, null)
+        }
+        startFreshColdRestoreAgentResume(coldRestoreStartup, {
+          forceBlankRestoredViewport: true
+        })
+        return false
+      }
       setPanePtyFitBinding(ptyId)
       reportPanePtyVisibility(ptyId, deps.isVisibleRef.current)
       registerSideEffectFactConsumerForPty(ptyId)
@@ -7287,10 +7352,6 @@ export function connectPanePty(
       // Why: mobile streaming needs xterm's exact screen state; install the serializer + lastTitle source for main-process hydration parity.
       registerPaneSerializerFor(ptyId)
 
-      // Strict precedence snapshot > replay > coldRestore: paint exactly one, else overlapping tails duplicate TUI output on worktree switch.
-      const hasStructuralReplay = Boolean(
-        connectResult?.snapshot || connectResult?.replay || connectResult?.coldRestore
-      )
       let reattachPayloadApplied = !hasStructuralReplay
       const applyReattachPayload = async (): Promise<void> => {
         if (!isCurrentReattachPayload()) {
@@ -7720,7 +7781,9 @@ export function connectPanePty(
                 finishReattachLiveDataDeferral(accepted, outputCallbacks.generation)
                 const gen = await preSignalPromise
                 if (typeof gen === 'number') {
-                  if (!isRemoteRuntimePtyId(pendingSessionId)) {
+                  if (!accepted) {
+                    await window.api.pty.clearPendingPaneSerializer(cacheKey, gen).catch(() => {})
+                  } else if (!isRemoteRuntimePtyId(pendingSessionId)) {
                     const settledPtyId =
                       result && typeof result === 'object' && 'id' in result
                         ? result.id
@@ -7931,7 +7994,9 @@ export function connectPanePty(
           finishReattachLiveDataDeferral(accepted, outputCallbacks.generation)
           const gen = await preSignalPromise
           if (typeof gen === 'number') {
-            if (!isRemoteRuntimePtyId(deferredReattachSessionId)) {
+            if (!accepted) {
+              await window.api.pty.clearPendingPaneSerializer(cacheKey, gen).catch(() => {})
+            } else if (!isRemoteRuntimePtyId(deferredReattachSessionId)) {
               const settledPtyId =
                 result && typeof result === 'object' && 'id' in result
                   ? result.id

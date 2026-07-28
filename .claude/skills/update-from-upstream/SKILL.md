@@ -96,6 +96,33 @@ rm -rf /Applications/Orca.app
 cp -R dist/mac-arm64/Orca.app /Applications/Orca.app
 ```
 
+Then **always** run the signature repair below before relaunching. `forceCodeSigning` is off for
+non-release builds (`config/electron-builder.config.cjs`), so on a machine with no codesigning
+identity electron-builder silently skips signing the outer bundle: the app keeps the prebuilt
+Electron signature (`Identifier=Electron`) with a seal broken by the packaged resources.
+`UNUserNotificationCenter` refuses to register an app with an invalid signature, so **every
+notification is silently dropped** and Orca never appears in System Settings → Notifications.
+
+```bash
+codesign --force --deep --sign - /Applications/Orca.app
+codesign --verify --deep --strict /Applications/Orca.app   # must exit 0 and print nothing
+codesign -dvv /Applications/Orca.app 2>&1 | grep Identifier # must be com.stablyai.orca, not Electron
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Orca.app
+killall usernoted 2>/dev/null || true
+```
+
+Run this from a shell **outside** the app being signed — `codesign` rewrites the Mach-O binary and
+will kill a running Orca (including an agent session hosted in it). Quitting Orca in the step above
+already covers this, but never sign an app you are currently running inside.
+
+The signing identity changes from `Electron` to `com.stablyai.orca`, so macOS treats the app as new
+and re-prompts for notification permission on first launch — tell the user to accept it.
+
+Permanent fix worth suggesting: a free **Apple Development** certificate (Xcode → Settings →
+Accounts → Manage Certificates → **+** → Apple Development). `findInstalledMacSigningIdentity` in
+`config/electron-builder.config.cjs` picks it up automatically on non-release builds, so every
+future build is signed with a stable identity and this repair step becomes a no-op.
+
 **Linux** — build the installable artifact and install it:
 
 ```bash
@@ -129,4 +156,4 @@ Push to `origin` (the fork) on the current branch only. Never push to `upstream`
 
 ## 8. Report
 
-State: the tag merged, whether there were conflicts and how they were resolved, the installed version (`/Applications/Orca.app/Contents/Info.plist` → `CFBundleShortVersionString`, or `orca --version`), and the branch pushed to `origin`.
+State: the tag merged, whether there were conflicts and how they were resolved, the installed version (`/Applications/Orca.app/Contents/Info.plist` → `CFBundleShortVersionString`, or `orca --version`), and the branch pushed to `origin`. On macOS also report the `codesign --verify` result and remind the user to accept the notification permission prompt on first launch.

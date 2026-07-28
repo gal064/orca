@@ -1553,6 +1553,8 @@ function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees']> {
         sparseCheckout: args.sparseCheckout,
         pushTarget: args.pushTarget,
         setupDecision: args.setupDecision,
+        // Why: dropping this silently creates a real worktree instead of reusing the checkout.
+        reuseCheckout: args.reuseCheckout,
         createdWithAgent: args.createdWithAgent,
         pendingFirstAgentMessageRename: args.pendingFirstAgentMessageRename,
         ...(args.startup

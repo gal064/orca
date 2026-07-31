@@ -40,6 +40,35 @@ git merge-base --is-ancestor <tag> HEAD && echo "already merged"
 
 If already merged, report that and skip to step 4 only if the user asked for a rebuild anyway; otherwise stop.
 
+**Upstream tags are not linear — always check the merge base before merging anything.**
+
+```bash
+git merge-base --is-ancestor <older-tag> <newer-tag> && echo linear || echo DIVERGED
+git merge-base --is-ancestor <tag> upstream/main && echo "on main" || echo "release branch"
+```
+
+Stable `vX.Y.Z` tags are cut as **release branches off main** with fixes cherry-picked onto them;
+`vX.Y.Z-rc.N` tags sit **on main**. So consecutive stable tags are not ancestors of each other, and
+the same PR exists on both lines under different SHAs. Merging across lines makes git reconcile two
+independently-authored copies of every shared fix: expect conflicts in dozens of files the branch
+never touched (one real run produced 36 conflicted files, ~90 hunks, 28 of them untouched by the
+branch). That is survivable but it is a deliberate decision, not a routine update — surface the
+conflict scale to the user before starting.
+
+When it is right to proceed, split the conflicts by ownership and say so in the report:
+
+```bash
+git diff --name-only <last-merged-tag>...HEAD > /tmp/branch-files   # what the branch actually owns
+git diff --name-only --diff-filter=U > /tmp/conflicts
+grep -xFf /tmp/branch-files /tmp/conflicts        # A: resolve by hand
+grep -vxFf /tmp/branch-files /tmp/conflicts       # B: duplicate upstream fixes
+```
+
+Class B may be taken wholesale from the incoming side (`git checkout --theirs`) **only after**
+verifying no fix is lost — every PR number reachable from the currently-merged tag must also appear
+in the incoming tag. Never `--theirs` a class-A file: it discards the branch's clean, non-conflicted
+changes elsewhere in that same file.
+
 ## 3. Merge the tag
 
 ```bash
@@ -154,6 +183,21 @@ git push origin HEAD
 
 If the merge was clean, `git merge` already made the commit — then only fold in regenerated files (if any) and push. If there is genuinely nothing to commit, skip straight to the push.
 
+**The pre-commit hook can invalidate the build you just installed.** lint-staged runs `oxfmt --write`
+over every staged file, so committing a large merge can rewrite hundreds of production sources
+*after* packaging (one run reformatted 708). The install then no longer corresponds to `HEAD`. Check
+and rebuild if needed — formatting is semantically neutral, but the installed artifact should be
+traceable to the commit, and the version string embeds the SHA:
+
+```bash
+find src \( -name '*.ts' -o -name '*.tsx' \) ! -name '*.test.*' \
+  -newermt "@$(stat -f %m dist/mac-arm64/Orca.app)" | wc -l   # non-zero → rebuild and reinstall
+```
+
+Two other hook failures are routine on a big merge, and neither may be worked around with a
+`max-lines` disable or a per-file bump (see AGENTS.md) — split the file at a `describe` seam instead:
+a test file that each side grew past the 800-line limit, and unused imports left behind by the split.
+
 Push to `origin` (the fork) on the current branch only. Never push to `upstream`, never force-push, and do not open a PR.
 
 ## 8. Install onto the remote `orca serve` host, `omarchy` (only when asked)
@@ -224,7 +268,16 @@ Then rebuild with `ORCA_SKIP_LINUX_GLIBC_FLOOR=1`. Rules that come with the bypa
 - Every other `afterPack` check must still pass. `verify-packaged-daemon-entry` or `verify-packaged-plugin-resources` failing is a real regression, not something else to bypass.
 - Say plainly in the report that the gate was bypassed and why.
 
-### 8e. Repoint the shim and restart
+### 8e. Repoint the shim, then kill the stale daemon before restarting
+
+Restarting the service is **not enough**. `orca serve` is only the front-end; the long-lived
+**daemon** owns sessions, PTYs and tab state, and it reattaches to an existing
+`~/.config/orca/daemon/daemon-vNN.sock` instead of respawning. Because the build overwrites
+`dist/linux-unpacked` in place, that daemon keeps executing a replaced inode — `/proc/<pid>/exe`
+reads `... (deleted)` — and can serve **days-old code** while every other check (cgroup path, port,
+HTTP 200, feature token in `app.asar`) looks perfectly correct. Every one of those checks reads the
+new files on disk, not the running process. This is the single most likely reason a remote update
+appears to do nothing.
 
 ```bash
 SHIM=~/.config/orca/linux-orca-cli-shim/orca
@@ -232,8 +285,23 @@ cp "$SHIM" "$SHIM.<previous>-backup"          # one-line revert path
 systemctl --user stop orca-server.service
 printf '#!/usr/bin/env bash\nexec %s "$@"\n' "'$HOME/orca-src/dist/linux-unpacked/resources/bin/orca-ide'" > "$SHIM"
 chmod +x "$SHIM"
+
+# Kill every daemon still running a replaced binary (all socket versions, not just the newest).
+for p in $(pgrep -f daemon-entry); do
+  readlink /proc/$p/exe | grep -q '(deleted)' && kill "$p" && echo "killed stale daemon $p"
+done
+sleep 5
+for p in $(pgrep -f daemon-entry); do
+  readlink /proc/$p/exe | grep -q '(deleted)' && kill -9 "$p"
+done
+
 systemctl --user start orca-server.service
 ```
+
+**Killing the daemon terminates every shell it owns** (`pgrep -fc shell-ready` counts them — it is
+routinely 15–20). That is real potential work loss, so **ask the user before doing it** rather than
+folding it into the restart. On a repeat run where the shim already points at `~/orca-src`, this
+daemon kill *is* the whole install — repointing the shim is a no-op.
 
 Reverting is restoring the backup and restarting — say so in the report.
 
@@ -244,16 +312,28 @@ systemctl --user status orca-server.service --no-pager      # cgroup must list t
 ss -tlnp | grep <port>                                      # listener owned by the new orca-ide
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:<port>/   # 200
 strings ~/orca-src/dist/linux-unpacked/resources/app.asar | grep -c <branch-feature-token>
+
+# THE decisive check — no daemon may be running a replaced binary, and it must
+# have started AFTER the build. Empty output and a fresh timestamp, or it is stale.
+for p in $(pgrep -f daemon-entry); do readlink /proc/$p/exe; done | grep '(deleted)'
+ps -eo pid,lstart,args | grep daemon-entry | grep -v grep
+stat -c '%y' ~/orca-src/dist/linux-unpacked/resources/app.asar   # must predate the daemon
 ```
 
-The last one proves the branch's own feature actually shipped, not just that *something* is serving.
+The feature-token grep proves the branch's code is in the bundle *on disk*. It does **not** prove
+anything is executing it — that is what the `(deleted)` and start-time checks are for. Report the
+daemon's start time next to the asar's build time; if the daemon is older, the update did not land
+no matter how green everything else looks.
 
 ### 8g. What to warn the user about
 
 - The restart briefly drops connected clients. Pairings survive because userData, port, and pairing address are unchanged.
 - Agent panes that were already running keep reporting: the hook scripts source `~/.config/orca/agent-hooks/endpoint.env` at fire time, so they pick up the new hook port even though the stale `ORCA_AGENT_HOOK_PORT` is still in their process env. No need to restart agents.
 - `orca serve` needs a display and auto-starts Xvfb **only if Xvfb is installed**. On a desktop distro the user manager usually carries one already — check `systemctl --user show-environment | grep DISPLAY`. If it is absent and Xvfb is missing, installing it needs sudo; surface that rather than silently leaving a server that dies on next boot.
-- The previous install's daemon process can linger under its own socket version (`daemon-vNN`). Harmless, but mention it if the user is debugging session behavior.
+- The previous install's daemon lingers under its own socket version (`daemon-vNN`) and is **not**
+  harmless — see 8e. It keeps serving old code until killed, and the restart alone will not replace
+  it. Killing it drops the shells it owns, so confirm with the user first. Genuinely dead sockets
+  from long-gone installs (e.g. a `daemon-v28` whose process no longer exists) can be left alone.
 
 ## 9. Report
 

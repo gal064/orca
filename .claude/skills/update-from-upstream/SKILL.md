@@ -23,7 +23,7 @@ git remote -v
 - `upstream` must point at `https://github.com/stablyai/orca`. If it is missing, add it:
   `git remote add upstream https://github.com/stablyai/orca`
 
-**Ask about remote servers now, not later.** If the user did not say whether a remote `orca serve` host should also be updated, ask before starting the merge — the answer changes the ordering (the remote clones from `origin`, so the push in step 7 must happen before step 8). One question is enough: which host(s), or none. If they named a host, skip the question and do step 8.
+**The remote host is always `omarchy`.** Never ask which host — that is settled. Ask only *whether* the remote should be updated this run, and ask it before starting the merge, since the answer changes the ordering (the remote clones from `origin`, so the push in step 7 must happen before step 8). If the user already said yes or no, skip the question entirely. Everywhere below, `<host>` means `omarchy`.
 
 ## 2. Find the latest stable tag
 
@@ -156,17 +156,19 @@ If the merge was clean, `git merge` already made the commit — then only fold i
 
 Push to `origin` (the fork) on the current branch only. Never push to `upstream`, never force-push, and do not open a PR.
 
-## 8. Install onto a remote `orca serve` host (only when asked)
+## 8. Install onto the remote `orca serve` host, `omarchy` (only when asked)
 
 Skip this whole step unless the user asked for it in step 1. The remote clones the branch from `origin`, so **step 7 must already be pushed**.
+
+The host is `omarchy` — an Arch box reached over the `omarchy` entry in `~/.ssh/config`. Being Arch, it trips the glibc floor gate in 8d every time; expect that rather than treating it as a new failure.
 
 Build **on the remote host**, never cross-built from the Mac: native modules link against the host's glibc, and a darwin→linux native compile is not viable without Docker.
 
 ### 8a. Preflight the remote
 
 ```bash
-ssh <host> 'uname -m; nproc; df -h /home | tail -1; sudo -n true && echo "passwordless sudo" || echo "sudo needs password"'
-ssh <host> 'command -v git gcc make python3; node -v; ls ~/.nvm >/dev/null && echo "nvm present"'
+ssh omarchy 'uname -m; nproc; df -h /home | tail -1; sudo -n true && echo "passwordless sudo" || echo "sudo needs password"'
+ssh omarchy 'command -v git gcc make python3; node -v; ls ~/.nvm >/dev/null && echo "nvm present"'
 ```
 
 - If `sudo` needs a password, install everything under `$HOME`. **Never** touch `/opt` or the distro package (`pacman`/`apt`) — leave a `stably-orca-bin`-style package installed and simply stop pointing the service at it.
@@ -176,8 +178,8 @@ ssh <host> 'command -v git gcc make python3; node -v; ls ~/.nvm >/dev/null && ec
 ### 8b. Find how the server is actually started — do not invent a service
 
 ```bash
-ssh <host> 'systemctl --user list-units --type=service --all --no-legend | grep -i orca'
-ssh <host> 'systemctl --user cat orca-server.service'
+ssh omarchy 'systemctl --user list-units --type=service --all --no-legend | grep -i orca'
+ssh omarchy 'systemctl --user cat orca-server.service'
 ```
 
 The unit typically calls a **one-line shim** rather than a binary directly, e.g.
@@ -188,7 +190,7 @@ When a shim exists, repointing it **is** the whole install. Leave the unit file,
 ### 8c. Build on the remote
 
 ```bash
-ssh <host> 'export NVM_DIR=$HOME/.nvm; . $NVM_DIR/nvm.sh; nvm use 24
+ssh omarchy 'export NVM_DIR=$HOME/.nvm; . $NVM_DIR/nvm.sh; nvm use 24
   git clone --depth 1 --branch <branch> --single-branch https://github.com/<fork>/orca ~/orca-src
   cd ~/orca-src && corepack pnpm install && corepack pnpm run build:desktop
   corepack pnpm run ensure:electron-runtime

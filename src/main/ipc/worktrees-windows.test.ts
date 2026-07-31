@@ -122,7 +122,7 @@ vi.mock('./pty', () => ({
   getLocalPtyProvider: getLocalPtyProviderMock
 }))
 
-vi.mock('../terminal-history', () => ({
+vi.mock('../terminal-history-deletion', () => ({
   deleteWorktreeHistoryDir: deleteWorktreeHistoryDirMock
 }))
 
@@ -154,6 +154,8 @@ describe('registerWorktreeHandlers – Windows path handling', () => {
     getProjectHostSetups: vi.fn(),
     getSettings: vi.fn(),
     getWorktreeMeta: vi.fn(),
+    // Why: the list handler reads all metadata to synthesize reuse-checkout rows.
+    getAllWorktreeMeta: vi.fn(() => ({})),
     setWorktreeMeta: vi.fn(),
     removeWorktreeMeta: vi.fn()
   }
@@ -428,6 +430,10 @@ describe('registerWorktreeHandlers – Windows path handling', () => {
       })
     )
     expect(store.removeWorktreeMeta).toHaveBeenCalledWith('repo-1::C:/workspaces/improve-dashboard')
+    // Windows history lives under a path-derived hash, so scheduling must not regress on this path only.
+    expect(deleteWorktreeHistoryDirMock).toHaveBeenCalledWith(
+      'repo-1::C:/workspaces/improve-dashboard'
+    )
     expect(mainWindow.webContents.send).toHaveBeenCalledWith('worktrees:changed', {
       repoId: 'repo-1'
     })

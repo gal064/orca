@@ -83,6 +83,13 @@ describe('orchestration RPC methods', () => {
       } else if (name === 'orchestration.dispatch') {
         scopedParams.run ??= activeRunId
         scopedParams.from ??= 'term_coord'
+      } else if (
+        name === 'orchestration.gateCreate' ||
+        name === 'orchestration.gateResolve' ||
+        name === 'orchestration.gateList'
+      ) {
+        // Why: gates resolve their Run from the sender's pane binding, so naming the run would skip that check.
+        scopedParams.from ??= 'term_coord'
       }
     }
     const parsed = method.params ? method.params.parse(scopedParams) : undefined
@@ -164,7 +171,7 @@ describe('orchestration RPC methods', () => {
       await expect(
         call('orchestration.runCreate', { objective: 'No pane', from: 'term_stale' })
       ).rejects.toMatchObject({ code: 'stable_pane_required' })
-      expect(db.listRuns().filter((run) => run.legacy === 0)).toHaveLength(0)
+      expect(db.listRuns().runs.filter((run) => run.legacy === 0)).toHaveLength(0)
     })
 
     it('rebinds explicitly, lists Runs, and keeps the legacy Run inspect-only', async () => {

@@ -43,10 +43,16 @@ import { initObservability, shutdownObservability } from './observability'
 import { registerMobileHandlers } from './ipc/mobile'
 import { initTelemetry, shutdownTelemetry, trackAppOpenedOnce, track } from './telemetry/client'
 import { classifyError } from './telemetry/classify-error'
-import { runManagedHookInstallers } from './agent-hooks/install-telemetry'
+import { recordManagedHookInstallFailure } from './agent-hooks/install-telemetry'
 import {
+  indexPersistedPaneKeyPtyIds,
+  isLocalExecutionHost,
+  resolveAgentWorkspaceExecutionHostId,
+  sweepRestoredSubagentsWithoutLiveAgent
+} from './agent-hooks/restored-subagent-liveness-sweep'
+import {
+  applyAgentStatusHooksEnabled,
   isAgentStatusHooksEnabled,
-  MANAGED_AGENT_HOOK_INSTALLERS,
   removeManagedAgentHooks
 } from './agent-hooks/managed-agent-hook-controls'
 import { initCohortClassifier } from './telemetry/cohort-classifier'
@@ -74,12 +80,14 @@ import { DesktopRelayService } from './runtime/relay/desktop-relay-service'
 import type { RelayBrokerStatus } from './runtime/relay/relay-session-broker'
 import { awaitRuntimeFileWatcherUnsubscribes } from './runtime/orca-runtime-files'
 import { clearRuntimeMetadataIfOwned } from './runtime/runtime-metadata'
+import { scheduleAllPendingHistoryTreeRemovals } from './terminal-history-deletion'
 import { ensureMainI18n, setMainPluginLanguagePacks, setMainUiLanguage } from './i18n/main-i18n'
 import {
   getNextDefaultOnAppearanceSettingValue,
   registerAppMenu,
   rebuildAppMenu
 } from './menu/register-app-menu'
+import { createGpuAccelerationAboutPanelOptions } from './menu/gpu-acceleration-about-panel'
 import {
   checkForRemoteServerUpdate,
   checkForUpdatesFromMenu,
@@ -120,6 +128,7 @@ import {
   type GpuFallbackEnvironment,
   type WindowsGpuFallbackEnvironment
 } from './startup/gpu-fallback-marker'
+import { applyGpuFallbackCommandLineSwitches } from './startup/gpu-fallback-switches'
 import {
   DEFAULT_GPU_CRASH_FALLBACK_THRESHOLD,
   DEFAULT_GPU_CRASH_FALLBACK_WINDOW_MS,
@@ -351,10 +360,30 @@ const gpuCrashFallbackTracker = new GpuCrashFallbackTracker({
   threshold: DEFAULT_GPU_CRASH_FALLBACK_THRESHOLD
 })
 let gpuFallbackActiveThisLaunch = false
+let gpuFeatureStatus: Electron.GPUFeatureStatus | null = null
 let localPtyStartupReady: Promise<void> = Promise.resolve()
 let localPtyProviderStartupReady: Promise<void> = Promise.resolve()
 const AGENT_STATE_CRASH_BREADCRUMB_MIN_INTERVAL_MS = 30_000
 const isServeMode = process.argv.includes('--serve')
+
+function updateGpuAccelerationAboutPanel(): void {
+  app.setAboutPanelOptions(
+    createGpuAccelerationAboutPanelOptions({
+      appName: app.name,
+      appVersion: app.getVersion(),
+      platform: process.platform,
+      gpuFallbackActive: gpuFallbackActiveThisLaunch,
+      gpuFeatureStatus
+    })
+  )
+}
+
+app.on('gpu-info-update', () => {
+  gpuFeatureStatus = app.getGPUFeatureStatus()
+  if (app.isReady()) {
+    updateGpuAccelerationAboutPanel()
+  }
+})
 if (isServeMode) {
   reserveServeStdoutForReadiness()
 }
@@ -763,6 +792,46 @@ ipcMain.handle(
   }
 )
 
+/** A PTY that dies while Orca is down never runs the teardown that clears pane
+ *  state, so hydrate can rebuild a Claude subagent roster that no later hook can
+ *  retire — pinning the pane 'working' and locking its agent out of hibernation
+ *  for good. Once provider and hook hydration settle, targeted PTY liveness can
+ *  retire only rows whose local owner is proven gone. */
+async function reapRestoredSubagentsWithoutLiveAgent(): Promise<void> {
+  const currentStore = store
+  if (!currentStore) {
+    return
+  }
+  const provider = getDaemonProvider()
+  if (!provider) {
+    return
+  }
+  const persistedPtyIdByPaneKey = indexPersistedPaneKeyPtyIds(
+    currentStore.getWorkspaceSession().terminalLayoutsByTabId ?? {}
+  )
+  await sweepRestoredSubagentsWithoutLiveAgent({
+    probeLiveLocalPty: (ptyId) => provider.probePtyLiveness(ptyId),
+    isLocalExecutionHost: (worktreeId) =>
+      isLocalExecutionHost(
+        resolveAgentWorkspaceExecutionHostId(worktreeId, {
+          getRepo: (repoId) => currentStore.getRepo(repoId),
+          getWorktreeMeta: (resolvedWorktreeId) => currentStore.getWorktreeMeta(resolvedWorktreeId),
+          getFolderWorkspace: (folderWorkspaceId) =>
+            currentStore.getFolderWorkspace(folderWorkspaceId),
+          getProjectGroups: () => currentStore.getProjectGroups()
+        })
+      ),
+    getBoundPtyIdForPaneKey: getPtyIdForPaneKey,
+    getPersistedPtyIdForPaneKey: (paneKey) => persistedPtyIdByPaneKey.get(paneKey),
+    reap: (isLocalHost, isLocalPaneAgentLive, isLocalPaneLivenessEvidenceCurrent) =>
+      agentHookServer.reapRestoredClaudeSubagentsWithoutLiveAgent(
+        isLocalHost,
+        isLocalPaneAgentLive,
+        isLocalPaneLivenessEvidenceCurrent
+      )
+  })
+}
+
 function startTerminalRuntimeStartupServices(): Promise<void> {
   logStartupMilestone('first-window-startup-services-start')
   const startupServices = startFirstWindowStartupServices({
@@ -811,6 +880,9 @@ function startTerminalRuntimeStartupServices(): Promise<void> {
   })
   void localPtyStartupReady.then(() => {
     logStartupMilestone('local-pty-startup-ready')
+    void reapRestoredSubagentsWithoutLiveAgent().catch((error) => {
+      console.warn('[agent-hooks] restored-subagent liveness probe failed:', error)
+    })
   })
   return firstWindowStartupServicesReady
 }
@@ -1468,10 +1540,13 @@ function maybeApplyGpuFallbackForThisLaunch(): void {
     return
   }
   app.disableHardwareAcceleration()
-  app.commandLine.appendSwitch('disable-gpu')
+  const appliedSwitches = applyGpuFallbackCommandLineSwitches(app.commandLine, process.platform)
   gpuFallbackActiveThisLaunch = true
+  // Why: with no GPU child left, child-process-gone can't report a GPU fault, so
+  // name the applied switches in the trail any later crash report carries.
   recordCrashBreadcrumb('gpu_fallback_applied', {
-    crashesInWindow: marker.crashesInWindow
+    crashesInWindow: marker.crashesInWindow,
+    switches: appliedSwitches.join(',')
   })
 }
 
@@ -1491,23 +1566,6 @@ async function handleGpuChildCrash(reason: string, exitCode: number | null): Pro
     crashesInWindow: result.crashesInWindow
   })
   const engagedAt = Date.now()
-  const environment = getWindowsGpuFallbackEnvironment()
-  if (!environment) {
-    return
-  }
-  try {
-    writeGpuFallbackMarker(
-      app.getPath('userData'),
-      {
-        engagedAt,
-        crashesInWindow: result.crashesInWindow
-      },
-      environment
-    )
-  } catch (error) {
-    console.warn('[gpu-fallback] failed to persist marker:', error)
-    return
-  }
   const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
   let restartDecision: GpuFallbackRestartDecision
   try {
@@ -1526,6 +1584,23 @@ async function handleGpuChildCrash(reason: string, exitCode: number | null): Pro
   }
   if (restartDecision !== 'restart') {
     recordDurableCrashBreadcrumb('gpu_fallback_restart_deferred', fallbackData)
+    return
+  }
+  const environment = getWindowsGpuFallbackEnvironment()
+  if (!environment) {
+    return
+  }
+  try {
+    writeGpuFallbackMarker(
+      app.getPath('userData'),
+      {
+        engagedAt,
+        crashesInWindow: result.crashesInWindow
+      },
+      environment
+    )
+  } catch (error) {
+    console.warn('[gpu-fallback] failed to persist marker:', error)
     return
   }
   isQuitting = true
@@ -1914,6 +1989,7 @@ void app.whenReady().then(async () => {
   electronApp.setAppUserModelId(devInstanceIdentity.appUserModelId)
   // Why: setName drives the macOS safeStorage Keychain item name; use the stable appName (not per-branch `name`) so dev branches share one key and don't re-prompt.
   app.setName(devInstanceIdentity.appName)
+  updateGpuAccelerationAboutPanel()
 
   // Why: managed WSL launchers live outside the Windows app bundle, so keep their launcher/bridge contract synced across app updates.
   managedWslCliReconciliationStatus = 'pending'
@@ -1947,6 +2023,7 @@ void app.whenReady().then(async () => {
 
   const activeOrcaProfile = ensureActiveOrcaProfile()
   store = new Store({ dataFile: activeOrcaProfile.dataFile })
+  wslHookRelayManager.setManagedHookSettingsResolver(() => store?.getSettings() ?? null)
   logStartupMilestone('store-loaded')
   // Why: apply initial fallback WSL distro from store settings for global git/CLI calls.
   setDefaultWslDistroOverride(store.getSettings().terminalWindowsWslDistro ?? null)
@@ -2507,7 +2584,17 @@ void app.whenReady().then(async () => {
   if (shouldInstallManagedHooks(is.dev)) {
     // Why: check the persisted off switch before any auto-install so removed hooks don't silently reappear on launch.
     if (isAgentStatusHooksEnabled(store.getSettings())) {
-      runManagedHookInstallers(MANAGED_AGENT_HOOK_INSTALLERS)
+      const managedHookStore = store
+      void applyAgentStatusHooksEnabled(true, managedHookStore.getSettings(), {
+        shouldHydrateShellPath: app.isPackaged && process.platform !== 'win32',
+        onInstallError: recordManagedHookInstallFailure,
+        shouldContinue: (agent) => {
+          const settings = managedHookStore.getSettings()
+          return isAgentStatusHooksEnabled(settings) && !settings.disabledTuiAgents.includes(agent)
+        }
+      }).catch((error) => {
+        console.warn('[agent-hooks] failed to reconcile managed hooks on startup:', error)
+      })
     } else {
       removeManagedAgentHooks()
     }
@@ -2742,6 +2829,9 @@ void app.whenReady().then(async () => {
     }
     // Why: headless serve never opens a renderer, so arm scheduled automation dispatch here.
     automations.start()
+    // Why: serve deletes worktrees too, and the history GC that normally drains delete tombstones is
+    // armed from the main window — without this, a quit mid-removal leaks the tree until a desktop launch.
+    scheduleAllPendingHistoryTreeRemovals()
     await printServeReady(serveOptions)
     return
   }
@@ -2868,6 +2958,13 @@ app.on('will-quit', (e) => {
   killAllPty()
   const watcherShutdown = shutdownWatchersOnce()
   store?.flush()
+  // Why: usage-cache writes are queued off the main thread, so a quit right after setEnabled or a
+  // scan completion would drop the final snapshot. Captured before any await; joins the barrier below.
+  const usageCacheFlush = Promise.all([
+    claudeUsage?.flush(),
+    codexUsage?.flush(),
+    openCodeUsage?.flush()
+  ]).then(() => {})
 
   // Why: preventDefault to await disconnectDaemon's async checkpoint writes (else data lost); guard prevents an infinite quit loop on the re-fired will-quit.
   if (!daemonDisconnectDone) {
@@ -2901,7 +2998,8 @@ app.on('will-quit', (e) => {
       { name: 'runtime-rpc', promise: rpcStopAndClear },
       { name: 'watchers', promise: watcherShutdown },
       { name: 'emulator', promise: emulatorShutdown },
-      { name: 'plugin-hosts', promise: pluginHostShutdown }
+      { name: 'plugin-hosts', promise: pluginHostShutdown },
+      { name: 'usage-cache', promise: usageCacheFlush }
     ])
       .then((pendingTeardowns) => {
         if (pendingTeardowns.length > 0) {

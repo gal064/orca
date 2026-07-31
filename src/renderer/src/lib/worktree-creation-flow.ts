@@ -26,6 +26,7 @@ import type {
 } from '@/lib/pending-worktree-creation'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { seedAgentTabStateAfterWorktreeCreate } from '@/lib/worktree-creation-agent-seeds'
+import { resolveBackendDraftStartup } from '@/lib/worktree-draft-startup-view-mode'
 
 type ContinueBackgroundWorktreeCreationOptions = {
   revealCreationSurface?: boolean
@@ -48,6 +49,9 @@ function buildStartupOpt(
     ...(plan.launchToken ? { launchToken: plan.launchToken } : {}),
     ...(request.agent ? { launchAgent: request.agent } : {}),
     ...(plan.draftPrompt ? { draftPrompt: plan.draftPrompt } : {}),
+    // Why: view-mode only. An argv-prefill plan sets no draftPrompt, so this is
+    // the sole signal that this launch starts with unsent context in the TUI.
+    ...(request.launchDraftPrompt ? { launchDraftText: request.launchDraftPrompt } : {}),
     ...(plan.startupCommandDelivery ? { startupCommandDelivery: plan.startupCommandDelivery } : {}),
     // Why: command-code shows its prompt in the tab status before the first
     // hook fires, so the prompt is threaded through here.
@@ -138,36 +142,47 @@ async function executeWorktreeCreation(
 
   let result: CreateWorktreeResult
   try {
-    result = await useAppStore.getState().createWorktree(
-      preparedRequest.repoId,
-      preparedRequest.name,
-      preparedRequest.baseBranch,
-      preparedRequest.setupDecision,
-      preparedRequest.sparseCheckout,
-      preparedRequest.telemetrySource,
-      preparedRequest.displayName,
-      preparedRequest.linkedIssue,
-      preparedRequest.linkedPR,
-      preparedRequest.pushTarget,
-      preparedRequest.agent ?? undefined,
-      preparedRequest.linkedLinearIssue,
-      preparedRequest.branchNameOverride,
-      preparedRequest.workspaceStatus,
-      preparedRequest.linkedGitLabMR,
-      preparedRequest.linkedGitLabIssue,
-      preparedRequest.startup,
-      preparedRequest.pendingFirstAgentMessageRename,
-      creationId,
-      preparedRequest.linkedLinearIssueWorkspaceId,
-      preparedRequest.linkedLinearIssueOrganizationUrlKey,
-      preparedRequest.linkedBitbucketPR,
-      preparedRequest.linkedAzureDevOpsPR,
-      preparedRequest.linkedGiteaPR,
-      preparedRequest.compareBaseRef,
-      // Why: the store's trailing options arg is where reuseCheckout reaches the
-      // backend; the quick composer omitted it, so the toggle never took effect.
-      preparedRequest.reuseCheckout ? { reuseCheckout: true } : undefined
-    )
+    const backendStartup = resolveBackendDraftStartup(preparedRequest)
+    result = await useAppStore
+      .getState()
+      .createWorktree(
+        preparedRequest.repoId,
+        preparedRequest.name,
+        preparedRequest.baseBranch,
+        preparedRequest.setupDecision,
+        preparedRequest.sparseCheckout,
+        preparedRequest.telemetrySource,
+        preparedRequest.displayName,
+        preparedRequest.linkedIssue,
+        preparedRequest.linkedPR,
+        preparedRequest.pushTarget,
+        preparedRequest.agent ?? undefined,
+        preparedRequest.linkedLinearIssue,
+        preparedRequest.branchNameOverride,
+        preparedRequest.workspaceStatus,
+        preparedRequest.linkedGitLabMR,
+        preparedRequest.linkedGitLabIssue,
+        backendStartup,
+        preparedRequest.pendingFirstAgentMessageRename,
+        creationId,
+        preparedRequest.linkedLinearIssueWorkspaceId,
+        preparedRequest.linkedLinearIssueOrganizationUrlKey,
+        preparedRequest.linkedBitbucketPR,
+        preparedRequest.linkedAzureDevOpsPR,
+        preparedRequest.linkedGiteaPR,
+        preparedRequest.compareBaseRef,
+        {
+          ...(preparedRequest.linkedWorkItem !== undefined
+            ? { linkedWorkItem: preparedRequest.linkedWorkItem }
+            : {}),
+          ...(preparedRequest.linkedTaskSourceContext !== undefined
+            ? { linkedTaskSourceContext: preparedRequest.linkedTaskSourceContext }
+            : {}),
+          // Why: the store's trailing options arg is where reuseCheckout reaches the
+          // backend; the quick composer omitted it, so the toggle never took effect.
+          ...(preparedRequest.reuseCheckout ? { reuseCheckout: true } : {})
+        }
+      )
   } catch (error) {
     // Why: a missing entry means the user cancelled mid-flight — abandon
     // silently rather than surfacing an error for work they already dismissed.

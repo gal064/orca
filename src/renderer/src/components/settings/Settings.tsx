@@ -121,6 +121,7 @@ import {
   buildRepoIdToRepresentative,
   buildSettingsProjectList,
   getSettingsProjectHostRepo,
+  getSettingsTargetHostSelection,
   removeSettingsProjectFromAllHosts,
   resolveSettingsTargetRepoId
 } from './settings-project-list'
@@ -181,7 +182,7 @@ function getSettingsSectionId(
   pane: SettingsNavTarget,
   repoId: string | null,
   repoIdToRepresentative: Map<string, string>
-): string {
+) {
   if (pane === 'repo' && repoId) {
     // Why: Settings renders one collapsed pane per project, so resolve a repoId target to its project's representative section.
     return `repo-${repoIdToRepresentative.get(repoId) ?? repoId}`
@@ -350,9 +351,8 @@ function Settings(): React.JSX.Element {
     discoveryTarget: activeSkillRuntime.discoveryTarget,
     sourceKinds: GLOBAL_AGENT_SKILL_SOURCE_KINDS
   })
-  // Why: skill freshness only covers the validated global rail (not WSL), so the nav pill stays presence-only under WSL.
-  const { inventory: skillFreshnessInventory } = useSkillFreshness()
-  const skillFreshnessApplies = activeSkillRuntime.agentRuntime?.runtime !== 'wsl'
+  const skillFreshnessApplies = activeSkillRuntime.canUseLocalSkillFreshness
+  const { inventory: skillFreshnessInventory } = useSkillFreshness(skillFreshnessApplies)
   const [voiceModelStatesLoading, setVoiceModelStatesLoading] = useState(showDesktopOnlySettings)
   // Why: trim platform-only Terminal entries from the shared search index so search never reveals hidden controls.
   const [scrollbackMode, setScrollbackMode] = useState<'preset' | 'custom'>('preset')
@@ -632,7 +632,7 @@ function Settings(): React.JSX.Element {
     }
 
     const paneSectionId = getSettingsSectionId(
-      settingsNavigationTarget.pane as SettingsNavTarget,
+      settingsNavigationTarget.pane,
       settingsNavigationTarget.repoId,
       repoIdToRepresentative
     )
@@ -642,9 +642,21 @@ function Settings(): React.JSX.Element {
       repoIdToHostSelection.keys()
     )
     if (targetRepoId) {
-      const hostSelection = repoIdToHostSelection.get(targetRepoId)
+      const hostSelection = settingsNavigationTarget.hostId
+        ? getSettingsTargetHostSelection(
+            settingsProjectList,
+            targetRepoId,
+            settingsNavigationTarget.hostId
+          )
+        : repoIdToHostSelection.get(targetRepoId)
       if (hostSelection) {
-        setSettingsProjectHostSelection(hostSelection.projectId, hostSelection.hostId)
+        setSettingsProjectHostSelection(
+          hostSelection.projectId,
+          hostSelection.hostId,
+          'setupId' in hostSelection && typeof hostSelection.setupId === 'string'
+            ? hostSelection.setupId
+            : undefined
+        )
       }
     }
     pendingNavSectionRef.current = paneSectionId
@@ -678,6 +690,7 @@ function Settings(): React.JSX.Element {
     repoIdToRepresentative,
     setSettingsProjectHostSelection,
     settings,
+    settingsProjectList,
     settingsNavigationTarget
   ])
 
@@ -1267,7 +1280,7 @@ function Settings(): React.JSX.Element {
                     title={translate('auto.components.settings.Settings.linearTitle', 'Linear')}
                     description={translate(
                       'auto.components.settings.Settings.linearDescription',
-                      'Give agents the skill to read and update your linked Linear tickets.'
+                      'How Linear works in Orca, setup checklist, agent skill, and example prompts.'
                     )}
                     searchEntries={getSectionSearchEntries('linear')}
                   >
@@ -1417,8 +1430,8 @@ function Settings(): React.JSX.Element {
                   id="tasks"
                   title={translate('auto.components.settings.Settings.11faa2f7dd', 'Task Sources')}
                   description={translate(
-                    'auto.components.settings.Settings.dd72ed437a',
-                    'Choose which task providers appear in the Tasks page and sidebar.'
+                    'auto.components.settings.Settings.tasksDescription',
+                    'Connect providers, install the Linear skill, and choose what appears in Tasks.'
                   )}
                   searchEntries={getSectionSearchEntries('tasks')}
                 >

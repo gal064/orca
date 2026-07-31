@@ -12,7 +12,7 @@ import { isTerminalLinkifierHoverActive } from '@/lib/pane-manager/terminal-link
 
 type UrlLinkHitTestDeps = {
   worktreeId: string
-  forceSystemBrowser?: boolean
+  modifierHeld?: boolean
   requestOpenLinksInAppPreference?: TerminalLinkRoutingPreferenceRequester
 }
 
@@ -229,7 +229,7 @@ export function installHttpLinkClickFallback(
     // never established, while defaultPrevented avoids duplicate opens.
     const opened = openHttpLinkAtTerminalMouseEvent(terminal, event, {
       worktreeId: deps.worktreeId,
-      forceSystemBrowser: event.shiftKey,
+      modifierHeld: event.shiftKey,
       requestOpenLinksInAppPreference: deps.requestOpenLinksInAppPreference
     })
     if (opened) {
@@ -307,8 +307,10 @@ function rangeContainsBufferPosition(
 }
 
 export function openTerminalHttpLink(url: string, deps: UrlLinkHitTestDeps): void {
-  if (deps.forceSystemBrowser) {
-    openHttpLink(url, { worktreeId: deps.worktreeId, forceSystemBrowser: true })
+  if (deps.modifierHeld) {
+    // Why: the modifier states a destination outright, so it also skips the
+    // one-time routing prompt; openHttpLink resolves which destination it means.
+    openHttpLink(url, { worktreeId: deps.worktreeId, modifierHeld: true })
     return
   }
 

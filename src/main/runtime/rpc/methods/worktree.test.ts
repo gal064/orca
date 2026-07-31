@@ -130,6 +130,8 @@ describe('worktree RPC methods', () => {
     expect(runtime.createManagedWorktree).toHaveBeenCalledWith({
       repoSelector: 'repo-1',
       name: 'feature',
+      // Why: the handler normalizes the optional flag to a boolean, so it is always sent.
+      reuseCheckout: false,
       branchNameOverride: 'feature/something',
       baseBranch: 'origin/main',
       linkedIssue: 123,

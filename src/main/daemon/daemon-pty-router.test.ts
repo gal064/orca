@@ -63,6 +63,7 @@ function createAdapter(
       }))
     ),
     hasPty: vi.fn((id: string) => sessions.includes(id)),
+    probePtyLiveness: vi.fn(async (id: string) => sessions.includes(id)),
     write: vi.fn((id: string, data: string) => {
       writes.push({ id, data })
     }),
@@ -471,6 +472,25 @@ describe('DaemonPtyRouter', () => {
     expect(current.hasPty).not.toHaveBeenCalledWith('legacy-session')
   })
 
+  it('probes every possible daemon owner for an unmapped session', async () => {
+    const current = createAdapter('current')
+    const legacy = createAdapter('legacy', ['surviving-session'])
+    const router = new DaemonPtyRouter({ current, legacy: [legacy] })
+
+    await expect(router.probePtyLiveness('surviving-session')).resolves.toBe(true)
+    expect(current.probePtyLiveness).toHaveBeenCalledExactlyOnceWith('surviving-session')
+    expect(legacy.probePtyLiveness).toHaveBeenCalledExactlyOnceWith('surviving-session')
+  })
+
+  it('does not report absence while any possible daemon owner is unavailable', async () => {
+    const current = createAdapter('current')
+    const legacy = createAdapter('legacy')
+    vi.mocked(legacy.probePtyLiveness).mockResolvedValue(null)
+    const router = new DaemonPtyRouter({ current, legacy: [legacy] })
+
+    await expect(router.probePtyLiveness('unknown-session')).resolves.toBeNull()
+  })
+
   it('hands a checkpointed pre-v30 session to the current daemon on wake', async () => {
     const current = createAdapter('current', [], undefined, HISTORY_SEED_TRANSFER_PROTOCOL_VERSION)
     const legacy = createAdapter(
@@ -524,6 +544,35 @@ describe('DaemonPtyRouter', () => {
     const router = new DaemonPtyRouter({ current, legacy: [legacy] })
 
     await expect(router.listProcesses()).rejects.toThrow('legacy unavailable')
+  })
+
+  it('keeps a legacy adapter that exits after construction in fail-closed aggregates', async () => {
+    const current = createAdapter('current', ['current-session'])
+    const legacy = createAdapter('legacy', ['legacy-session'])
+    const router = new DaemonPtyRouter({ current, legacy: [legacy] })
+    await router.discoverLegacySessions()
+    vi.mocked(legacy.listProcesses).mockRejectedValue(new Error('legacy exited'))
+
+    await expect(router.listProcesses()).rejects.toThrow('legacy exited')
+    await expect(router.listProcesses()).rejects.toThrow('legacy exited')
+    expect(router.getLegacyAdapters()).toEqual([legacy])
+    expect(current.listProcesses).toHaveBeenCalledTimes(2)
+  })
+
+  it('pins colliding unmapped legacy ids falling through to the current daemon', async () => {
+    const sessionId = 'cross-generation-collision'
+    const current = createAdapter('current', [sessionId])
+    const legacy = createAdapter('legacy', [sessionId])
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.mocked(legacy.listProcesses).mockRejectedValueOnce(new Error('legacy discovery failed'))
+    const router = new DaemonPtyRouter({ current, legacy: [legacy] })
+
+    await router.discoverLegacySessions()
+    router.write(sessionId, 'misrouted\n')
+
+    expect(current.write).toHaveBeenCalledWith(sessionId, 'misrouted\n')
+    expect(legacy.write).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it('merges startup reconciliation and updates route mappings', async () => {

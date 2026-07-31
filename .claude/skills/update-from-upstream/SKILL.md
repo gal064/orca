@@ -1,11 +1,11 @@
 ---
 name: update-from-upstream
-description: Pull the latest stable release tag from the upstream Orca repo (stablyai/orca), merge it into the current local branch, then build and install the app onto this machine. Use when the user asks to "update from upstream", "pull latest stable", "merge the latest release", or "rebuild and install Orca".
+description: Pull the latest stable release tag from the upstream Orca repo (stablyai/orca), merge it into the current local branch, then build and install the app onto this machine and, when asked, onto a remote `orca serve` host. Use when the user asks to "update from upstream", "pull latest stable", "merge the latest release", "rebuild and install Orca", or to update a remote Orca server.
 ---
 
 # Update from upstream stable release
 
-Merge the newest **stable** upstream release into the current branch, then build and install it locally.
+Merge the newest **stable** upstream release into the current branch, then build and install it locally — and, when the user wants it, onto a remote `orca serve` host too (step 8).
 
 Stable = tag matching `^v[0-9]+\.[0-9]+\.[0-9]+$`. Anything with a suffix (`-rc.0`, `.issue7936`, `.ghes`) is **not** stable and must be skipped.
 
@@ -22,6 +22,8 @@ git remote -v
 - Working tree must be clean. If not, stop and ask whether to stash or commit — never discard the user's changes.
 - `upstream` must point at `https://github.com/stablyai/orca`. If it is missing, add it:
   `git remote add upstream https://github.com/stablyai/orca`
+
+**Ask about remote servers now, not later.** If the user did not say whether a remote `orca serve` host should also be updated, ask before starting the merge — the answer changes the ordering (the remote clones from `origin`, so the push in step 7 must happen before step 8). One question is enough: which host(s), or none. If they named a host, skip the question and do step 8.
 
 ## 2. Find the latest stable tag
 
@@ -154,6 +156,105 @@ If the merge was clean, `git merge` already made the commit — then only fold i
 
 Push to `origin` (the fork) on the current branch only. Never push to `upstream`, never force-push, and do not open a PR.
 
-## 8. Report
+## 8. Install onto a remote `orca serve` host (only when asked)
+
+Skip this whole step unless the user asked for it in step 1. The remote clones the branch from `origin`, so **step 7 must already be pushed**.
+
+Build **on the remote host**, never cross-built from the Mac: native modules link against the host's glibc, and a darwin→linux native compile is not viable without Docker.
+
+### 8a. Preflight the remote
+
+```bash
+ssh <host> 'uname -m; nproc; df -h /home | tail -1; sudo -n true && echo "passwordless sudo" || echo "sudo needs password"'
+ssh <host> 'command -v git gcc make python3; node -v; ls ~/.nvm >/dev/null && echo "nvm present"'
+```
+
+- If `sudo` needs a password, install everything under `$HOME`. **Never** touch `/opt` or the distro package (`pacman`/`apt`) — leave a `stably-orca-bin`-style package installed and simply stop pointing the service at it.
+- Node 24 and the pinned pnpm are required, same as locally. `nvm` is usually already there: `. ~/.nvm/nvm.sh && nvm use 24`, then `corepack pnpm` (no global install, no sudo).
+- Budget ~4 GB for the clone plus build output.
+
+### 8b. Find how the server is actually started — do not invent a service
+
+```bash
+ssh <host> 'systemctl --user list-units --type=service --all --no-legend | grep -i orca'
+ssh <host> 'systemctl --user cat orca-server.service'
+```
+
+The unit typically calls a **one-line shim** rather than a binary directly, e.g.
+`~/.config/orca/linux-orca-cli-shim/orca` → `exec '/opt/<pkg>/resources/bin/orca-ide' "$@"`.
+
+When a shim exists, repointing it **is** the whole install. Leave the unit file, `--port`, and `--pairing-address` exactly as they are — matching the existing values is what keeps already-paired clients working. Ask the user before changing a port or run mode; "it's already running" means match it, not replace it.
+
+### 8c. Build on the remote
+
+```bash
+ssh <host> 'export NVM_DIR=$HOME/.nvm; . $NVM_DIR/nvm.sh; nvm use 24
+  git clone --depth 1 --branch <branch> --single-branch https://github.com/<fork>/orca ~/orca-src
+  cd ~/orca-src && corepack pnpm install && corepack pnpm run build:desktop
+  corepack pnpm run ensure:electron-runtime
+  npx electron-builder --config config/electron-builder.config.cjs --linux dir'
+```
+
+Use `electron-builder --linux dir` directly — `pnpm run build:linux` hardcodes the `AppImage deb` targets and appending `--dir` does not override them.
+
+### 8d. The glibc floor gate will fail on a modern distro
+
+On anything newer than the Ubuntu 20.04 floor (Arch, Fedora), `afterPack` aborts packaging because node-pty just compiled against the host's glibc:
+
+```
+⨯ [verify-linux-glibc-floor] ... node-pty.node needs GLIBC_2.42 (from libc.so.6)
+```
+
+There is no supported opt-out, and the half-written `dist/linux-unpacked` is **not** usable — everything after the gate (`prunePackagedRuntimeNodeModules`, the daemon-entry boot check, `chmodUnixCliLaunchers`, which is what makes `resources/bin/orca-ide` executable) is skipped.
+
+For a host-local server the floor is irrelevant, so patch **the remote clone only** — never commit it, never push it:
+
+```js
+// ~/orca-src/config/electron-builder.config.cjs
+if (context.electronPlatformName === 'linux' && !process.env.ORCA_SKIP_LINUX_GLIBC_FLOOR) {
+  verifyLinuxGlibcFloor(context.appOutDir)
+}
+```
+
+Then rebuild with `ORCA_SKIP_LINUX_GLIBC_FLOOR=1`. Rules that come with the bypass:
+
+- The artifact runs **only** on the machine that compiled it. Never copy `dist/linux-unpacked` to another Linux host — it crashes on startup on any older glibc.
+- Every other `afterPack` check must still pass. `verify-packaged-daemon-entry` or `verify-packaged-plugin-resources` failing is a real regression, not something else to bypass.
+- Say plainly in the report that the gate was bypassed and why.
+
+### 8e. Repoint the shim and restart
+
+```bash
+SHIM=~/.config/orca/linux-orca-cli-shim/orca
+cp "$SHIM" "$SHIM.<previous>-backup"          # one-line revert path
+systemctl --user stop orca-server.service
+printf '#!/usr/bin/env bash\nexec %s "$@"\n' "'$HOME/orca-src/dist/linux-unpacked/resources/bin/orca-ide'" > "$SHIM"
+chmod +x "$SHIM"
+systemctl --user start orca-server.service
+```
+
+Reverting is restoring the backup and restarting — say so in the report.
+
+### 8f. Verify before calling it done
+
+```bash
+systemctl --user status orca-server.service --no-pager      # cgroup must list the NEW path
+ss -tlnp | grep <port>                                      # listener owned by the new orca-ide
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:<port>/   # 200
+strings ~/orca-src/dist/linux-unpacked/resources/app.asar | grep -c <branch-feature-token>
+```
+
+The last one proves the branch's own feature actually shipped, not just that *something* is serving.
+
+### 8g. What to warn the user about
+
+- The restart briefly drops connected clients. Pairings survive because userData, port, and pairing address are unchanged.
+- Agent panes that were already running keep reporting: the hook scripts source `~/.config/orca/agent-hooks/endpoint.env` at fire time, so they pick up the new hook port even though the stale `ORCA_AGENT_HOOK_PORT` is still in their process env. No need to restart agents.
+- `orca serve` needs a display and auto-starts Xvfb **only if Xvfb is installed**. On a desktop distro the user manager usually carries one already — check `systemctl --user show-environment | grep DISPLAY`. If it is absent and Xvfb is missing, installing it needs sudo; surface that rather than silently leaving a server that dies on next boot.
+- The previous install's daemon process can linger under its own socket version (`daemon-vNN`). Harmless, but mention it if the user is debugging session behavior.
+
+## 9. Report
 
 State: the tag merged, whether there were conflicts and how they were resolved, the installed version (`/Applications/Orca.app/Contents/Info.plist` → `CFBundleShortVersionString`, or `orca --version`), and the branch pushed to `origin`. On macOS also report the `codesign --verify` result and remind the user to accept the notification permission prompt on first launch.
+
+If step 8 ran, also state: the host, what the shim now points at and how to revert it, the verification results (service active, port listening, HTTP probe, feature token present), whether the glibc floor gate was bypassed and the resulting do-not-copy constraint, and any Xvfb/display gap left open.

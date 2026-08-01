@@ -5620,15 +5620,30 @@ export class OrcaRuntimeService {
               ),
               mergedBrowserOrder
             )
-          : [
-              {
-                id: groupId,
-                activeTabId: mergedActiveTab?.id
-                  ? (activeTab?.parentTabId ?? mergedActiveTab.id)
-                  : (tabOrder[0] ?? null),
-                tabOrder
-              }
-            ]
+          : // Why: deriving the group order from the tabs array rebuilt it on every
+            // publication, and republishing a surface re-appends it — so the order
+            // rotated on each snapshot and the client's tab bar shuffled. Reuse the
+            // retaining merge whenever a prior group exists; only a first-ever
+            // publication falls back to raw array order.
+            existing?.tabGroups && existing.tabGroups.length > 0
+            ? this.appendBrowserTabOrder(
+                this.mergeMobileSessionTabGroups(
+                  entryWorktreeId,
+                  existing.tabGroups,
+                  mergedTerminalTabs,
+                  mergedActiveTab?.type === 'terminal' ? mergedActiveTab : null
+                ),
+                mergedBrowserOrder
+              )
+            : [
+                {
+                  id: groupId,
+                  activeTabId: mergedActiveTab?.id
+                    ? (activeTab?.parentTabId ?? mergedActiveTab.id)
+                    : (tabOrder[0] ?? null),
+                  tabOrder
+                }
+              ]
       // Why: merging runtime tabs INTO a renderer publication must not reclass
       // the snapshot as headless-built — the preservation predicate would then
       // treat the renderer's own tabs as runtime-owned and resurrect tabs the

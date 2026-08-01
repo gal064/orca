@@ -1224,49 +1224,9 @@ describe('applyWebSessionTabsSnapshot', () => {
     ).toBe('chat')
   })
 
-  it('pins sortOrder to the client value so a resync cannot reshuffle the tab bar', () => {
-    // The tab bar sorts by sortOrder. Re-deriving it from the host surface index made
-    // tabs jump on every resync — and a rename forces a resync.
-    const mirroredId = toWebTerminalSurfaceTabId('host-tab-1')
-    const existingTab: TerminalTab = {
-      id: mirroredId,
-      ptyId: 'remote:web-env-1@@terminal-1',
-      worktreeId: WT,
-      title: 'shell',
-      defaultTitle: 'shell',
-      customTitle: null,
-      color: null,
-      sortOrder: 7,
-      createdAt: NOW
-    }
-
-    const patch = applyWebSessionTabsSnapshot(
-      makeState({
-        tabsByWorktree: { [WT]: [existingTab] },
-        ptyIdsByTabId: { [mirroredId]: ['remote:web-env-1@@terminal-1'] }
-      }),
-      makeSnapshot([
-        {
-          type: 'terminal',
-          id: HOST_SURFACE_ID,
-          title: 'renamed shell',
-          parentTabId: 'host-tab-1',
-          leafId: LEAF_ID,
-          isActive: true,
-          status: 'ready',
-          terminal: 'terminal-1'
-        }
-      ]),
-      ENV,
-      NOW + 1
-    ) as Partial<WebSessionTabsSyncState>
-
-    expect(patch.tabsByWorktree?.[WT]?.[0]?.sortOrder).toBe(7)
-  })
-
-  it('keeps the last known title when the host reports an empty one', () => {
-    // A remote host omits titles for panes it is not actively streaming; falling back to
-    // 'Terminal' relabelled every idle tab until it was clicked.
+  it('keeps the real title when the host publishes its pending-handle placeholder', () => {
+    // A headless host has no live PTY for an unfocused pane, so it publishes the literal
+    // 'Terminal'. Adopting it relabelled every idle tab until it was clicked.
     const mirroredId = toWebTerminalSurfaceTabId('host-tab-1')
     const existingTab: TerminalTab = {
       id: mirroredId,
@@ -1289,13 +1249,14 @@ describe('applyWebSessionTabsSnapshot', () => {
         {
           type: 'terminal',
           id: HOST_SURFACE_ID,
-          title: '',
+          // Exactly what a headless host publishes for an unfocused pane.
+          title: 'Terminal',
           parentTabId: 'host-tab-1',
           leafId: LEAF_ID,
           isActive: true,
           viewMode: 'chat',
-          status: 'ready',
-          terminal: 'terminal-1'
+          status: 'pending-handle',
+          terminal: null
         }
       ]),
       ENV,
@@ -1305,6 +1266,44 @@ describe('applyWebSessionTabsSnapshot', () => {
     const title = patch.tabsByWorktree?.[WT]?.[0]?.title ?? existingTab.title
     expect(title).toBe('pnpm dev')
     expect(title).not.toBe('Terminal')
+  })
+
+  it('still adopts a real host title once the pane becomes ready', () => {
+    const mirroredId = toWebTerminalSurfaceTabId('host-tab-1')
+    const existingTab: TerminalTab = {
+      id: mirroredId,
+      ptyId: 'remote:web-env-1@@terminal-1',
+      worktreeId: WT,
+      title: 'pnpm dev',
+      defaultTitle: 'pnpm dev',
+      customTitle: null,
+      color: null,
+      sortOrder: 0,
+      createdAt: NOW
+    }
+
+    const patch = applyWebSessionTabsSnapshot(
+      makeState({
+        tabsByWorktree: { [WT]: [existingTab] },
+        ptyIdsByTabId: { [mirroredId]: ['remote:web-env-1@@terminal-1'] }
+      }),
+      makeSnapshot([
+        {
+          type: 'terminal',
+          id: HOST_SURFACE_ID,
+          title: 'gal@omarchy: ~/dev',
+          parentTabId: 'host-tab-1',
+          leafId: LEAF_ID,
+          isActive: true,
+          status: 'ready',
+          terminal: 'terminal-1'
+        }
+      ]),
+      ENV,
+      NOW + 1
+    ) as Partial<WebSessionTabsSyncState>
+
+    expect(patch.tabsByWorktree?.[WT]?.[0]?.title).toBe('gal@omarchy: ~/dev')
   })
 
   it('preserves quick command labels from host terminal surfaces', () => {

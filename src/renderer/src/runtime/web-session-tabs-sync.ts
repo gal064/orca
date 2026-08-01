@@ -624,14 +624,16 @@ function buildMirroredTerminalTabs(
       surfaces
         .map((surface) => existingById.get(toWebTerminalSurfaceTabId(surface.id)))
         .find((tab): tab is TerminalTab => Boolean(tab))
-    // Why: a remote host omits titles for panes it is not actively streaming, so falling
-    // straight to 'Terminal' relabels every idle tab until it is clicked. Retain the last
-    // known title, matching the color/viewMode/createdAt retention below.
+    // Why: a headless host has no live PTY for a pane it is not streaming, so it publishes
+    // the literal placeholder 'Terminal' rather than an empty title. Adopting it discarded
+    // the real title the client already had, relabelling every idle tab until it was
+    // clicked. Treat the placeholder as "unknown" and keep what we know.
+    const hostTitle = activeSurface.title.trim() || surfaces[0]?.title.trim() || ''
+    const hostTitleIsPlaceholder =
+      hostTitle === '' || (activeSurface.status === 'pending-handle' && hostTitle === 'Terminal')
+    const retainedTitle = existing?.title?.trim() || existing?.defaultTitle?.trim() || ''
     const title = normalizeCompatibleAgentTitleForOwner(
-      activeSurface.title.trim() ||
-        surfaces[0]?.title.trim() ||
-        existing?.defaultTitle?.trim() ||
-        'Terminal',
+      (hostTitleIsPlaceholder ? retainedTitle || hostTitle : hostTitle) || 'Terminal',
       ownerAgent
     )
     const quickCommandLabel =
@@ -663,10 +665,7 @@ function buildMirroredTerminalTabs(
         color,
         isPinned,
         ...(viewMode ? { viewMode } : {}),
-        // Why: the tab bar sorts by sortOrder, so re-deriving it from the snapshot's surface
-        // index reshuffles tabs whenever the host's array order shifts — visible on every
-        // resync (a rename forces one). Pin it once known, like createdAt.
-        sortOrder: existing?.sortOrder ?? sortOffset + index,
+        sortOrder: sortOffset + index,
         createdAt: existing?.createdAt ?? now + index,
         // Why: launchAgent is host-owned lifecycle metadata; once the host omits it, don't resurrect stale startup intent.
         ...(launchAgent ? { launchAgent } : {})

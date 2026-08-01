@@ -618,16 +618,22 @@ function buildMirroredTerminalTabs(
       siblingHookAgent: surfaces.find((surface) => surface.agentStatus?.agentType)?.agentStatus
         ?.agentType
     })
-    const title = normalizeCompatibleAgentTitleForOwner(
-      activeSurface.title.trim() || surfaces[0]?.title.trim() || 'Terminal',
-      ownerAgent
-    )
     const existing =
       existingById.get(localTabId) ??
       existingById.get(parentTabId) ??
       surfaces
         .map((surface) => existingById.get(toWebTerminalSurfaceTabId(surface.id)))
         .find((tab): tab is TerminalTab => Boolean(tab))
+    // Why: a remote host omits titles for panes it is not actively streaming, so falling
+    // straight to 'Terminal' relabels every idle tab until it is clicked. Retain the last
+    // known title, matching the color/viewMode/createdAt retention below.
+    const title = normalizeCompatibleAgentTitleForOwner(
+      activeSurface.title.trim() ||
+        surfaces[0]?.title.trim() ||
+        existing?.defaultTitle?.trim() ||
+        'Terminal',
+      ownerAgent
+    )
     const quickCommandLabel =
       activeSurface.quickCommandLabel?.trim() ||
       surfaces.find((surface) => surface.quickCommandLabel?.trim())?.quickCommandLabel?.trim() ||
@@ -657,7 +663,10 @@ function buildMirroredTerminalTabs(
         color,
         isPinned,
         ...(viewMode ? { viewMode } : {}),
-        sortOrder: sortOffset + index,
+        // Why: the tab bar sorts by sortOrder, so re-deriving it from the snapshot's surface
+        // index reshuffles tabs whenever the host's array order shifts — visible on every
+        // resync (a rename forces one). Pin it once known, like createdAt.
+        sortOrder: existing?.sortOrder ?? sortOffset + index,
         createdAt: existing?.createdAt ?? now + index,
         // Why: launchAgent is host-owned lifecycle metadata; once the host omits it, don't resurrect stale startup intent.
         ...(launchAgent ? { launchAgent } : {})

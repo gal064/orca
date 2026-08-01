@@ -6800,7 +6800,29 @@ export class OrcaRuntimeService {
   ): RuntimeMobileSessionTabGroup[] {
     // Why: order across terminals and browsers in their actual array order so a
     // tab opened after a browser tab lands to its right, not regrouped before it.
-    const tabOrder = this.collectHeadlessTopLevelTabOrder(tabs)
+    const arrivalOrder = this.collectHeadlessTopLevelTabOrder(tabs)
+    // Why: tabOrder is the user-visible order and must survive a republish. Deriving it
+    // from the tabs array alone let any republished surface land last — activating an idle
+    // tab materializes it, and the publish paths re-append that surface — so the tab bar
+    // rotated on every click. Keep the stored order for still-live tabs (per group, so a
+    // split keeps its internal order) and append only genuinely-new ones.
+    const liveTopLevelIds = new Set(arrivalOrder)
+    const tabOrder: string[] = []
+    const placed = new Set<string>()
+    for (const group of existingGroups ?? []) {
+      for (const tabId of group.tabOrder) {
+        if (liveTopLevelIds.has(tabId) && !placed.has(tabId)) {
+          tabOrder.push(tabId)
+          placed.add(tabId)
+        }
+      }
+    }
+    for (const tabId of arrivalOrder) {
+      if (!placed.has(tabId)) {
+        tabOrder.push(tabId)
+        placed.add(tabId)
+      }
+    }
     const topLevelOf = (tab: RuntimeMobileSessionSnapshotTab): string =>
       tab.type === 'terminal' ? tab.parentTabId : tab.id
     const activeTopLevelId =

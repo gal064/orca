@@ -6120,9 +6120,27 @@ export class OrcaRuntimeService {
     const activeGroupId =
       (activeParentId ? ownerGroupId.get(activeParentId) : undefined) ?? nextGroups[0]!.id
     const retainedOrder = new Map<string, string[]>(nextGroups.map((group) => [group.id, []]))
+    // Why: tabOrder is the canonical user-visible order, so it must survive a republish.
+    // Deriving it from the tabs-array order instead let any republished surface land at the
+    // end — activating an idle pending-handle tab materializes and republishes it, which
+    // reshuffled the client's tab bar on every click. Keep the stored order for still-live
+    // tabs and append only genuinely-new ones.
+    const placed = new Set<string>()
+    for (const group of nextGroups) {
+      for (const tabId of group.tabOrder) {
+        if (liveTabIds.has(tabId) && !placed.has(tabId)) {
+          retainedOrder.get(group.id)?.push(tabId)
+          placed.add(tabId)
+        }
+      }
+    }
     for (const tabId of parentTabOrder) {
+      if (placed.has(tabId)) {
+        continue
+      }
       const groupId = ownerGroupId.get(tabId) ?? activeGroupId
       retainedOrder.get(groupId)?.push(tabId)
+      placed.add(tabId)
     }
     return nextGroups
       .map((group) => {

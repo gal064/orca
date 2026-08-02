@@ -25,12 +25,12 @@ update · **Watch** = no upstream fix yet, re-check each merge.
 
 | | |
 |---|---|
-| Commits | `d7dcc539f1`, `17979b5094`, `ba4e83323b`, `1054560674`, `dd171ffc66`, `72dd050a64` |
+| Commits | `d7dcc539f1`, `17979b5094`, `ba4e83323b`, `1054560674`, `dd171ffc66`, `72dd050a64`, `HEAD` |
 | Upstream issue | none filed |
 | Upstream PR | none |
 | Upstream status | **not fixed** — `upstream/main` still derives `tabOrder` from the tabs-array order |
 
-Three symptoms on a remote (`orca serve`) host, one theme: the host publishes degraded state for
+Four symptoms on a remote (`orca serve`) host, one theme: the host publishes degraded state for
 panes it is not actively streaming, and the client reads that as fact.
 
 **a. Tab order rotated.** Whichever tab you clicked jumped to the rightmost slot. Every publish path
@@ -50,12 +50,29 @@ held. Fixed by retaining status when a `pending-handle` surface reports none —
 for `ready` surfaces, where absence genuinely means no agent and must still prune, or stuck spinners
 return (#1437).
 
+**c′. The status the host published was title-derived, so it said `done` over a running agent.**
+Retaining the client's status (c) was necessary but not sufficient: `buildPtyMobileAgentStatus` read
+*identity* from the agent hook but *state* from the PTY title — and an unstreamed pane's title is the
+`Terminal` placeholder. Fixed by returning the hook row's `state`/`prompt`/`stateStartedAt` from
+`getHookAgentRowForPane` and preferring them over the title-derived fallback.
+
+**d. Completions on an unfocused remote pane never notified** (see also §3). The same hook-only
+branch attributed the worktree as `pty?.worktreeId ? … : {}`. No live PTY means no PTY record, so the
+published status carried **no `worktreeId` at all**, and the client skips a mirrored status it cannot
+attribute. The `done` arrived on time and updated the spinner, then was dropped before it could
+notify; switching back materialized the pane, a PTY appeared, and the notification fired tens of
+seconds late. Fixed with a `pty?.worktreeId ?? hookRow.worktreeId` fallback, mirroring what the
+`retained` branch directly above it already did.
+
 **Regression tests:** `src/main/runtime/headless-tab-order-stability.test.ts` (4 tests, pins both
-order builders) and 3 tests in `web-session-tabs-sync.test.ts` (title placeholder, status retention,
-stuck-spinner guard). All fail if their fix is reverted.
+order builders), `src/main/runtime/headless-agent-status-from-hooks.test.ts` (4 tests: hook state
+beats a title-derived `done`, and worktree attribution survives a missing PTY), and 3 tests in
+`web-session-tabs-sync.test.ts` (title placeholder, status retention, stuck-spinner guard). All fail
+if their fix is reverted.
 
 **Action:** worth upstreaming — upstream still has these and no issue tracks them. Re-check
-`collectHeadlessTopLevelTabOrder(tabs)` at each merge.
+`collectHeadlessTopLevelTabOrder(tabs)` and the `worktreeId` attribution in
+`buildPtyMobileAgentStatus` at each merge.
 
 ---
 
@@ -81,26 +98,41 @@ an equivalent. Nothing suggests that is in progress.
 
 ---
 
-## Known open — not yet fixed
+## 3. Completion notifications for remote sessions — **Watch**
 
-**No completion notifications for remote sessions.** Agents running on a remote `orca serve` host
-never produce a desktop notification; local sessions work. This is missing wiring, not a regression:
+| | |
+|---|---|
+| Commits | `HEAD` |
+| Upstream issue | none filed |
+| Upstream PR | none |
+| Upstream status | **not fixed** — the mirror still never dispatches a notification |
 
-- The only entry point is `observeAgentHookCompletionForNotification`, called from exactly one place
-  — `useIpcEvents.ts:3270`, the *local* main-process hook IPC path.
-- Remote agent status arrives by a different route entirely, the snapshot mirror
-  (`buildMirroredAgentStatusPatch` in `web-session-tabs-sync.ts`). It updates
-  `agentStatusByPaneKey` — which is why spinners and badges do work remotely — but never dispatches
-  a notification.
-- A headless host emits no agent notification of its own either: its notification type union
-  includes `agent-task-complete` (`orca-runtime.ts:2542`) but the only dispatch sites are `plugin`
-  and `dismiss`. So there is nothing to subscribe to, and no duplicate risk in adding an emitter.
+Agents on a remote `orca serve` host produced no desktop notification; local sessions always worked.
+Two independent causes, both needed:
 
-**Fix order matters.** This must be built on top of §1c. Wiring notifications while the host still
-reports `done` for unfocused panes would fire a false "task complete" on every tab switch.
+**a. Missing wiring.** `observeAgentHookCompletionForNotification` was called from exactly one place
+— `useIpcEvents.ts`, the *local* main-process hook IPC path. `ingestRemote` covers SSH and WSL but
+not serve, so a serve host's hooks never reach local IPC. Remote status arrives only via the
+snapshot mirror (`buildMirroredAgentStatusPatch`), which updated `agentStatusByPaneKey` — why
+spinners work remotely — but never notified. Fixed by feeding the mirror's changed statuses to the
+same observer, in `applyWebSessionTabsStorePatch` via `collectChangedMirroredAgentStatuses`.
 
-`remote-server-parity.test.ts` covers tab ordering and focus parity between local and remote but has
-no notification coverage — which is why this went unnoticed.
+Two constraints worth preserving: the observer is fed **every** changed status, not just `done`, so
+the coordinator sees the `working`→`done` sequence it needs rather than a bare terminal `done`; and
+the import is **lazy**, because a static one pulls the terminal-pane/store graph in ahead of this
+module and leaves `useAppStore.getState` undefined at module scope.
+
+**b. Unattributable statuses were silently dropped** — see §1d. This was the reason the wiring alone
+appeared not to work, and it presented as "only non-worktree workspaces fail". That correlation was
+real but incidental: those were simply the workspaces sitting unstreamed. Measured on one run, a
+worktree pane notified in **30 ms** while unstreamed panes took 21 s, 35 s, and 602 s — each landing
+exactly when the workspace was reopened.
+
+**Fix order matters.** Both parts depend on §1c/§1c′. Wiring notifications while the host still
+reported `done` for unfocused panes would fire a false "task complete" on every tab switch.
+
+`remote-server-parity.test.ts` covers tab ordering and focus parity but has no notification
+coverage — which is why this went unnoticed.
 
 ---
 
@@ -109,6 +141,9 @@ no notification coverage — which is why this went unnoticed.
 1. `git fetch upstream --tags --prune`, then check the merge base — upstream stable tags are release
    branches cut off main, so consecutive tags are **not** ancestors of each other.
 2. Re-check whether upstream retains tab order in `buildHeadlessMobileSessionTabGroups` (§1).
-3. Run `src/main/runtime/headless-tab-order-stability.test.ts` after the merge — it is the tripwire
-   for an upstream change that reintroduces array-derived ordering.
-4. Update the base tag and audit date at the top of this file.
+3. Run `src/main/runtime/headless-tab-order-stability.test.ts` and
+   `headless-agent-status-from-hooks.test.ts` after the merge — they are the tripwires for an
+   upstream change that reintroduces array-derived ordering or title-derived agent state.
+4. Check whether upstream has given serve hosts an `ingestRemote` path or its own notification
+   emitter (§3a) — either would make the mirror wiring droppable.
+5. Update the base tag and audit date at the top of this file.

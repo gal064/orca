@@ -37,7 +37,7 @@ gh pr list --repo stablyai/orca --author gal064 --state all \
 
 | | |
 |---|---|
-| Commits | `d7dcc539f1`, `17979b5094`, `ba4e83323b`, `1054560674`, `dd171ffc66`, `72dd050a64`, `HEAD` |
+| Commits | `d7dcc539f1`, `17979b5094`, `ba4e83323b`, `1054560674`, `dd171ffc66`, `72dd050a64`, `cc91750548` |
 | Upstream issue | none filed |
 | Upstream PR | [#12042](https://github.com/stablyai/orca/pull/12042) — order + titles (§1a/§1b) · [#12044](https://github.com/stablyai/orca/pull/12044) — agent status (§1c/§1c′) · opened 2026-08-01 |
 | Upstream status | **not fixed** — `upstream/main` still derives `tabOrder` from the tabs-array order |
@@ -120,7 +120,7 @@ an equivalent. Nothing suggests that is in progress.
 
 | | |
 |---|---|
-| Commits | `HEAD` |
+| Commits | `cc91750548` (shared with §1c′/§1d — one commit fixed both) |
 | Upstream issue | none filed |
 | Upstream PR | [#12045](https://github.com/stablyai/orca/pull/12045) — opened 2026-08-01, stacked on [#12044](https://github.com/stablyai/orca/pull/12044) |
 | Upstream status | **not fixed** — the mirror still never dispatches a notification |

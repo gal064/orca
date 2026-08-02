@@ -321,7 +321,7 @@ Then rebuild with `ORCA_SKIP_LINUX_GLIBC_FLOOR=1`. Rules that come with the bypa
 - Every other `afterPack` check must still pass. `verify-packaged-daemon-entry` or `verify-packaged-plugin-resources` failing is a real regression, not something else to bypass.
 - Say plainly in the report that the gate was bypassed and why.
 
-### 8e. Repoint the shim, then kill the stale daemon before restarting
+### 8e. Preserve resumable agents, then replace the daemon
 
 Restarting the service is **not enough**. `orca serve` is only the front-end; the long-lived
 **daemon** owns sessions, PTYs and tab state, and it reattaches to an existing
@@ -331,6 +331,24 @@ reads `... (deleted)` — and can serve **days-old code** while every other chec
 HTTP 200, feature token in `app.asar`) looks perfectly correct. Every one of those checks reads the
 new files on disk, not the running process. This is the single most likely reason a remote update
 appears to do nothing.
+
+Before stopping anything, inventory every live **agent** terminal that should reopen after the
+install. This is a conversation-continuity handoff, not process preservation: the daemon restart
+still interrupts in-flight work, but Codex/Claude reopen on their persisted provider sessions.
+
+For each live agent, record all of the following in the working notes:
+
+- exact worktree id and tab title;
+- provider (`codex` or `claude`);
+- explicit provider session id;
+- the original resume command and any model, approval, or permission flags that must be preserved.
+
+Use `orca-ide worktree ps --json`, `orca-ide terminal list --worktree <selector> --json`, and the
+agent process tree/session metadata together. Do not infer identity from the tab title, prompt text,
+or process age. Never substitute bare `resume`, `--last`, or an interactive picker for a missing id:
+with several sessions in one checkout that can reopen the wrong conversation. If any live agent's
+session id cannot be proven, report that agent and ask the user whether to proceed before killing
+the daemon. Plain shells do not need recreation unless the user explicitly requests them.
 
 ```bash
 SHIM=~/.config/orca/linux-orca-cli-shim/orca
@@ -355,6 +373,22 @@ systemctl --user start orca-server.service
 routinely 15–20). That is real potential work loss, so **ask the user before doing it** rather than
 folding it into the restart. On a repeat run where the shim already points at `~/orca-src`, this
 daemon kill *is* the whole install — repointing the shim is a no-op.
+
+After the new daemon passes the checks in 8f, recreate each captured agent exactly once in its
+original worktree. First list the new runtime's terminals and skip any provider session already
+restored. Otherwise use the captured id explicitly, preserving the original launch flags:
+
+```bash
+orca-ide terminal create --worktree 'id:<worktree-id>' --title '<title>' \
+  --command 'codex resume <codex-session-id>' --json
+orca-ide terminal create --worktree 'id:<worktree-id>' --title '<title>' \
+  --command 'claude --resume <claude-session-id>' --json
+```
+
+Use the returned terminal handle to wait for TUI readiness, then confirm that every captured
+provider session has one reopened tab and no session was resumed twice. A recreation failure does
+not invalidate the server install, but it must be reported with the affected worktree/session id so
+the user can resume it manually.
 
 Reverting is restoring the backup and restarting — say so in the report.
 
@@ -381,7 +415,7 @@ no matter how green everything else looks.
 ### 8g. What to warn the user about
 
 - The restart briefly drops connected clients. Pairings survive because userData, port, and pairing address are unchanged.
-- Agent panes that were already running keep reporting: the hook scripts source `~/.config/orca/agent-hooks/endpoint.env` at fire time, so they pick up the new hook port even though the stale `ORCA_AGENT_HOOK_PORT` is still in their process env. No need to restart agents.
+- Recreated agent panes source `~/.config/orca/agent-hooks/endpoint.env` at hook time, so they pick up the new hook port; do not copy the stale `ORCA_AGENT_HOOK_PORT` from the old process environment into resume commands.
 - `orca serve` needs a display and auto-starts Xvfb **only if Xvfb is installed**. On a desktop distro the user manager usually carries one already — check `systemctl --user show-environment | grep DISPLAY`. If it is absent and Xvfb is missing, installing it needs sudo; surface that rather than silently leaving a server that dies on next boot.
 - The previous install's daemon lingers under its own socket version (`daemon-vNN`) and is **not**
   harmless — see 8e. It keeps serving old code until killed, and the restart alone will not replace
@@ -392,4 +426,4 @@ no matter how green everything else looks.
 
 State: the tag merged, whether there were conflicts and how they were resolved, the installed version (`/Applications/Orca.app/Contents/Info.plist` → `CFBundleShortVersionString`, or `orca --version`), and the branch pushed to `origin`. On macOS also report the outer-app and Computer Use helper signing authorities, TeamIdentifiers, and `codesign --verify` result. If this was the one-time migration from ad-hoc signing, state whether TCC was reset and remind the user to grant Computer Use and any newly prompted notification permission.
 
-If step 8 ran, also state: the host, what the shim now points at and how to revert it, the verification results (service active, port listening, HTTP probe, feature token present), whether the glibc floor gate was bypassed and the resulting do-not-copy constraint, and any Xvfb/display gap left open.
+If step 8 ran, also state: the host, what the shim now points at and how to revert it, the verification results (service active, port listening, HTTP probe, feature token present), whether the glibc floor gate was bypassed and the resulting do-not-copy constraint, which agent sessions were captured/recreated, any resume failures, and any Xvfb/display gap left open.

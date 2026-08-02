@@ -57,12 +57,16 @@ Retaining the client's status (c) was necessary but not sufficient: `buildPtyMob
 `getHookAgentRowForPane` and preferring them over the title-derived fallback.
 
 **d. Completions on an unfocused remote pane never notified** (see also §3). The same hook-only
-branch attributed the worktree as `pty?.worktreeId ? … : {}`. No live PTY means no PTY record, so the
-published status carried **no `worktreeId` at all**, and the client skips a mirrored status it cannot
-attribute. The `done` arrived on time and updated the spinner, then was dropped before it could
-notify; switching back materialized the pane, a PTY appeared, and the notification fired tens of
-seconds late. Fixed with a `pty?.worktreeId ?? hookRow.worktreeId` fallback, mirroring what the
-`retained` branch directly above it already did.
+branch attributed the worktree as `pty?.worktreeId ? … : {}`, so whenever the host resolved no PTY
+record for the pane the published status carried **no `worktreeId` at all** — and the client skips a
+mirrored status it cannot attribute. The `done` arrived on time and updated the spinner, then was
+dropped before it could notify; switching back materialized the pane, a PTY appeared, and the
+notification fired tens of seconds late. Fixed with a `pty?.worktreeId ?? hookRow.worktreeId`
+fallback, mirroring what the `retained` branch directly above it already did.
+
+Note the PTY record is resolved by an **exact** worktree-id match that instance workspaces
+(`::workspace:<uuid>`) can fail where plain worktrees cannot — see §3b. The fix deliberately does not
+depend on that lookup succeeding.
 
 **Regression tests:** `src/main/runtime/headless-tab-order-stability.test.ts` (4 tests, pins both
 order builders), `src/main/runtime/headless-agent-status-from-hooks.test.ts` (4 tests: hook state
@@ -123,10 +127,24 @@ the import is **lazy**, because a static one pulls the terminal-pane/store graph
 module and leaves `useAppStore.getState` undefined at module scope.
 
 **b. Unattributable statuses were silently dropped** — see §1d. This was the reason the wiring alone
-appeared not to work, and it presented as "only non-worktree workspaces fail". That correlation was
-real but incidental: those were simply the workspaces sitting unstreamed. Measured on one run, a
-worktree pane notified in **30 ms** while unstreamed panes took 21 s, 35 s, and 602 s — each landing
-exactly when the workspace was reopened.
+appeared not to work. It presented as "only non-worktree workspaces fail", consistently and over many
+sessions. Measured on one run, a worktree pane notified in **30 ms** while instance-workspace panes
+took 21 s, 35 s, and 602 s — each landing exactly when the workspace was reopened.
+
+**Why the worktree correlation is probably causal.** For an *unstreamed* pane the host still tries to
+resolve a PTY record, via `findPtyForMobileTerminalTab` → `mobileTerminalTabMatchesPty`, which gates
+on an exact string match: `pty.worktreeId === worktreeId`. Worktree workspaces use `repoId::path`;
+reuse-checkout and folder workspaces use `repoId::path::workspace:<uuid>`. A PTY recorded under one
+form while the snapshot publishes the other fails that match, leaving no PTY and (pre-fix) no
+`worktreeId`. The looser fallback immediately below is **disabled on serve hosts**
+(`allowWorktreeOnlyMatch: !snapshot.publicationEpoch.startsWith('headless')`), so on a headless host
+exact match is the only path. That predicts the observed split exactly.
+
+Not fully confirmed: the logs contain no sample of an unstreamed *worktree* pane completing, so
+"unstreamed panes fail regardless of workspace type" was not ruled out by measurement. The fix is
+insensitive to which it is — it no longer depends on the PTY lookup succeeding. **Watch
+`mobileTerminalTabMatchesPty` at each merge**: it is the mechanism that made instance workspaces
+distinctively fragile, and it is untouched.
 
 **Fix order matters.** Both parts depend on §1c/§1c′. Wiring notifications while the host still
 reported `done` for unfocused panes would fire a false "task complete" on every tab switch.

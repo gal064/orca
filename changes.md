@@ -19,6 +19,18 @@ git log --no-merges --cherry-pick --right-only --format='%h %an %s' upstream/mai
 Status legend: **Carry** = still needed · **Drop next merge** = upstream has it, remove on the next
 update · **Watch** = no upstream fix yet, re-check each merge.
 
+**Open upstream PRs** (check these first at each merge — a merged one means the local change can be
+dropped): [#12042](https://github.com/stablyai/orca/pull/12042) tab order + titles ·
+[#12044](https://github.com/stablyai/orca/pull/12044) agent status ·
+[#12045](https://github.com/stablyai/orca/pull/12045) completion notifications, stacked on #12044.
+Each was rebuilt from scratch on `upstream/main`, so the upstream diffs are smaller than the fork's
+history and do not carry the reuse-checkout feature.
+
+```bash
+gh pr list --repo stablyai/orca --author gal064 --state all \
+  --json number,title,state,mergedAt --jq '.[] | "\(.state)\t#\(.number)\t\(.title)"'
+```
+
 ---
 
 ## 1. Remote tab order, title, and agent status — **Watch**
@@ -27,8 +39,10 @@ update · **Watch** = no upstream fix yet, re-check each merge.
 |---|---|
 | Commits | `d7dcc539f1`, `17979b5094`, `ba4e83323b`, `1054560674`, `dd171ffc66`, `72dd050a64`, `HEAD` |
 | Upstream issue | none filed |
-| Upstream PR | none |
+| Upstream PR | [#12042](https://github.com/stablyai/orca/pull/12042) — order + titles (§1a/§1b) · [#12044](https://github.com/stablyai/orca/pull/12044) — agent status (§1c/§1c′) · opened 2026-08-01 |
 | Upstream status | **not fixed** — `upstream/main` still derives `tabOrder` from the tabs-array order |
+
+The §1d worktree-attribution fix went up with the notifications work instead — see §3.
 
 Four symptoms on a remote (`orca serve`) host, one theme: the host publishes degraded state for
 panes it is not actively streaming, and the client reads that as fact.
@@ -108,7 +122,7 @@ an equivalent. Nothing suggests that is in progress.
 |---|---|
 | Commits | `HEAD` |
 | Upstream issue | none filed |
-| Upstream PR | none |
+| Upstream PR | [#12045](https://github.com/stablyai/orca/pull/12045) — opened 2026-08-01, stacked on [#12044](https://github.com/stablyai/orca/pull/12044) |
 | Upstream status | **not fixed** — the mirror still never dispatches a notification |
 
 Agents on a remote `orca serve` host produced no desktop notification; local sessions always worked.

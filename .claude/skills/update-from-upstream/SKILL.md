@@ -23,6 +23,20 @@ git remote -v
 - `upstream` must point at `https://github.com/stablyai/orca`. If it is missing, add it:
   `git remote add upstream https://github.com/stablyai/orca`
 
+On macOS, require a stable code-signing identity before starting the merge:
+
+```bash
+security find-identity -v -p codesigning
+```
+
+At least one valid Apple Development, Developer ID Application, or Apple Distribution identity
+must be present. If the command reports `0 valid identities found`, stop and ask the user to create
+a free Apple Development certificate in Xcode → Settings → Accounts → Manage Certificates. Do not
+continue to a local macOS build or install with ad-hoc signing: Accessibility and Screen Recording
+grants for the nested Computer Use helper would be tied to a changing CDHash and break after a
+helper rebuild. The identity must exist before step 5 so electron-builder signs both the outer app
+and the nested helper during packaging.
+
 **The remote host is always `omarchy`.** Never ask which host — that is settled. Ask only *whether* the remote should be updated this run, and ask it before starting the merge, since the answer changes the ordering (the remote clones from `origin`, so the push in step 7 must happen before step 8). If the user already said yes or no, skip the question entirely. Everywhere below, `<host>` means `omarchy`.
 
 ## 2. Find the latest stable tag
@@ -101,6 +115,21 @@ Build only the host architecture and only the unpacked app — the dmg/zip targe
 pnpm run build:mac --arm64 --dir     # use --x64 on Intel; check with `uname -m`
 ```
 
+Verify the packaged app before replacing the installed copy:
+
+```bash
+ORCA_BUILD_APP=dist/mac-arm64/Orca.app # use dist/mac/Orca.app on Intel
+ORCA_BUILD_HELPER="$ORCA_BUILD_APP/Contents/Resources/Orca Computer Use.app"
+codesign --verify --deep --strict "$ORCA_BUILD_APP"
+codesign -dvvv "$ORCA_BUILD_APP" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|Signature)='
+codesign -dvvv "$ORCA_BUILD_HELPER" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|Signature)='
+```
+
+Both descriptions must show a real `Authority` and a non-empty `TeamIdentifier`; neither may show
+`Signature=adhoc`. The outer identifier must be `com.stablyai.orca`, and the helper identifier must
+be `com.stablyai.orca.computer-use`. If any check fails, stop and fix the signing identity or build
+configuration before installing. Never repair this by ad-hoc signing the packaged app.
+
 **Linux** (`dist/linux-unpacked/`):
 
 ```bash
@@ -127,32 +156,36 @@ rm -rf /Applications/Orca.app
 cp -R dist/mac-arm64/Orca.app /Applications/Orca.app
 ```
 
-Then **always** run the signature repair below before relaunching. `forceCodeSigning` is off for
-non-release builds (`config/electron-builder.config.cjs`), so on a machine with no codesigning
-identity electron-builder silently skips signing the outer bundle: the app keeps the prebuilt
-Electron signature (`Identifier=Electron`) with a seal broken by the packaged resources.
-`UNUserNotificationCenter` refuses to register an app with an invalid signature, so **every
-notification is silently dropped** and Orca never appears in System Settings → Notifications.
+Verify the installed copy without re-signing it:
 
 ```bash
-codesign --force --deep --sign - /Applications/Orca.app
 codesign --verify --deep --strict /Applications/Orca.app   # must exit 0 and print nothing
-codesign -dvv /Applications/Orca.app 2>&1 | grep Identifier # must be com.stablyai.orca, not Electron
+codesign -dvvv /Applications/Orca.app 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|Signature)='
+codesign -dvvv '/Applications/Orca.app/Contents/Resources/Orca Computer Use.app' 2>&1 \
+  | grep -E '^(Identifier|Authority|TeamIdentifier|Signature)='
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Orca.app
-killall usernoted 2>/dev/null || true
 ```
 
-Run this from a shell **outside** the app being signed — `codesign` rewrites the Mach-O binary and
-will kill a running Orca (including an agent session hosted in it). Quitting Orca in the step above
-already covers this, but never sign an app you are currently running inside.
+Never run `codesign --force --deep --sign - /Applications/Orca.app` after packaging. `--deep`
+recursively replaces the nested helper's stable signature with an ad-hoc identity, which makes its
+TCC grants rebuild-sensitive again. If the installed verification differs from the packaged
+verification in step 5, stop and report the copy or signing failure instead of repairing it in
+place.
 
-The signing identity changes from `Electron` to `com.stablyai.orca`, so macOS treats the app as new
-and re-prompts for notification permission on first launch — tell the user to accept it.
+When migrating from an older ad-hoc install to the first stable-signed build, the old TCC rows are
+stale. Ask the user immediately before resetting them, then run this once and reopen Computer Use
+permission setup:
 
-Permanent fix worth suggesting: a free **Apple Development** certificate (Xcode → Settings →
-Accounts → Manage Certificates → **+** → Apple Development). `findInstalledMacSigningIdentity` in
-`config/electron-builder.config.cjs` picks it up automatically on non-release builds, so every
-future build is signed with a stable identity and this repair step becomes a no-op.
+```bash
+tccutil reset Accessibility com.stablyai.orca.computer-use
+tccutil reset ScreenCapture com.stablyai.orca.computer-use
+orca computer permissions --json
+```
+
+Tell the user to grant Accessibility and Screen Recording to Orca Computer Use. Do not reset TCC on
+later updates when the helper keeps the same TeamIdentifier and bundle identifier; preserving that
+identity is what keeps the grants durable. Notification permission may prompt once during the
+ad-hoc-to-stable migration, but it should also persist on later builds.
 
 **Linux** — build the installable artifact and install it:
 
@@ -337,6 +370,6 @@ no matter how green everything else looks.
 
 ## 9. Report
 
-State: the tag merged, whether there were conflicts and how they were resolved, the installed version (`/Applications/Orca.app/Contents/Info.plist` → `CFBundleShortVersionString`, or `orca --version`), and the branch pushed to `origin`. On macOS also report the `codesign --verify` result and remind the user to accept the notification permission prompt on first launch.
+State: the tag merged, whether there were conflicts and how they were resolved, the installed version (`/Applications/Orca.app/Contents/Info.plist` → `CFBundleShortVersionString`, or `orca --version`), and the branch pushed to `origin`. On macOS also report the outer-app and Computer Use helper signing authorities, TeamIdentifiers, and `codesign --verify` result. If this was the one-time migration from ad-hoc signing, state whether TCC was reset and remind the user to grant Computer Use and any newly prompted notification permission.
 
 If step 8 ran, also state: the host, what the shim now points at and how to revert it, the verification results (service active, port listening, HTTP probe, feature token present), whether the glibc floor gate was bypassed and the resulting do-not-copy constraint, and any Xvfb/display gap left open.

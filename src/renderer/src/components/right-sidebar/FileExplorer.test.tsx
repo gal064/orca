@@ -13,7 +13,6 @@ import {
 } from './file-explorer-name-filter-projection'
 import {
   copyFileToOsClipboard,
-  downloadRemoteFile,
   FileExplorerRow,
   shouldShowCollapseFolderAction,
   shouldShowFindInFolderAction,
@@ -22,6 +21,7 @@ import {
   shouldShowRemoteDownloadAction,
   shouldShowViewFileAction
 } from './FileExplorerRow'
+import { downloadRemoteFile } from '@/lib/remote-file-download'
 import { FileExplorerVirtualRows } from './FileExplorerVirtualRows'
 import type { TreeNode } from './file-explorer-types'
 import { createFileExplorerRowProjection } from './file-explorer-row-projection'

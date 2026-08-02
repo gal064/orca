@@ -54,6 +54,34 @@ git merge-base --is-ancestor <tag> HEAD && echo "already merged"
 
 If already merged, report that and skip to step 4 only if the user asked for a rebuild anyway; otherwise stop.
 
+### Audit `changes.md` before merging
+
+Every upstream update must audit the fork delta documented in `changes.md` against the incoming
+stable tag before merging it. Do not assume an open PR, matching title, or release note means the
+fix landed; verify the shipped code or regression test in the tag.
+
+For every **Carry** and **Watch** section:
+
+1. Read the documented symptom, implementation, upstream PR/issue, and regression tests.
+2. Check the incoming tag for the equivalent behavior using batched `git log`, `git diff`,
+   `git grep`, and, only when needed, one batched `gh` query for the listed PRs.
+3. Record whether the fix is absent, partially landed, or fully equivalent. A partial fix remains
+   carried, with the remaining gap written into `changes.md`.
+4. If an equivalent fix landed, remove the now-redundant fork implementation during the merge and
+   mark or remove the changelog section as appropriate. Never keep two competing implementations.
+
+Update `changes.md` in the same update:
+
+- set **Upstream base merged** to the stable tag being merged;
+- set **Latest upstream tag seen** and **Last audited**;
+- refresh each section's upstream status, PR state, commit list, and action;
+- add any newly discovered fork-only behavior that still needs to survive later merges;
+- keep the next-merge checklist aligned with the remaining sections.
+
+The final report must include a **Fork fixes landed upstream** line. Name every fully or partially
+landed item and what local code was dropped or retained. If none landed, say **none found**
+explicitly; never omit the result of this audit.
+
 **Upstream tags are not linear — always check the merge base before merging anything.**
 
 ```bash
@@ -424,6 +452,6 @@ no matter how green everything else looks.
 
 ## 9. Report
 
-State: the tag merged, whether there were conflicts and how they were resolved, the installed version (`/Applications/Orca.app/Contents/Info.plist` → `CFBundleShortVersionString`, or `orca --version`), and the branch pushed to `origin`. On macOS also report the outer-app and Computer Use helper signing authorities, TeamIdentifiers, and `codesign --verify` result. If this was the one-time migration from ad-hoc signing, state whether TCC was reset and remind the user to grant Computer Use and any newly prompted notification permission.
+State: the tag merged, whether there were conflicts and how they were resolved, the installed version (`/Applications/Orca.app/Contents/Info.plist` → `CFBundleShortVersionString`, or `orca --version`), the branch pushed to `origin`, and the result of the required `changes.md` audit under **Fork fixes landed upstream** (including **none found** when applicable). On macOS also report the outer-app and Computer Use helper signing authorities, TeamIdentifiers, and `codesign --verify` result. If this was the one-time migration from ad-hoc signing, state whether TCC was reset and remind the user to grant Computer Use and any newly prompted notification permission.
 
 If step 8 ran, also state: the host, what the shim now points at and how to revert it, the verification results (service active, port listening, HTTP probe, feature token present), whether the glibc floor gate was bypassed and the resulting do-not-copy constraint, which agent sessions were captured/recreated, any resume failures, and any Xvfb/display gap left open.

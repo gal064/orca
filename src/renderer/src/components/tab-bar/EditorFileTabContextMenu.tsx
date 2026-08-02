@@ -1,6 +1,7 @@
 import {
   Copy,
   CopyX,
+  Download,
   ExternalLink,
   Eye,
   ListX,
@@ -27,6 +28,8 @@ import { shouldBlockEditorTabLocalOpen } from './editor-tab-local-open-guard'
 import { translate } from '@/i18n/i18n'
 import { TabWorkspaceLayoutMenuSection } from './TabWorkspaceLayoutMenuSection'
 import { TAB_CONTEXT_MENU_CONTENT_CLASS } from './tab-context-menu-sizing'
+import { downloadRemoteFile } from '@/lib/remote-file-download'
+import { basename } from '@/lib/path'
 
 const isMac = navigator.userAgent.includes('Mac')
 const isLinux = navigator.userAgent.includes('Linux')
@@ -53,6 +56,7 @@ type EditorFileTabContextMenuProps = {
   canShowMarkdownPreview: boolean
   resolvedLanguage: string
   repoConnectionId: string | null
+  worktreePath: string | null
   skipMenuFocusRestoreRef: React.MutableRefObject<boolean>
   onOpenChange: (open: boolean) => void
   onActivate: () => void
@@ -75,6 +79,23 @@ type EditorFileTabContextMenuProps = {
   ) => void
 }
 
+export function shouldShowEditorFileDownloadAction(
+  file: Pick<OpenFile, 'mode' | 'runtimeEnvironmentId' | 'externalSshTargetId'>,
+  repoConnectionId: string | null
+): boolean {
+  const isConcreteFile = file.mode === 'edit' || file.mode === 'markdown-preview'
+  const hasRemoteOwner = Boolean(
+    file.runtimeEnvironmentId?.trim() ||
+    file.externalSshTargetId?.trim() ||
+    repoConnectionId?.trim()
+  )
+  return (
+    isConcreteFile &&
+    hasRemoteOwner &&
+    (globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ !== true
+  )
+}
+
 export function EditorFileTabContextMenu({
   open,
   menuPoint,
@@ -90,6 +111,7 @@ export function EditorFileTabContextMenu({
   canShowMarkdownPreview,
   resolvedLanguage,
   repoConnectionId,
+  worktreePath,
   skipMenuFocusRestoreRef,
   onOpenChange,
   onActivate,
@@ -105,6 +127,7 @@ export function EditorFileTabContextMenu({
   const renameShortcut = useOptionalShortcutLabel('tab.rename')
   const closeShortcut = useOptionalShortcutLabel('tab.close')
   const closeAllShortcut = useOptionalShortcutLabel('tab.closeAll')
+  const showDownloadAction = shouldShowEditorFileDownloadAction(file, repoConnectionId)
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
@@ -232,6 +255,30 @@ export function EditorFileTabContextMenu({
             'Copy Relative Path'
           )}
         </DropdownMenuItem>
+        {showDownloadAction ? (
+          <DropdownMenuItem
+            onSelect={() => {
+              const runtimeEnvironmentId = file.runtimeEnvironmentId?.trim()
+              const connectionId =
+                file.externalSshTargetId?.trim() || repoConnectionId?.trim() || undefined
+              void downloadRemoteFile(
+                { name: basename(file.filePath), path: file.filePath, isDirectory: false },
+                {
+                  settings: runtimeEnvironmentId
+                    ? { activeRuntimeEnvironmentId: runtimeEnvironmentId }
+                    : null,
+                  worktreeId: file.worktreeId,
+                  worktreePath,
+                  connectionId,
+                  expectedExternalSshTargetId: file.externalSshTargetId
+                }
+              )
+            }}
+          >
+            <Download className="size-3.5" />
+            {translate('auto.components.right.sidebar.FileExplorerRow.c2112579f6', 'Download')}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={() => {

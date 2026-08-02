@@ -418,6 +418,7 @@ export default function EditorFileTab({
         canShowMarkdownPreview={canShowMarkdownPreview}
         resolvedLanguage={resolvedLanguage}
         repoConnectionId={repo?.connectionId ?? null}
+        worktreePath={worktree?.path ?? null}
         skipMenuFocusRestoreRef={skipMenuFocusRestoreRef}
         onOpenChange={setMenuOpen}
         onActivate={onActivate}

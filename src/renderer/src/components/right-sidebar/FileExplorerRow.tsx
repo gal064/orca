@@ -52,7 +52,8 @@ import { isLocalPathOpenBlocked, showLocalPathOpenBlockedToast } from '@/lib/loc
 import { translate } from '@/i18n/i18n'
 import { extractIpcErrorMessage } from '@/lib/ipc-error'
 import { CLOSE_ALL_CONTEXT_MENUS_EVENT } from '@/components/tab-bar/SortableTab'
-import { downloadRuntimeFile, type RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
+import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
+import { downloadRemoteFile } from '@/lib/remote-file-download'
 
 const isMac = navigator.userAgent.includes('Mac')
 const isLinux = navigator.userAgent.includes('Linux')
@@ -340,68 +341,6 @@ export function shouldShowCopyFileAction(
     selectionSize === 1 &&
     (globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ !== true
   )
-}
-
-export async function downloadRemoteFile(
-  node: TreeNode,
-  connectionIdOrRuntimeContext: string | RuntimeFileOperationArgs
-): Promise<void> {
-  try {
-    const result =
-      typeof connectionIdOrRuntimeContext === 'string'
-        ? node.isDirectory
-          ? await window.api.fs.downloadFolder({
-              dirPath: node.path,
-              connectionId: connectionIdOrRuntimeContext
-            })
-          : await window.api.fs.downloadFile({
-              filePath: node.path,
-              connectionId: connectionIdOrRuntimeContext
-            })
-        : await downloadRuntimeFile(connectionIdOrRuntimeContext, node.path, node.name)
-    // Why: Suppress toasts when the user cancels the native save dialog per design.
-    if (result.canceled) {
-      return
-    }
-    toast.success(
-      node.isDirectory
-        ? translate(
-            'auto.components.right.sidebar.FileExplorerRow.a4029c996b',
-            "Downloaded folder '{{value0}}'",
-            { value0: node.name }
-          )
-        : translate(
-            'auto.components.right.sidebar.FileExplorerRow.bce4d4e44f',
-            "Downloaded '{{value0}}'",
-            { value0: node.name }
-          ),
-      {
-        action: {
-          label: translate('auto.components.right.sidebar.FileExplorerRow.1a3df04ae1', 'Open'),
-          onClick: () => {
-            void window.api.shell.openPath(result.destinationPath)
-          }
-        }
-      }
-    )
-  } catch (error) {
-    toast.error(
-      extractIpcErrorMessage(
-        error,
-        node.isDirectory
-          ? translate(
-              'auto.components.right.sidebar.FileExplorerRow.f729bcd97d',
-              "Failed to download folder '{{value0}}'.",
-              { value0: node.name }
-            )
-          : translate(
-              'auto.components.right.sidebar.FileExplorerRow.b3e288bf41',
-              "Failed to download '{{value0}}'.",
-              { value0: node.name }
-            )
-      )
-    )
-  }
 }
 
 export async function copyFileToOsClipboard(

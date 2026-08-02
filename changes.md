@@ -198,6 +198,33 @@ Main files: `src/renderer/src/components/sidebar/WorktreeCard.tsx` and
 
 ---
 
+## 5. Download remote files from editor tabs — **Carry** (fork feature)
+
+| | |
+|---|---|
+| Commits | this commit |
+| Upstream issue | none |
+| Upstream PR | none |
+
+The editor tab context menu now shows **Download** beside the path-copy actions for concrete files
+opened from a remote server or SSH workspace, including Markdown preview tabs. It reuses the file
+explorer's existing runtime/SSH download path, native save dialog, and completion/error handling.
+Virtual diff, conflict-review, and check-detail tabs remain excluded because they do not represent a
+single downloadable file.
+
+This is a desktop-client change only. The Mac app must be updated to expose the action; the remote
+server requires no update because the existing download protocol and compatibility fallback are
+unchanged.
+
+Main files: `src/renderer/src/components/tab-bar/EditorFileTabContextMenu.tsx` and
+`src/renderer/src/lib/remote-file-download.ts`.
+
+**Regression tests:** `EditorFileTabContextMenu.test.tsx` verifies runtime-owner routing and hides
+the action for local and virtual-file tabs; `FileExplorer.test.tsx` continues to cover shared
+runtime/SSH download behavior.
+
+---
+
 ## Review checklist for the next upstream merge
 
 1. `git fetch upstream --tags --prune`, then check the merge base — upstream stable tags are release
@@ -210,4 +237,6 @@ Main files: `src/renderer/src/components/sidebar/WorktreeCard.tsx` and
    emitter (§3a) — either would make the mirror wiring droppable.
 5. Run the reuse-checkout mobile refresh and stale-agent projection regressions in
    `orca-runtime.test.ts` (§2).
-6. Update the base tag and audit date at the top of this file.
+6. Check whether upstream has added editor-tab downloads for remote files (§5); if so, drop the
+   shared client-side wiring.
+7. Update the base tag and audit date at the top of this file.

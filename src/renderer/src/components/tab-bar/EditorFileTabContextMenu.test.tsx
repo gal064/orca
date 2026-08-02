@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const shortcutLabelMock = vi.hoisted(() => vi.fn())
+const downloadRemoteFileMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenu: function DropdownMenu(props: { children?: unknown }) {
@@ -53,6 +54,9 @@ vi.mock('lucide-react', () => ({
   },
   CopyX: function CopyX(props: Record<string, unknown>) {
     return { type: 'CopyX', props }
+  },
+  Download: function Download(props: Record<string, unknown>) {
+    return { type: 'Download', props }
   },
   ExternalLink: function ExternalLink(props: Record<string, unknown>) {
     return { type: 'ExternalLink', props }
@@ -137,6 +141,10 @@ vi.mock('@/lib/local-path-open-guard', () => ({
   showLocalPathOpenBlockedToast: vi.fn()
 }))
 
+vi.mock('@/lib/remote-file-download', () => ({
+  downloadRemoteFile: downloadRemoteFileMock
+}))
+
 vi.mock('./editor-tab-local-open-guard', () => ({
   shouldBlockEditorTabLocalOpen: () => false
 }))
@@ -202,7 +210,11 @@ function extractText(node: unknown): string {
   return el.props && 'children' in el.props ? extractText(el.props.children) : ''
 }
 
-async function renderMenu(): Promise<unknown> {
+async function renderMenu(options?: {
+  runtimeEnvironmentId?: string | null
+  repoConnectionId?: string | null
+  mode?: 'edit' | 'diff' | 'conflict-review' | 'markdown-preview' | 'check-details'
+}): Promise<unknown> {
   const module = await import('./EditorFileTabContextMenu')
   return module.EditorFileTabContextMenu({
     open: true,
@@ -215,7 +227,8 @@ async function renderMenu(): Promise<unknown> {
       worktreeId: 'wt-1',
       language: 'typescript',
       isDirty: false,
-      mode: 'edit'
+      mode: options?.mode ?? 'edit',
+      runtimeEnvironmentId: options?.runtimeEnvironmentId
     },
     unifiedTabId: 'tab-1',
     groupId: 'group-1',
@@ -227,7 +240,8 @@ async function renderMenu(): Promise<unknown> {
     canRename: true,
     canShowMarkdownPreview: false,
     resolvedLanguage: 'typescript',
-    repoConnectionId: null,
+    repoConnectionId: options?.repoConnectionId ?? null,
+    worktreePath: '/repo',
     skipMenuFocusRestoreRef: { current: false },
     onOpenChange: vi.fn(),
     onActivate: vi.fn(),
@@ -258,6 +272,7 @@ function assignedShortcutLabel(actionId: string): string | null {
 describe('EditorFileTabContextMenu close-all shortcut', () => {
   beforeEach(() => {
     vi.resetModules()
+    downloadRemoteFileMock.mockReset()
     shortcutLabelMock.mockImplementation(assignedShortcutLabel)
     vi.stubGlobal('navigator', { userAgent: 'Mac' })
   })
@@ -318,5 +333,38 @@ describe('EditorFileTabContextMenu close-all shortcut', () => {
     expect(closeAllItem).toBeTruthy()
     expect(findElementsByType(closeAllItem, 'DropdownMenuShortcut')).toHaveLength(0)
     expect(findElementsByType(tree, 'DropdownMenuShortcut')).toHaveLength(0)
+  })
+
+  it('downloads a runtime-owned file through its recorded owner', async () => {
+    const tree = expandNode(await renderMenu({ runtimeEnvironmentId: 'runtime-1' }))
+    const downloadItem = findElementsByType(tree, 'DropdownMenuItem').find(
+      (item) => extractText(item.props.children) === 'Download'
+    )
+
+    expect(downloadItem).toBeTruthy()
+    ;(downloadItem?.props.onSelect as (() => void) | undefined)?.()
+
+    expect(downloadRemoteFileMock).toHaveBeenCalledWith(
+      { name: 'foo.ts', path: '/repo/foo.ts', isDirectory: false },
+      {
+        settings: { activeRuntimeEnvironmentId: 'runtime-1' },
+        worktreeId: 'wt-1',
+        worktreePath: '/repo',
+        connectionId: undefined,
+        expectedExternalSshTargetId: undefined
+      }
+    )
+  })
+
+  it('only shows Download for concrete files on remote desktop hosts', async () => {
+    const localTree = expandNode(await renderMenu())
+    const remoteDiffTree = expandNode(await renderMenu({ repoConnectionId: 'ssh-1', mode: 'diff' }))
+
+    for (const tree of [localTree, remoteDiffTree]) {
+      const labels = findElementsByType(tree, 'DropdownMenuItem').map((item) =>
+        extractText(item.props.children)
+      )
+      expect(labels).not.toContain('Download')
+    }
   })
 })

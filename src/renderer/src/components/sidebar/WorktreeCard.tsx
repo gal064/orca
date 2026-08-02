@@ -85,6 +85,8 @@ import { recordRendererCrashBreadcrumb } from '@/lib/crash-diagnostics'
 import { folderWorkspaceKey, parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import {
   getRepoExecutionHostId,
+  getSettingsFocusedExecutionHostId,
+  getWorktreeExecutionHostId,
   isRuntimeOwnedSshTargetId,
   parseExecutionHostId,
   toRuntimeExecutionHostId
@@ -245,6 +247,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
   const openAutomationsPage = useAppStore((s) => s.openAutomationsPage)
   const setPendingAutomationRunNavigation = useAppStore((s) => s.setPendingAutomationRunNavigation)
   const updateWorktreeMeta = useAppStore((s) => s.updateWorktreeMeta)
+  const setWorktreesPinnedAndReveal = useAppStore((s) => s.setWorktreesPinnedAndReveal)
   const deleteFolderWorkspace = useAppStore((s) => s.deleteFolderWorkspace)
   const setActiveWorktree = useAppStore((s) => s.setActiveWorktree)
   const renamingWorktreeId = useAppStore((s) => s.renamingWorktreeId)
@@ -839,6 +842,20 @@ const WorktreeCard = React.memo(function WorktreeCard({
       if (!isEventTargetInsideCurrentTarget(event.currentTarget, event.target)) {
         return
       }
+      if (!affiliateListMode && event.shiftKey) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (!isDeleting) {
+          setWorktreesPinnedAndReveal([worktree.id], !worktree.isPinned, {
+            executionHostId: getWorktreeExecutionHostId(
+              worktree,
+              repo,
+              getSettingsFocusedExecutionHostId(settings)
+            )
+          })
+        }
+        return
+      }
       const selection = window.getSelection()
       // Why: only suppress the click for a selection inside this card; a foreign selection must not block worktree switching.
       if (selection && selection.toString().length > 0) {
@@ -888,6 +905,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
       worktree.id,
       worktree.repoId,
       worktree.hostId,
+      worktree.isPinned,
       repo,
       isActive,
       isDeleting,
@@ -896,7 +914,9 @@ const WorktreeCard = React.memo(function WorktreeCard({
       activeViewIsTerminal,
       onActivate,
       onImmediateActivate,
-      onSelectionGesture
+      onSelectionGesture,
+      setWorktreesPinnedAndReveal,
+      settings
     ]
   )
 
@@ -907,7 +927,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
 
   const handleDoubleClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
-      if (affiliateListMode) {
+      if (affiliateListMode || event.shiftKey) {
         return
       }
       if (!isEventTargetInsideCurrentTarget(event.currentTarget, event.target)) {

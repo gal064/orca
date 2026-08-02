@@ -8328,6 +8328,68 @@ describe('setWorktreesPinnedAndReveal', () => {
     expect(reveal).toHaveBeenCalledWith(wt.id, { behavior: 'smooth', highlight: true })
   })
 
+  it('pins only the requested host when workspace ids collide', () => {
+    const store = createTestStore()
+    const id = 'repo1::/same-path'
+    const local = makeWorktree({
+      id,
+      repoId: 'repo1',
+      path: '/same-path',
+      hostId: 'local',
+      isPinned: false
+    })
+    const remote = makeWorktree({
+      id,
+      repoId: 'repo1',
+      path: '/same-path',
+      hostId: 'runtime:env-2',
+      runtimeOwnerEnvironmentId: 'env-2',
+      isPinned: false
+    })
+    store.setState({ worktreesByRepo: { repo1: [local, remote] } } as Partial<AppState>)
+
+    store.getState().setWorktreesPinnedAndReveal([id], true, {
+      executionHostId: 'runtime:env-2'
+    })
+
+    expect(store.getState().worktreesByRepo.repo1.map((worktree) => worktree.isPinned)).toEqual([
+      false,
+      true
+    ])
+  })
+
+  it('pins a legacy hostless workspace through its remote repo owner', () => {
+    const store = createTestStore()
+    const id = 'repo1::/legacy-remote'
+    const remote = makeWorktree({
+      id,
+      repoId: 'repo1',
+      path: '/legacy-remote',
+      hostId: undefined,
+      runtimeOwnerEnvironmentId: undefined,
+      isPinned: false
+    })
+    store.setState({
+      repos: [
+        {
+          id: 'repo1',
+          path: '/repo',
+          displayName: 'Remote repo',
+          badgeColor: '#999999',
+          addedAt: 1,
+          executionHostId: 'runtime:env-2'
+        }
+      ],
+      worktreesByRepo: { repo1: [remote] }
+    } as Partial<AppState>)
+
+    store.getState().setWorktreesPinnedAndReveal([id], true, {
+      executionHostId: 'runtime:env-2'
+    })
+
+    expect(store.getState().worktreesByRepo.repo1[0].isPinned).toBe(true)
+  })
+
   it('reveals on unpin of the focused worktree so the viewport follows it back to its status group', () => {
     const store = createTestStore()
     const wt = makeWorktree({ id: 'repo1::/a', repoId: 'repo1', path: '/a', isPinned: true })

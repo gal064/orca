@@ -245,14 +245,19 @@ export type WorktreeSlice = {
   ) => Promise<void>
   ensureHostedReviewPushTarget: (worktreeId: string) => Promise<void>
   updateWorktreesMeta: (
-    updatesByWorktreeId: ReadonlyMap<string, Partial<WorktreeMeta>>
+    updatesByWorktreeId: ReadonlyMap<string, Partial<WorktreeMeta>>,
+    options?: { executionHostId?: ExecutionHostId }
   ) => Promise<void>
   /**
    * Pin/unpin worktrees, then reveal the first changed one. The reveal keeps
    * the shortcut action visible even though pinned worktrees also remain in
    * their normal sidebar groups.
    */
-  setWorktreesPinnedAndReveal: (worktreeIds: readonly string[], isPinned: boolean) => void
+  setWorktreesPinnedAndReveal: (
+    worktreeIds: readonly string[],
+    isPinned: boolean,
+    options?: { executionHostId?: ExecutionHostId }
+  ) => void
   markWorktreeUnread: (worktreeId: string) => void
   observeTerminalGitHubPullRequestLink: (worktreeId: string, link: TerminalGitHubPRLink) => void
   /** Clear the worktree's unread dot. Called on user interaction with any
@@ -384,7 +389,8 @@ export function withoutErasedRequiredWorktreeFields(
 export function applyWorktreeUpdates(
   worktreesByRepo: Record<string, Worktree[]>,
   worktreeId: string,
-  rawUpdates: Partial<WorktreeMeta>
+  rawUpdates: Partial<WorktreeMeta>,
+  matchesWorktree?: (worktree: Worktree) => boolean
 ): Record<string, Worktree[]> {
   const updates = withoutErasedRequiredWorktreeFields(rawUpdates)
   const repoId = getRepoIdFromWorktreeId(worktreeId)
@@ -395,7 +401,7 @@ export function applyWorktreeUpdates(
 
   let changed = false
   const nextWorktrees = worktrees.map((worktree) => {
-    if (worktree.id !== worktreeId) {
+    if (worktree.id !== worktreeId || (matchesWorktree && !matchesWorktree(worktree))) {
       return worktree
     }
 

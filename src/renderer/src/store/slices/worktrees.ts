@@ -86,6 +86,7 @@ import {
   resolveWorktreeOperationRoute,
   settingsForWorktreeOperationRoute
 } from '@/lib/worktree-operation-route'
+import { resolveExactWorktreeRoute } from '@/lib/worktree-owner-route'
 import { captureWorktreeOperationGenerationGuard } from '@/lib/worktree-operation-generation'
 import { getEnvironmentSshStateGeneration } from './runtime-environment-ssh'
 import { getRuntimeEnvironmentConnectionGeneration } from './runtime-status'
@@ -788,7 +789,8 @@ function notifyRuntimeScopeForbiddenIfNeeded(error: unknown): boolean {
 function applyDetectedWorktreeUpdates(
   detectedWorktreesByRepo: AppState['detectedWorktreesByRepo'],
   worktreeId: string,
-  rawUpdates: Partial<WorktreeMeta>
+  rawUpdates: Partial<WorktreeMeta>,
+  matchesWorktree?: (worktree: DetectedWorktreeListResult['worktrees'][number]) => boolean
 ): AppState['detectedWorktreesByRepo'] {
   // Why: mirrors applyWorktreeUpdates — detected rows feed the same palette.
   const updates = withoutErasedRequiredWorktreeFields(rawUpdates)
@@ -798,7 +800,7 @@ function applyDetectedWorktreeUpdates(
   for (const [repoId, result] of Object.entries(detectedWorktreesByRepo)) {
     let repoChanged = false
     const nextWorktrees = result.worktrees.map((worktree) => {
-      if (worktree.id !== worktreeId) {
+      if (worktree.id !== worktreeId || (matchesWorktree && !matchesWorktree(worktree))) {
         return worktree
       }
       repoChanged = true
@@ -824,7 +826,10 @@ function folderWorkspaceMatchesHost(
 }
 
 function findKnownWorktreeById(
-  state: Pick<AppState, 'worktreesByRepo' | 'detectedWorktreesByRepo' | 'folderWorkspaces'>,
+  state: Pick<
+    AppState,
+    'repos' | 'worktreesByRepo' | 'detectedWorktreesByRepo' | 'folderWorkspaces'
+  >,
   worktreeId: string,
   executionHostId?: ExecutionHostId
 ): Worktree | DetectedWorktreeListResult['worktrees'][number] | undefined {
@@ -846,13 +851,30 @@ function findKnownWorktreeById(
     folderWorkspaceWorktreeCache.set(folderWorkspace, worktree)
     return worktree
   }
-  const visible = executionHostId
+  let visible = executionHostId
     ? (findIndexedWorktreeOwnerForHost(
         state.worktreesByRepo,
         worktreeId,
         executionHostId
       ) as Worktree | null)
     : findWorktreeById(state.worktreesByRepo, worktreeId)
+  if (!visible && executionHostId) {
+    for (const worktrees of Object.values(state.worktreesByRepo)) {
+      visible =
+        worktrees.find(
+          (worktree) =>
+            worktree.id === worktreeId &&
+            worktreeMatchesHost(
+              worktree,
+              executionHostId,
+              worktreeHostMatchOptions(state, worktree.repoId, executionHostId)
+            )
+        ) ?? null
+      if (visible) {
+        break
+      }
+    }
+  }
   if (visible) {
     return visible
   }
@@ -861,9 +883,11 @@ function findKnownWorktreeById(
       (worktree) =>
         worktree.id === worktreeId &&
         (!executionHostId ||
-          worktreeMatchesHost(worktree, executionHostId, {
-            unhostedWorktreesMatchHost: executionHostId === LOCAL_EXECUTION_HOST_ID
-          }))
+          worktreeMatchesHost(
+            worktree,
+            executionHostId,
+            worktreeHostMatchOptions(state, worktree.repoId, executionHostId)
+          ))
     )
     if (detected) {
       return detected
@@ -1073,9 +1097,24 @@ function trySettingsForWorktreeOwner(
     | 'runtimeEnvironmentCatalogHydrated'
     | 'removedRuntimeEnvironmentIds'
   >,
-  worktreeId: string
+  worktreeId: string,
+  executionHostId?: ExecutionHostId
 ): AppState['settings'] | null {
-  const route = resolveWorktreeOperationRoute(state, worktreeId)
+  const exactOwner = executionHostId
+    ? findKnownWorktreeById(state, worktreeId, executionHostId)
+    : null
+  const exactResolution = exactOwner
+    ? resolveExactWorktreeRoute(state, {
+        ...exactOwner,
+        hostId: exactOwner.hostId ?? executionHostId
+      })
+    : null
+  const route =
+    exactResolution?.kind === 'resolved'
+      ? exactResolution.route
+      : executionHostId
+        ? null
+        : resolveWorktreeOperationRoute(state, worktreeId)
   if (!route) {
     return null
   }
@@ -1084,9 +1123,10 @@ function trySettingsForWorktreeOwner(
 
 function settingsForWorktreeOwner(
   state: Parameters<typeof trySettingsForWorktreeOwner>[0],
-  worktreeId: string
+  worktreeId: string,
+  executionHostId?: ExecutionHostId
 ) {
-  const settings = trySettingsForWorktreeOwner(state, worktreeId)
+  const settings = trySettingsForWorktreeOwner(state, worktreeId, executionHostId)
   if (!settings) {
     throw new Error(WORKTREE_REMOVAL_AMBIGUOUS_ERROR)
   }
@@ -4702,7 +4742,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     }
   },
 
-  updateWorktreesMeta: async (updatesByWorktreeId) => {
+  updateWorktreesMeta: async (updatesByWorktreeId, options) => {
     if (updatesByWorktreeId.size === 0) {
       return
     }
@@ -4710,12 +4750,22 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     set((s) => {
       let nextWorktrees = s.worktreesByRepo
       let nextDetectedWorktrees = s.detectedWorktreesByRepo
+      const executionHostId = options?.executionHostId
       for (const [worktreeId, updates] of updatesByWorktreeId) {
-        nextWorktrees = applyWorktreeUpdates(nextWorktrees, worktreeId, updates)
+        const matchesHost = executionHostId
+          ? (worktree: Worktree) =>
+              worktreeMatchesHost(
+                worktree,
+                executionHostId,
+                worktreeHostMatchOptions(s, worktree.repoId, executionHostId)
+              )
+          : undefined
+        nextWorktrees = applyWorktreeUpdates(nextWorktrees, worktreeId, updates, matchesHost)
         nextDetectedWorktrees = applyDetectedWorktreeUpdates(
           nextDetectedWorktrees,
           worktreeId,
-          updates
+          updates,
+          matchesHost
         )
       }
       return nextWorktrees === s.worktreesByRepo &&
@@ -4735,7 +4785,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       Array.from(updatesByWorktreeId, async ([worktreeId, updates]) => {
         try {
           await persistWorktreeMeta(
-            settingsForWorktreeOwner(get(), worktreeId),
+            settingsForWorktreeOwner(get(), worktreeId, options?.executionHostId),
             worktreeId,
             updates
           )
@@ -4751,7 +4801,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     )
   },
 
-  setWorktreesPinnedAndReveal: (worktreeIds, isPinned) => {
+  setWorktreesPinnedAndReveal: (worktreeIds, isPinned, options) => {
     // Only follow a toggled row with the viewport when it's the focused worktree, not an unfocused card.
     const activeSidebarWorktreeId = getActiveSidebarWorkspaceId(
       get().activeWorkspaceKey,
@@ -4762,14 +4812,18 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     let didChange = false
     let revealWorktreeId: string | null = null
     for (const worktreeId of worktreeIds) {
-      const current = get().getKnownWorktreeById(worktreeId)
+      const current = get().getKnownWorktreeById(worktreeId, options?.executionHostId)
       if (!current || current.isPinned === isPinned) {
         continue
       }
       didChange = true
       const workspaceScope = parseWorkspaceKey(worktreeId)
       if (workspaceScope?.type === 'folder') {
-        void get().updateWorktreeMeta(worktreeId, { isPinned })
+        void get().updateFolderWorkspace(
+          workspaceScope.folderWorkspaceId,
+          { isPinned },
+          options?.executionHostId ? { executionHostId: options.executionHostId } : undefined
+        )
       } else {
         updates.set(worktreeId, { isPinned })
       }
@@ -4781,7 +4835,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       return
     }
     // updateWorktreesMeta applies the store update synchronously, so the reveal below sees the row already rendered.
-    void get().updateWorktreesMeta(updates)
+    void get().updateWorktreesMeta(updates, options)
     if (revealWorktreeId !== null) {
       get().revealWorktreeInSidebar(revealWorktreeId, { behavior: 'smooth', highlight: true })
     }

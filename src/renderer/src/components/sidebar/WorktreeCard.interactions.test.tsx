@@ -7,12 +7,14 @@ import type { GlobalSettings, Repo, Worktree, WorktreeCardProperty } from '../..
 
 const openModal = vi.fn()
 const setRenamingWorktreeId = vi.fn()
+const setWorktreesPinnedAndReveal = vi.fn()
 const updateWorktreeMeta = vi.fn()
 const testDoubles = vi.hoisted(() => ({
   activateWorktreeFromSidebar: vi.fn()
 }))
 let worktreeCardProperties: WorktreeCardProperty[] = ['status', 'comment']
 let settings: Partial<GlobalSettings> | null = null
+let deleteStateByWorktreeId: Record<string, { isDeleting: boolean }> = {}
 
 vi.mock('@/store', () => ({
   useAppStore: (selector: (state: unknown) => unknown) =>
@@ -20,7 +22,7 @@ vi.mock('@/store', () => ({
       browserTabsByWorktree: {},
       createBrowserTab: vi.fn(),
       deleteFolderWorkspace: vi.fn(),
-      deleteStateByWorktreeId: {},
+      deleteStateByWorktreeId,
       fetchHostedReviewForBranch: vi.fn(),
       fetchIssue: vi.fn(),
       fetchLinearIssue: vi.fn(),
@@ -37,6 +39,7 @@ vi.mock('@/store', () => ({
       setActiveWorktree: vi.fn(),
       setRemoteBrowserPageHandle: vi.fn(),
       setRenamingWorktreeId,
+      setWorktreesPinnedAndReveal,
       settings,
       sshConnectionStates: new Map(),
       sshTargetLabels: new Map(),
@@ -144,7 +147,7 @@ function makeWorktree(overrides: Partial<Worktree> = {}): Worktree {
   }
 }
 
-describe('WorktreeCard affiliate list mode', () => {
+describe('WorktreeCard click interactions', () => {
   let container: HTMLDivElement
   let root: Root
 
@@ -155,6 +158,7 @@ describe('WorktreeCard affiliate list mode', () => {
     vi.clearAllMocks()
     worktreeCardProperties = ['status', 'comment']
     settings = null
+    deleteStateByWorktreeId = {}
   })
 
   afterEach(() => {
@@ -209,6 +213,12 @@ describe('WorktreeCard affiliate list mode', () => {
       'repo-1::/repo/worktrees/affiliate',
       'local'
     )
+
+    act(() => {
+      surface?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    })
+
+    expect(setWorktreesPinnedAndReveal).not.toHaveBeenCalled()
   })
 
   it('still shows inline agent details in affiliate list mode', () => {
@@ -228,5 +238,88 @@ describe('WorktreeCard affiliate list mode', () => {
     })
 
     expect(container.querySelector('[data-testid="inline-agents"]')).not.toBeNull()
+  })
+
+  it('toggles workspace pinning on shift-click without selecting or activating', () => {
+    const onImmediateActivate = vi.fn()
+    const onSelectionGesture = vi.fn(() => false)
+    const renderCard = (isPinned: boolean): void => {
+      act(() => {
+        root.render(
+          <WorktreeCard
+            worktree={makeWorktree({ isPinned })}
+            repo={makeRepo()}
+            isActive={false}
+            onImmediateActivate={onImmediateActivate}
+            onSelectionGesture={onSelectionGesture}
+          />
+        )
+      })
+    }
+
+    renderCard(false)
+    act(() => {
+      container
+        .querySelector<HTMLElement>('[data-worktree-card-surface="true"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    })
+
+    renderCard(true)
+    act(() => {
+      container
+        .querySelector<HTMLElement>('[data-worktree-card-surface="true"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    })
+
+    expect(setWorktreesPinnedAndReveal).toHaveBeenNthCalledWith(
+      1,
+      ['repo-1::/repo/worktrees/affiliate'],
+      true,
+      { executionHostId: 'local' }
+    )
+    expect(setWorktreesPinnedAndReveal).toHaveBeenNthCalledWith(
+      2,
+      ['repo-1::/repo/worktrees/affiliate'],
+      false,
+      { executionHostId: 'local' }
+    )
+    expect(onSelectionGesture).not.toHaveBeenCalled()
+    expect(onImmediateActivate).not.toHaveBeenCalled()
+    expect(testDoubles.activateWorktreeFromSidebar).not.toHaveBeenCalled()
+  })
+
+  it('does not pin a deleting workspace', () => {
+    deleteStateByWorktreeId = {
+      'repo-1::/repo/worktrees/affiliate': { isDeleting: true }
+    }
+    act(() => {
+      root.render(<WorktreeCard worktree={makeWorktree()} repo={makeRepo()} isActive={false} />)
+    })
+
+    const surface = container.querySelector<HTMLElement>('[data-worktree-card-surface="true"]')
+    act(() => {
+      surface?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    })
+
+    expect(setWorktreesPinnedAndReveal).not.toHaveBeenCalled()
+  })
+
+  it('uses the focused runtime for a legacy unstamped workspace', () => {
+    settings = { activeRuntimeEnvironmentId: 'env-legacy' }
+    act(() => {
+      root.render(<WorktreeCard worktree={makeWorktree()} repo={makeRepo()} isActive={false} />)
+    })
+
+    act(() => {
+      container
+        .querySelector<HTMLElement>('[data-worktree-card-surface="true"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+    })
+
+    expect(setWorktreesPinnedAndReveal).toHaveBeenCalledWith(
+      ['repo-1::/repo/worktrees/affiliate'],
+      true,
+      { executionHostId: 'runtime:env-legacy' }
+    )
   })
 })

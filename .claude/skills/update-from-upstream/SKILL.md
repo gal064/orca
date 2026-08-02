@@ -148,13 +148,33 @@ If the build fails on typecheck, that is a real merge regression — report it w
 
 Quit the running app first (a running Electron app holds open file handles).
 
-**macOS** — replace `/Applications/Orca.app` outright, no backup:
+**Never keep a backup of the install.** No `Orca.app.old`, no `.bak`, no dated copy — not even a
+temporary one you intend to delete later. The bundle is ~800M on a volume that is routinely near
+full, and the revert path is a rebuild from a known tag, not a stale copy in `/Applications`. If a
+staging copy is unavoidable (see the in-place case below), delete it in the same command that
+swaps it in — never leave the decision to a later step.
+
+**macOS** — replace `/Applications/Orca.app` outright:
 
 ```bash
 osascript -e 'quit app "Orca"' 2>/dev/null || true
 rm -rf /Applications/Orca.app
 cp -R dist/mac-arm64/Orca.app /Applications/Orca.app
 ```
+
+**When the Claude Code session is hosted by Orca itself** (`TERM_PROGRAM=Orca`), quitting the app
+kills the session mid-install. Ask the user how to proceed rather than assuming; if they choose to
+install in place without quitting, stage and swap so the bundle is never missing, and drop the
+displaced copy immediately:
+
+```bash
+ditto dist/mac-arm64/Orca.app /Applications/Orca.app.new   # ditto, not cp -R: preserves the signature
+rm -rf /Applications/Orca.app && mv /Applications/Orca.app.new /Applications/Orca.app
+```
+
+The running process keeps its own open inodes alive, so it survives until the user relaunches.
+Anything it loads lazily afterwards comes from the new bundle, so tell the user to relaunch
+promptly rather than leaving a half-old process running for hours.
 
 Verify the installed copy without re-signing it:
 

@@ -16984,6 +16984,10 @@ export class OrcaRuntimeService {
     const rowsByWorktree = new Map<string, RuntimeWorktreeAgentRow[]>()
     const now = Date.now()
     for (const src of rowSources.values()) {
+      // Why: worktree.ps is a live sidebar projection, not agent history; retained hook rows otherwise accumulate forever on mobile.
+      if (now - src.updatedAt > AGENT_STATUS_STALE_AFTER_MS) {
+        continue
+      }
       // Why: hooks retain launch-time attribution across automatic workspace
       // renames; the tab's current mirrored owner is authoritative when present.
       const tabId = src.tabId ?? parsePaneKey(src.paneKey)?.tabId
@@ -28007,14 +28011,13 @@ export class OrcaRuntimeService {
       )
       const controllerIdentity = controllerIdentityByPtyId.get(session.id)
       const persistedWorktreeId = persistedIndexes.worktreeIdByPtyId.get(session.id)
-      const providerWorktree = resolvedWorktrees.find(
-        (worktree) => session.worktreeId && runtimeWorktreeIdsEqual(worktree.id, session.worktreeId)
+      const providerWorktree = findExactOrUniqueRuntimeWorktree(
+        resolvedWorktrees,
+        session.worktreeId
       )
       const inferredWorktreeId = inferWorktreeIdFromPtyId(session.id)
       const persistedWorktree = persistedWorktreeId
-        ? resolvedWorktrees.find((worktree) =>
-            runtimeWorktreeIdsEqual(worktree.id, persistedWorktreeId)
-          )
+        ? findExactOrUniqueRuntimeWorktree(resolvedWorktrees, persistedWorktreeId)
         : undefined
       const hasMigrationEvidence =
         Boolean(session.worktreeId) &&
@@ -35154,6 +35157,24 @@ function runtimeWorktreeIdsEqual(left: string, right: string): boolean {
     ? parsedLeft.repoId === parsedRight.repoId &&
         runtimePathsEqual(parsedLeft.worktreePath, parsedRight.worktreePath)
     : left === right
+}
+
+function findExactOrUniqueRuntimeWorktree<T extends { id: string }>(
+  worktrees: readonly T[],
+  reportedWorktreeId: string | null | undefined
+): T | undefined {
+  if (!reportedWorktreeId) {
+    return undefined
+  }
+  const exact = worktrees.find((worktree) => worktree.id === reportedWorktreeId)
+  if (exact) {
+    return exact
+  }
+  // Why: folder/reuse instances share a path; guessing an owner makes mobile handles flap between sibling workspaces.
+  const compatible = worktrees.filter((worktree) =>
+    runtimeWorktreeIdsEqual(worktree.id, reportedWorktreeId)
+  )
+  return compatible.length === 1 ? compatible[0] : undefined
 }
 
 function runtimeWorktreeIdentityKey(worktreeId: string): string {

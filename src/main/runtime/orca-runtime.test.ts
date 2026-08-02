@@ -31762,7 +31762,7 @@ describe('OrcaRuntimeService', () => {
     ])
   })
 
-  it('attaches inline agent rows from hook-reported status (not just OSC)', async () => {
+  it('attaches fresh hook-reported agent rows and excludes stale rows', async () => {
     // Why: agent status arrives via hooks, not OSC; worktree.ps reads the hook snapshot so mobile surfaces those agents.
     const leafId = '33333333-3333-4333-8333-333333333333'
     const paneKey = `tab-1:${leafId}`
@@ -31780,6 +31780,17 @@ describe('OrcaRuntimeService', () => {
           connectionId: null,
           receivedAt: now,
           stateStartedAt: now - 100
+        },
+        {
+          paneKey: 'stale-tab:44444444-4444-4444-8444-444444444444',
+          worktreeId: TEST_WORKTREE_ID,
+          tabId: 'stale-tab',
+          state: 'done',
+          prompt: 'stale workspace agent',
+          agentType: 'codex',
+          connectionId: null,
+          receivedAt: now - AGENT_STATUS_STALE_AFTER_MS - 1,
+          stateStartedAt: now - AGENT_STATUS_STALE_AFTER_MS - 2_000
         }
       ]
     })
@@ -31842,6 +31853,90 @@ describe('OrcaRuntimeService', () => {
       })
     ])
     expect(summary).toMatchObject({ hasHostSidebarActivity: true, status: 'working' })
+  })
+
+  it('keeps a reuse-checkout PTY on its exact workspace instance across session-tab refreshes', async () => {
+    const instances = [
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222'
+    ] as const
+    const [firstWorktreeId, secondWorktreeId] = instances.map(
+      (instanceId) => `${TEST_REPO_ID}::${TEST_REPO_PATH}::workspace:${instanceId}`
+    )
+    const paneKey = makePaneKey('host-tab', HEADLESS_LEAF_ID)
+    const metaById: Record<string, WorktreeMeta> = {
+      [firstWorktreeId]: makeWorktreeMeta({
+        instanceId: instances[0],
+        reuseCheckout: true
+      }),
+      [secondWorktreeId]: makeWorktreeMeta({
+        instanceId: instances[1],
+        reuseCheckout: true
+      })
+    }
+    const session = makeWorkspaceSessionWithHeadlessTerminal({
+      activeWorktreeId: secondWorktreeId,
+      activeTabIdByWorktree: { [secondWorktreeId]: 'host-tab' },
+      tabsByWorktree: {
+        [secondWorktreeId]: [
+          {
+            id: 'host-tab',
+            ptyId: 'persisted-pty',
+            worktreeId: secondWorktreeId,
+            title: 'Persisted Terminal',
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 1
+          }
+        ]
+      },
+      terminalPtyIncarnationsByPaneKey: { [paneKey]: 'incarnation-1' }
+    })
+    const runtime = new OrcaRuntimeService({
+      ...store,
+      getAllWorktreeMeta: () => metaById,
+      getWorktreeMeta: (worktreeId: string) => metaById[worktreeId],
+      getWorkspaceSession: () => session
+    } as never)
+    vi.mocked(listWorktrees).mockResolvedValue([
+      {
+        path: TEST_REPO_PATH,
+        head: 'abc',
+        branch: 'main',
+        isBare: false,
+        isMainWorktree: true
+      }
+    ])
+    runtime.setPtyController({
+      write: vi.fn(() => true),
+      kill: vi.fn(() => true),
+      getForegroundProcess: vi.fn(async () => null),
+      listProcesses: vi.fn(async () => [
+        {
+          id: 'persisted-pty',
+          incarnationId: 'incarnation-1',
+          terminalHandle: 'term_reuse_instance',
+          worktreeId: secondWorktreeId,
+          cwd: TEST_REPO_PATH,
+          title: 'Codex'
+        }
+      ])
+    })
+
+    for (const snapshot of [
+      await runtime.listMobileSessionTabs(`id:${secondWorktreeId}`),
+      await runtime.listMobileSessionTabs(`id:${secondWorktreeId}`)
+    ]) {
+      expect(snapshot.tabs).toEqual([
+        expect.objectContaining({
+          type: 'terminal',
+          parentTabId: 'host-tab',
+          status: 'ready',
+          terminal: expect.stringMatching(/^term_/)
+        })
+      ])
+    }
   })
 
   it('uses mirrored tab ownership after a workspace rename instead of stale hook attribution', async () => {

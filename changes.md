@@ -6,7 +6,7 @@ dropped once it is no longer needed.
 
 - **Upstream base merged:** `v1.4.163`
 - **Latest upstream tag seen:** `v1.4.164-rc.0`
-- **Last audited:** 2026-08-01
+- **Last audited:** 2026-08-02
 
 Regenerate the raw delta with:
 
@@ -114,6 +114,19 @@ Main files: `src/main/ipc/reuse-checkout-workspace.ts`, `src/main/ipc/worktrees.
 A **feature**, not a bug workaround — it is why the branch exists. Only goes away if upstream ships
 an equivalent. Nothing suggests that is in progress.
 
+**Runtime identity follow-up (2026-08-02).** Controller inventory refresh selected the first
+filesystem-equivalent workspace, so a PTY owned by `::workspace:<uuid>` could be rewritten to a
+same-path sibling. Exact mobile matching then returned `pending-handle`, causing terminal reloads;
+the macOS remote mirror could also treat the missing PTY as a wake failure and spawn a duplicate
+terminal. Fixed by preferring the exact runtime ID and using path-equivalent fallback only when one
+candidate exists, preserving SSH/path-normalization recovery without guessing between instances.
+
+`worktree.ps` also returned retained hook rows beyond the existing 30-minute freshness window,
+accumulating old agents in mobile's workspace overview. It now excludes expired rows.
+
+**Regression tests:** `orca-runtime.test.ts` pins exact reuse-checkout PTY ownership across repeated
+session-tab refreshes and excludes stale hook rows from workspace summaries.
+
 ---
 
 ## 3. Completion notifications for remote sessions — **Watch**
@@ -154,11 +167,11 @@ form while the snapshot publishes the other fails that match, leaving no PTY and
 (`allowWorktreeOnlyMatch: !snapshot.publicationEpoch.startsWith('headless')`), so on a headless host
 exact match is the only path. That predicts the observed split exactly.
 
-Not fully confirmed: the logs contain no sample of an unstreamed *worktree* pane completing, so
-"unstreamed panes fail regardless of workspace type" was not ruled out by measurement. The fix is
-insensitive to which it is — it no longer depends on the PTY lookup succeeding. **Watch
-`mobileTerminalTabMatchesPty` at each merge**: it is the mechanism that made instance workspaces
-distinctively fragile, and it is untouched.
+The instance-workspace failure was confirmed on 2026-08-02 with a regression that starts with two
+workspace IDs for the same checkout. Controller inventory reported the exact second instance, but
+the refresh rewrote it to the first filesystem-equivalent workspace; the mobile snapshot then
+returned `pending-handle`. The §2 exact-first, ambiguity-safe lookup fixes that ownership loss.
+`mobileTerminalTabMatchesPty` remains exact by design and now receives the preserved instance ID.
 
 **Fix order matters.** Both parts depend on §1c/§1c′. Wiring notifications while the host still
 reported `done` for unfocused panes would fire a false "task complete" on every tab switch.
@@ -195,4 +208,6 @@ Main files: `src/renderer/src/components/sidebar/WorktreeCard.tsx` and
    upstream change that reintroduces array-derived ordering or title-derived agent state.
 4. Check whether upstream has given serve hosts an `ingestRemote` path or its own notification
    emitter (§3a) — either would make the mirror wiring droppable.
-5. Update the base tag and audit date at the top of this file.
+5. Run the reuse-checkout mobile refresh and stale-agent projection regressions in
+   `orca-runtime.test.ts` (§2).
+6. Update the base tag and audit date at the top of this file.

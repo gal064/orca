@@ -168,6 +168,23 @@ coverage — which is why this went unnoticed.
 
 ---
 
+## 4. Shift-click workspace pinning — **Carry** (fork feature)
+
+| | |
+|---|---|
+| Commits | `67048d7c06` (2026-08-02) |
+| Upstream issue | none |
+| Upstream PR | none |
+
+Shift-clicking a workspace card toggles its pinned state without activating the workspace or
+changing the multi-selection. The shortcut uses the same pin/reveal mutation as the context menu,
+so it works for local, SSH, remote-server, and folder workspaces.
+
+Main files: `src/renderer/src/components/sidebar/WorktreeCard.tsx` and
+`src/renderer/src/components/sidebar/WorktreeCard.interactions.test.tsx`.
+
+---
+
 ## Review checklist for the next upstream merge
 
 1. `git fetch upstream --tags --prune`, then check the merge base — upstream stable tags are release

@@ -31991,6 +31991,47 @@ describe('OrcaRuntimeService', () => {
     })
   })
 
+  it('prefers a live PTY title over a stale saved title in worktree.ps', async () => {
+    const { runtimeStore } = makeRuntimeStoreWithWorkspaceSession(
+      makeWorkspaceSessionWithHeadlessTerminal()
+    )
+    const runtime = new OrcaRuntimeService(runtimeStore as never)
+
+    runtime.registerPty('persisted-pty', TEST_WORKTREE_ID)
+    runtime.onPtyData('persisted-pty', '\x1b]0;Codex working\x07', 456)
+
+    const { worktrees } = await runtime.getWorktreePs()
+
+    expect(worktrees[0]).toMatchObject({
+      worktreeId: TEST_WORKTREE_ID,
+      status: 'working'
+    })
+  })
+
+  it('falls back to the saved title when a live PTY has not reported one', async () => {
+    const session = makeWorkspaceSessionWithHeadlessTerminal()
+    const { runtimeStore } = makeRuntimeStoreWithWorkspaceSession({
+      ...session,
+      tabsByWorktree: {
+        [TEST_WORKTREE_ID]: session.tabsByWorktree[TEST_WORKTREE_ID]!.map((tab) => ({
+          ...tab,
+          title: 'Codex working'
+        }))
+      }
+    })
+    const runtime = new OrcaRuntimeService(runtimeStore as never)
+
+    runtime.registerPty('persisted-pty', TEST_WORKTREE_ID)
+    runtime.onPtyData('persisted-pty', 'ready\n', 456)
+
+    const { worktrees } = await runtime.getWorktreePs()
+
+    expect(worktrees[0]).toMatchObject({
+      worktreeId: TEST_WORKTREE_ID,
+      status: 'working'
+    })
+  })
+
   it('attributes live legacy PTYs from saved layout bindings when their panes are hidden', async () => {
     const session = makeWorkspaceSessionWithHeadlessTerminal()
     const { runtimeStore } = makeRuntimeStoreWithWorkspaceSession({
@@ -32580,13 +32621,13 @@ describe('OrcaRuntimeService', () => {
   })
 
   it.each([
-    ['blocked', 0, true, 'permission'],
-    ['waiting', 0, true, 'permission'],
-    ['done', 0, false, 'inactive'],
-    ['working', -AGENT_STATUS_STALE_AFTER_MS - 1, false, 'inactive']
+    ['blocked', 0, true, 'permission', 1],
+    ['waiting', 0, true, 'permission', 1],
+    ['done', 0, false, 'inactive', 1],
+    ['working', -AGENT_STATUS_STALE_AFTER_MS - 1, false, 'inactive', 0]
   ] as const)(
     'projects %s agent activity to mobile at freshness offset %s',
-    async (state, updatedAtOffset, hasHostSidebarActivity, status) => {
+    async (state, updatedAtOffset, hasHostSidebarActivity, status, expectedAgentCount) => {
       const now = Date.now()
       const runtime = new OrcaRuntimeService(store, undefined, {
         getAgentStatusSnapshot: () => [
@@ -32623,8 +32664,8 @@ describe('OrcaRuntimeService', () => {
 
       const summary = worktrees.find((worktree) => worktree.worktreeId === TEST_WORKTREE_ID)
       expect(summary).toMatchObject({ hasHostSidebarActivity, status })
-      // Why: inactive must mean "projected but not fresh", never "row dropped".
-      expect(summary?.agents).toHaveLength(1)
+      // Why: stale rows are history and must not remain in the live mobile projection.
+      expect(summary?.agents).toHaveLength(expectedAgentCount)
     }
   )
 

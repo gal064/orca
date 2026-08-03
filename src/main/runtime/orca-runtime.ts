@@ -16931,6 +16931,8 @@ export class OrcaRuntimeService {
         // Why: provider existence alone cannot attribute a reused or unbound PTY to a workspace.
         continue
       }
+      // Why: persisted session titles lag live PTY OSC updates on headless hosts.
+      const statusTitle = getLatestPtyTitle(pty) ?? owner.title
       const summary = this.getSummaryForRuntimeWorktreeId(
         summaries,
         runtimeWorktreeSummaryPathIndex,
@@ -16947,7 +16949,7 @@ export class OrcaRuntimeService {
       summary.lastOutputAt = maxTimestamp(summary.lastOutputAt, pty.lastOutputAt)
       summary.status = mergeWorktreeStatus(
         summary.status,
-        getSavedTabWorktreeStatus(owner.title, true)
+        getSavedTabWorktreeStatus(statusTitle, true)
       )
       if (
         pty.preview &&

@@ -78,6 +78,12 @@ dropped before it could notify; switching back materialized the pane, a PTY appe
 notification fired tens of seconds late. Fixed with a `pty?.worktreeId ?? hookRow.worktreeId`
 fallback, mirroring what the `retained` branch directly above it already did.
 
+**e. A running agent intermittently showed no spinner in mobile's workspace list.** The terminal
+snapshot used its live PTY title and correctly reported `working`, but `worktree.ps` preferred the
+older persisted tab title and reported only `active`. Fixed by using the live PTY title for status
+when available, with the persisted title retained only as a fallback. This is host-side; shipped
+mobile clients already render and poll the corrected status.
+
 Note the PTY record is resolved by an **exact** worktree-id match that instance workspaces
 (`::workspace:<uuid>`) can fail where plain worktrees cannot — see §3b. The fix deliberately does not
 depend on that lookup succeeding.
@@ -85,12 +91,13 @@ depend on that lookup succeeding.
 **Regression tests:** `src/main/runtime/headless-tab-order-stability.test.ts` (4 tests, pins both
 order builders), `src/main/runtime/headless-agent-status-from-hooks.test.ts` (4 tests: hook state
 beats a title-derived `done`, and worktree attribution survives a missing PTY), and 3 tests in
-`web-session-tabs-sync.test.ts` (title placeholder, status retention, stuck-spinner guard). All fail
-if their fix is reverted.
+`web-session-tabs-sync.test.ts` (title placeholder, status retention, stuck-spinner guard).
+`orca-runtime.test.ts` also pins live PTY title precedence, the saved-title fallback, and stale-row
+removal in `worktree.ps`. All fail if their fix is reverted.
 
 **Action:** worth upstreaming — upstream still has these and no issue tracks them. Re-check
 `collectHeadlessTopLevelTabOrder(tabs)` and the `worktreeId` attribution in
-`buildPtyMobileAgentStatus` at each merge.
+`buildPtyMobileAgentStatus`, plus live-title precedence in `worktree.ps`, at each merge.
 
 ---
 

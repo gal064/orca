@@ -4,15 +4,15 @@ What this branch (`feat/reuse-checkout-workspace`) carries on top of upstream
 [`stablyai/orca`](https://github.com/stablyai/orca), and what to watch upstream so each change can be
 dropped once it is no longer needed.
 
-- **Upstream base merged:** `v1.4.163`
-- **Latest upstream tag seen:** `v1.4.164-rc.0`
+- **Upstream base merged:** `v1.4.164`
+- **Latest upstream tag seen:** `v1.4.165-rc.0`
 - **Last audited:** 2026-08-02
 
 Regenerate the raw delta with:
 
 ```bash
 git fetch upstream --tags --prune
-git diff --stat v1.4.163..HEAD -- src/            # fork's own source delta
+git diff --stat v1.4.164..HEAD -- src/            # fork's own source delta
 git log --no-merges --cherry-pick --right-only --format='%h %an %s' upstream/main...HEAD
 ```
 
@@ -39,8 +39,8 @@ gh pr list --repo stablyai/orca --author gal064 --state all \
 |---|---|
 | Commits | `d7dcc539f1`, `17979b5094`, `ba4e83323b`, `1054560674`, `dd171ffc66`, `72dd050a64`, `cc91750548` |
 | Upstream issue | none filed |
-| Upstream PR | [#12042](https://github.com/stablyai/orca/pull/12042) — order + titles (§1a/§1b) · [#12044](https://github.com/stablyai/orca/pull/12044) — agent status (§1c/§1c′) · opened 2026-08-01 |
-| Upstream status | **not fixed** — `upstream/main` still derives `tabOrder` from the tabs-array order |
+| Upstream PR | [#12042](https://github.com/stablyai/orca/pull/12042) — order + titles (§1a/§1b) · [#12044](https://github.com/stablyai/orca/pull/12044) — agent status (§1c/§1c′) · opened 2026-08-01, both still **OPEN** at `v1.4.164` |
+| Upstream status | **not fixed** at `v1.4.164` — `collectHeadlessTopLevelTabOrder` still rebuilds `tabOrder` from the tabs-array order (§1a); `getHookAgentRowForPane` still returns only `providerSession`/`agentType` with no `state`/`prompt`/`stateStartedAt` (§1c′); the hook-only branch of `buildPtyMobileAgentStatus` still attributes `...(pty?.worktreeId ? { worktreeId: pty.worktreeId } : {})` with no hook-row fallback (§1d); no placeholder/status-retention guards in `web-session-tabs-sync.ts` (§1b/§1c). All three fork regression suites remain absent upstream. |
 
 The §1d worktree-attribution fix went up with the notifications work instead — see §3.
 
@@ -101,6 +101,7 @@ if their fix is reverted.
 | Commits | `0e6a3daff6`, `8c611ebec5`, `9b6a10d073`, `53787632fa`, `14be9b2a60` (2026-07-13 → 07-28) |
 | Upstream issue | none |
 | Upstream PR | none |
+| Upstream status | **absent** at `v1.4.164` — no `reuseCheckout` reference anywhere in `src/` |
 
 Workspaces that reuse an existing checkout instead of creating a new git worktree, including SSH
 repos and remote servers, the quick composer (defaulted on), detected-scan synthesis so a restart
@@ -135,8 +136,8 @@ session-tab refreshes and excludes stale hook rows from workspace summaries.
 |---|---|
 | Commits | `cc91750548` (shared with §1c′/§1d — one commit fixed both) |
 | Upstream issue | none filed |
-| Upstream PR | [#12045](https://github.com/stablyai/orca/pull/12045) — opened 2026-08-01, stacked on [#12044](https://github.com/stablyai/orca/pull/12044) |
-| Upstream status | **not fixed** — the mirror still never dispatches a notification |
+| Upstream PR | [#12045](https://github.com/stablyai/orca/pull/12045) — opened 2026-08-01, stacked on [#12044](https://github.com/stablyai/orca/pull/12044), still **OPEN** at `v1.4.164` |
+| Upstream status | **not fixed** at `v1.4.164` — `observeAgentHookCompletionForNotification` still has exactly one non-test call site, `useIpcEvents.ts` (local IPC); the snapshot mirror still never dispatches a notification, and there is no serve-host `ingestRemote` path |
 
 Agents on a remote `orca serve` host produced no desktop notification; local sessions always worked.
 Two independent causes, both needed:
@@ -188,6 +189,7 @@ coverage — which is why this went unnoticed.
 | Commits | `67048d7c06` (2026-08-02) |
 | Upstream issue | none |
 | Upstream PR | none |
+| Upstream status | **absent** at `v1.4.164` — `WorktreeCard.tsx` has no `shiftKey` handling |
 
 Shift-clicking a workspace card toggles its pinned state without activating the workspace or
 changing the multi-selection. The shortcut uses the same pin/reveal mutation as the context menu,
@@ -202,9 +204,10 @@ Main files: `src/renderer/src/components/sidebar/WorktreeCard.tsx` and
 
 | | |
 |---|---|
-| Commits | this commit |
+| Commits | `06569213d9` (2026-08-02) |
 | Upstream issue | none |
 | Upstream PR | none |
+| Upstream status | **absent** at `v1.4.164` — no `remote-file-download.ts`, no Download action in `EditorFileTabContextMenu.tsx` |
 
 The editor tab context menu now shows **Download** beside the path-copy actions for concrete files
 opened from a remote server or SSH workspace, including Markdown preview tabs. It reuses the file
@@ -229,6 +232,10 @@ runtime/SSH download behavior.
 
 1. `git fetch upstream --tags --prune`, then check the merge base — upstream stable tags are release
    branches cut off main, so consecutive tags are **not** ancestors of each other.
+0. Sweep the **whole** `<last-merged-tag>..<tag>` commit range, not just the PRs listed above: read
+   every commit subject and count changed lines per fork-critical symbol. Another author's PR can
+   fix the same symptom under an unrelated title — the `gh --author gal064` query only proves our
+   own PRs did not land.
 2. Re-check whether upstream retains tab order in `buildHeadlessMobileSessionTabGroups` (§1).
 3. Run `src/main/runtime/headless-tab-order-stability.test.ts` and
    `headless-agent-status-from-hooks.test.ts` after the merge — they are the tripwires for an

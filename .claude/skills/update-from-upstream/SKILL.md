@@ -60,15 +60,49 @@ Every upstream update must audit the fork delta documented in `changes.md` again
 stable tag before merging it. Do not assume an open PR, matching title, or release note means the
 fix landed; verify the shipped code or regression test in the tag.
 
+**Audit the whole incoming range, not just the PRs `changes.md` names.** The listed PRs are the
+fork's *own* upstreaming attempts; upstream has thousands of PRs and someone else's commit can fix
+the same symptom under a different title, number, file, or implementation shape. A `gh pr list
+--author` query proves only that *our* PRs did not merge — it is never sufficient evidence that the
+bug is still present. The authoritative check is the code and the commit range.
+
 For every **Carry** and **Watch** section:
 
 1. Read the documented symptom, implementation, upstream PR/issue, and regression tests.
-2. Check the incoming tag for the equivalent behavior using batched `git log`, `git diff`,
-   `git grep`, and, only when needed, one batched `gh` query for the listed PRs.
-3. Record whether the fix is absent, partially landed, or fully equivalent. A partial fix remains
+2. Verify the behavior in the incoming tag's **code**, not its metadata — `git grep`/`git show` the
+   functions the fork changed and read what upstream actually does there now.
+3. Sweep the **entire commit range** for a differently-shaped fix. Do not stop at the named PRs:
+
+   ```bash
+   git log --no-merges --format='%h %s' <last-merged-tag>..<tag>        # read every subject
+   git diff --stat <last-merged-tag>..<tag> -- <fork-relevant dirs>     # where upstream moved
+   # per fork-critical symbol: did upstream touch it at all in the range?
+   for sym in <symbols the fork changed>; do
+     echo "$sym: $(git diff <last-merged-tag>..<tag> -- src | grep -c "^[+-].*$sym")"
+   done
+   ```
+
+   Read the subject line of every commit in the range and open any whose *symptom* is adjacent to a
+   carried section, even when the title, area, or issue number looks unrelated. A symbol with zero
+   changed lines across the range is strong evidence upstream did not touch that path; a non-zero
+   count means read the diff before concluding anything.
+4. Use `gh` only to check the *state* of the PRs `changes.md` lists, in one batched query, and treat
+   the result as corroborating detail — never as the basis for the verdict.
+5. Record whether the fix is absent, partially landed, or fully equivalent. A partial fix remains
    carried, with the remaining gap written into `changes.md`.
-4. If an equivalent fix landed, remove the now-redundant fork implementation during the merge and
+6. **Distinguish a duplicate fix from an adjacent one.** Two changes touching the same function are
+   not automatically redundant — upstream may fix a different failure mode (e.g. an existence-based
+   liveness gate where the fork added a time-based freshness gate). Only remove fork code when
+   upstream's version subsumes the fork's *symptom*, and say in the report why the two are or are
+   not the same fix.
+7. If an equivalent fix landed, remove the now-redundant fork implementation during the merge and
    mark or remove the changelog section as appropriate. Never keep two competing implementations.
+8. **When an upstream change looks like it might cover a carried item but you cannot prove it from
+   the diff, test it rather than guessing.** Revert the fork's implementation locally, run that
+   section's regression tests, and see whether they still pass on upstream's code alone. Passing
+   means upstream subsumes it and the fork code goes; failing means keep it and write what upstream
+   missed into `changes.md`. Never resolve this ambiguity by assumption in either direction — and if
+   the section's behavior cannot be settled by tests, say so in the report and ask the user.
 
 Update `changes.md` in the same update:
 
@@ -80,7 +114,9 @@ Update `changes.md` in the same update:
 
 The final report must include a **Fork fixes landed upstream** line. Name every fully or partially
 landed item and what local code was dropped or retained. If none landed, say **none found**
-explicitly; never omit the result of this audit.
+explicitly; never omit the result of this audit. State what the verdict rests on — how many commits
+in the range were reviewed and which fork-critical symbols upstream touched — so "none found" is
+visibly the result of a range sweep rather than a PR-list glance.
 
 **Upstream tags are not linear — always check the merge base before merging anything.**
 
@@ -139,9 +175,22 @@ Build only the host architecture and only the unpacked app — the dmg/zip targe
 
 **macOS** (`dist/mac-arm64/Orca.app` on Apple Silicon, `dist/mac/Orca.app` on Intel):
 
+`pnpm run build:mac --arm64 --dir` **does not work** — its last step,
+`config/scripts/build-mac-local.mjs`, hardcodes `electron-builder … --mac` and forwards no argv, so
+the flags are silently dropped and you get a full both-arch dmg/zip build. Run the compile steps
+through the script, then package explicitly:
+
 ```bash
-pnpm run build:mac --arm64 --dir     # use --x64 on Intel; check with `uname -m`
+pnpm run build:desktop && pnpm run build:computer-macos \
+  && pnpm run build:notification-status-macos && pnpm run ensure:electron-runtime
+# the local version string embeds the commit — reuse the script's own identity
+eval "$(node -e "import('./config/scripts/build-mac-local.mjs').then(m=>{const i=m.getLocalBuildIdentity();
+  console.log(\`export ORCA_BUILD_COMMIT=\${i.commit} ORCA_LOCAL_BUILD_VERSION=\${i.version}\`)})")"
+pnpm exec electron-builder --config config/electron-builder.config.cjs --mac --arm64 --dir
 ```
+
+Use `--x64` on Intel; check with `uname -m`. Without those two env vars the app builds but its
+version string loses the local-build/commit identity that step 7 relies on.
 
 Verify the packaged app before replacing the installed copy:
 

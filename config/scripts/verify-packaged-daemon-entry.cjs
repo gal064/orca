@@ -34,7 +34,7 @@ function verifyPackagedDaemonEntryBoots(resourcesDir, options = {}) {
   const execPath = options.execPath || process.execPath
   const entryPath = assertPackagedDaemonEntryExists(resourcesDir)
 
-  const result = spawnSync(execPath, [entryPath], { encoding: 'utf8', timeout: 10_000 })
+  const result = spawnSync(execPath, [entryPath], { encoding: 'utf8', timeout: 60_000 })
   if (result.error) {
     throw new Error(
       `[verify-packaged-daemon-entry] could not launch daemon-entry.js: ${result.error.message}`

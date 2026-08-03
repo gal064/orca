@@ -235,6 +235,29 @@ runtime/SSH download behavior.
 
 ---
 
+## 6. Packaged daemon-entry boot budget — **Carry** (fork build tooling)
+
+| | |
+|---|---|
+| Commits | this commit (2026-08-03) |
+| Upstream issue | none filed |
+| Upstream PR | none |
+| Upstream status | **10 s** at `v1.4.164` and on `upstream/main` — `verifyPackagedDaemonEntryBoots` still spawns with `timeout: 10_000` |
+
+`afterPack`'s `verify-packaged-daemon-entry` gate boots the freshly packaged `daemon-entry.js` under
+a spawn timeout. On a cold pack this Mac takes ~13 s to load the just-written native modules (~0.5 s
+once warm), so the upstream 10 s budget fails a perfectly good bundle — and because the gate throws
+inside `afterPack`, everything after it (runtime pruning, `chmodUnixCliLaunchers`) is skipped and the
+bundle is unusable. Raised to **60 s**.
+
+This only widens the budget; it does not weaken the check. A `MODULE_NOT_FOUND` or missing-usage
+failure still fails the build, which is what the gate is actually for. Drop this if upstream raises
+the budget or warms the modules before spawning.
+
+Main file: `config/scripts/verify-packaged-daemon-entry.cjs`.
+
+---
+
 ## Review checklist for the next upstream merge
 
 1. `git fetch upstream --tags --prune`, then check the merge base — upstream stable tags are release
@@ -253,4 +276,6 @@ runtime/SSH download behavior.
    `orca-runtime.test.ts` (§2).
 6. Check whether upstream has added editor-tab downloads for remote files (§5); if so, drop the
    shared client-side wiring.
-7. Update the base tag and audit date at the top of this file.
+7. Check whether the merge reset `verify-packaged-daemon-entry.cjs` back to `timeout: 10_000` (§6) —
+   a cold pack fails at that budget on this Mac.
+8. Update the base tag and audit date at the top of this file.

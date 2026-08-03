@@ -354,6 +354,18 @@ The host is `omarchy` — an Arch box reached over the `omarchy` entry in `~/.ss
 
 Build **on the remote host**, never cross-built from the Mac: native modules link against the host's glibc, and a darwin→linux native compile is not viable without Docker.
 
+**The server checkout is `~/orca-src`, and only `~/orca-src`.** omarchy has more than one orca clone —
+`~/dev/orca` is an ordinary working checkout kept alongside the user's other repos — and they are not
+interchangeable. Everything in this step (clone/update, build, the shim target, the feature-token
+grep, the asar timestamp check) refers to `~/orca-src`, because the systemd shim executes
+`~/orca-src/dist/linux-unpacked/resources/bin/orca-ide`. Building in `~/dev/orca` changes nothing
+about the running server, and every verification in 8f would still read the stale `~/orca-src`
+artifact and look green. Confirm the shim's path before trusting any of it:
+
+```bash
+cat ~/.config/orca/linux-orca-cli-shim/orca      # must name ~/orca-src
+```
+
 ### 8a. Preflight the remote
 
 ```bash

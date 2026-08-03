@@ -221,6 +221,22 @@ pnpm run build:win --dir
 
 If the build fails on typecheck, that is a real merge regression — report it with the failing files instead of working around it with `--skip`-style flags.
 
+**`[verify-packaged-daemon-entry] … spawnSync … ETIMEDOUT` is usually not a regression.** That gate
+boots the freshly packaged `daemon-entry.js` under a 10 s budget; on this Mac the *first* load of the
+just-written native modules takes ~13 s (0.5 s once warm), so it trips on a cold pack. Confirm which
+it is before touching anything — run the gate's own function against the packaged output:
+
+```bash
+node -e "require('./config/scripts/verify-packaged-daemon-entry.cjs')
+  .verifyPackagedDaemonEntryBoots('dist/mac-arm64/Orca.app/Contents/Resources')"
+```
+
+`OK` means the artifact is fine and only the budget was short: temporarily raise the `timeout` in
+that file, rebuild, then **revert the edit** — never commit it, and never delete the gate. A
+`MODULE_NOT_FOUND` or missing-usage failure is a genuine packaging regression. Either way the pack
+aborted *inside* `afterPack`, so the later steps (pruning, `chmodUnixCliLaunchers`) were skipped and
+that bundle must not be installed — rebuild until packaging exits 0.
+
 ## 6. Install onto the machine
 
 Quit the running app first (a running Electron app holds open file handles).
@@ -373,6 +389,20 @@ ssh omarchy 'export NVM_DIR=$HOME/.nvm; . $NVM_DIR/nvm.sh; nvm use 24
 
 Use `electron-builder --linux dir` directly — `pnpm run build:linux` hardcodes the `AppImage deb` targets and appending `--dir` does not override them.
 
+**On a repeat run `~/orca-src` already exists** — update it instead of re-cloning, and expect it to
+be dirty. It carries the 8d glibc patch plus, often, source edits from testing a fix before it was
+committed. Back the tree up, reset to the pushed branch, then re-apply the glibc patch (the reset
+removes it):
+
+```bash
+cd ~/orca-src
+git diff > ~/orca-src-leftover-$(date +%Y%m%d).patch   # never discard the user's edits silently
+git fetch origin && git reset --hard origin/<branch>
+```
+
+Before resetting, confirm each dirty hunk is already in the pushed branch (`git log -S'<symbol>'`
+locally). If any is not, stop and ask — it is unpushed work, not a leftover.
+
 ### 8d. The glibc floor gate will fail on a modern distro
 
 On anything newer than the Ubuntu 20.04 floor (Arch, Fedora), `afterPack` aborts packaging because node-pty just compiled against the host's glibc:
@@ -420,12 +450,31 @@ For each live agent, record all of the following in the working notes:
 - explicit provider session id;
 - the original resume command and any model, approval, or permission flags that must be preserved.
 
-Use `orca-ide worktree ps --json`, `orca-ide terminal list --worktree <selector> --json`, and the
-agent process tree/session metadata together. Do not infer identity from the tab title, prompt text,
-or process age. Never substitute bare `resume`, `--last`, or an interactive picker for a missing id:
-with several sessions in one checkout that can reopen the wrong conversation. If any live agent's
-session id cannot be proven, report that agent and ask the user whether to proceed before killing
-the daemon. Plain shells do not need recreation unless the user explicitly requests them.
+**Read the session id out of the pane itself — this always works, so do only this.** Both TUIs print
+their own session id on screen, so the running terminal is the authority. Do not go near
+`--json` agent fields, `/proc/<pid>/fd`, `~/.claude/projects`, `~/.codex/sessions`, or file mtimes:
+`worktree ps`/`terminal list` report `agentType: null` and `providerSession: null` once the hook rows
+expire, which is the normal state, and every filesystem route is a guess between sessions that share
+one checkout.
+
+```bash
+orca terminal list --json | jq -r '.result.terminals[] | "\(.handle)\t\(.title)"'
+orca terminal read --terminal <handle> --limit 60     # NB: --terminal, not --handle
+```
+
+Read the id off the pane text:
+
+- **Codex** — the status line's second-to-last field:
+  `gpt-5.6-sol high · ~/dev/worktree-cli · Context 97% left · 019fc1fe-… · mcps`
+- **Claude** — the `/branch` or `/resume` line naming the current session
+  (`Branched conversation. You are now in the new branch (session af872c1c-…)`). The footer shows the
+  session *name*, not its id, so read the id from that line and confirm the name matches the footer.
+
+Panes whose title is a plain shell prompt (`gal@omarchy:~/dev/...`) are shells, not agents, and need
+no recreation unless the user asks. Never substitute bare `resume`, `--last`, or an interactive
+picker for an id: with several sessions in one checkout that reopens the wrong conversation. If a
+pane is live but shows no session id even after `orca terminal read`, report that agent and ask the
+user before killing the daemon.
 
 ```bash
 SHIM=~/.config/orca/linux-orca-cli-shim/orca

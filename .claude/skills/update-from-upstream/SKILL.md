@@ -481,6 +481,10 @@ Read the id off the pane text:
 - **Claude** — the `/branch` or `/resume` line naming the current session
   (`Branched conversation. You are now in the new branch (session af872c1c-…)`). The footer shows the
   session *name*, not its id, so read the id from that line and confirm the name matches the footer.
+  **A long-lived pane often has no such line left in scrollback — that is normal, not a failure.**
+  The footer's session name is enough on its own: `claude --resume <name>` resumes by name, so
+  capture the name and use it. Only escalate to the user when neither an id nor a footer name is
+  readable.
 
 Panes whose title is a plain shell prompt (`gal@omarchy:~/dev/...`) are shells, not agents, and need
 no recreation unless the user asks. Never substitute bare `resume`, `--last`, or an interactive

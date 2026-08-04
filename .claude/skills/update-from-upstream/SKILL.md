@@ -239,6 +239,12 @@ that bundle must not be installed — rebuild until packaging exits 0.
 
 ## 6. Install onto the machine
 
+**Ordering caveat when step 8 will also run and this session is Orca-hosted** (`TERM_PROGRAM=Orca`):
+do step 7 and all of step 8 *first*, then come back and finish step 6 last. The in-place swap this
+step needs starts breaking the running app within minutes (see below), so it must be the final
+action of the whole run, not something the remote deploy happens after. When the session is not
+Orca-hosted, or step 8 is not running, the normal 6-then-7-then-8 order stands.
+
 Quit the running app first (a running Electron app holds open file handles).
 
 **Never keep a backup of the install.** No `Orca.app.old`, no `.bak`, no dated copy — not even a
@@ -282,7 +288,8 @@ milliseconds, Tailscale direct). **Do not diagnose that as a server fault.** Rec
 control listener while the daemon keeps every session alive.
 
 So: do the in-place swap **last**, after the remote host is fully deployed and verified, and tell
-the user to relaunch immediately. Never swap and then spend twenty minutes on other work.
+the user to relaunch immediately. Never swap and then spend twenty minutes on other work. That is
+what the ordering caveat at the top of this step exists to prevent.
 
 Verify the installed copy without re-signing it:
 
@@ -364,6 +371,9 @@ Push to `origin` (the fork) on the current branch only. Never push to `upstream`
 ## 8. Install onto the remote `orca serve` host, `omarchy` (only when asked)
 
 Skip this whole step unless the user asked for it in step 1. The remote clones the branch from `origin`, so **step 7 must already be pushed**.
+
+If this session is Orca-hosted, step 6's macOS install should still be pending here — see the
+ordering caveat at the top of step 6. Finish this entire step, verify it, then go do step 6 last.
 
 The host is `omarchy` — an Arch box reached over the `omarchy` entry in `~/.ssh/config`. Being Arch, it trips the glibc floor gate in 8d every time; expect that rather than treating it as a new failure.
 

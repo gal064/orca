@@ -1960,6 +1960,15 @@ type RuntimeWorktreeRemovalInFlight = {
   promise: Promise<RemoveWorktreeResult & { warning?: string }>
 }
 
+type RuntimeAgentAttentionStatus = Pick<
+  AgentStatusIpcPayload,
+  'paneKey' | 'state' | 'stateStartedAt' | 'receivedAt' | 'worktreeId'
+> & {
+  isReplay?: boolean
+}
+
+const MAX_AGENT_ATTENTION_TOKENS = 4096
+
 type PreservedBranchCleanupTarget = {
   branchName: string
   head: string
@@ -3137,6 +3146,7 @@ export class OrcaRuntimeService {
   private terminalSideEffectLocalConsumerAvailable = false
   private terminalSideEffectConsumerAvailable = false
   private readonly getAgentStatusSnapshotFn: (() => AgentStatusIpcPayload[]) | null
+  private readonly agentAttentionTokenByPaneKey = new Map<string, string>()
   private readonly getAgentProviderSessionSnapshotFn: (() => AgentStatusIpcPayload[]) | null
   private readonly getAgentProviderSessionRowsForPaneFn:
     | ((paneKey: string) => AgentStatusIpcPayload[])
@@ -4731,6 +4741,58 @@ export class OrcaRuntimeService {
       protocolVersion: RUNTIME_PROTOCOL_VERSION,
       minCompatibleMobileVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION
     }
+  }
+
+  // Why: with no renderer attached, nothing else converts a completed turn into the
+  // workspace metadata that mobile clients read for the unread bell.
+  observeAgentStatusForHeadlessUnread(status: RuntimeAgentAttentionStatus): boolean {
+    if (
+      status.isReplay === true ||
+      !Number.isFinite(status.stateStartedAt) ||
+      (status.state !== 'done' && status.state !== 'waiting' && status.state !== 'blocked')
+    ) {
+      return false
+    }
+    const worktreeId = status.worktreeId ?? this.getTerminalWorktreeIdForPaneKey(status.paneKey)
+    if (!worktreeId) {
+      return false
+    }
+    const token = `${status.state}:${Math.trunc(status.stateStartedAt)}`
+    if (this.agentAttentionTokenByPaneKey.get(status.paneKey) === token) {
+      return false
+    }
+    this.agentAttentionTokenByPaneKey.set(status.paneKey, token)
+    if (this.agentAttentionTokenByPaneKey.size > MAX_AGENT_ATTENTION_TOKENS) {
+      const oldestPaneKey = this.agentAttentionTokenByPaneKey.keys().next().value
+      if (oldestPaneKey !== undefined) {
+        this.agentAttentionTokenByPaneKey.delete(oldestPaneKey)
+      }
+    }
+    if (this.getAvailableAuthoritativeWindow()) {
+      return false
+    }
+
+    const lastActivityAt = Number.isFinite(status.receivedAt) ? status.receivedAt : Date.now()
+    const scope = parseWorkspaceKey(worktreeId)
+    if (scope?.type === 'folder') {
+      const workspace = this.store
+        ?.getFolderWorkspaces?.()
+        .find((candidate) => candidate.id === scope.folderWorkspaceId)
+      if (!workspace || workspace.isUnread || !this.store?.updateFolderWorkspace) {
+        return false
+      }
+      this.store.updateFolderWorkspace(scope.folderWorkspaceId, { isUnread: true, lastActivityAt })
+      this.notifyReposChanged()
+      return true
+    }
+
+    const meta = this.store?.getWorktreeMeta(worktreeId)
+    if (meta?.isUnread || !this.store) {
+      return false
+    }
+    this.store.setWorktreeMeta(worktreeId, { isUnread: true, lastActivityAt })
+    this.notifyWorktreesChanged(getRepoIdFromWorktreeId(worktreeId))
+    return true
   }
 
   // Why: scans the transcript-owning host's disk (correct by construction over

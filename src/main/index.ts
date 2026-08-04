@@ -2343,6 +2343,16 @@ void app.whenReady().then(async () => {
     orchestrationEnvironmentTransport
   })
   runtime = runtimeService
+  agentHookServer.subscribeEnrichedStatus((enriched) => {
+    runtimeService.observeAgentStatusForHeadlessUnread({
+      paneKey: enriched.paneKey,
+      state: enriched.payload.state,
+      stateStartedAt: enriched.stateStartedAt,
+      receivedAt: enriched.receivedAt,
+      ...(enriched.worktreeId ? { worktreeId: enriched.worktreeId } : {}),
+      ...(enriched.isReplay === true ? { isReplay: true } : {})
+    })
+  })
   runtimeService.prepareLegacyWorkerTerminalRecovery()
   publishProviderSessionChanges(agentHookServer.getProviderSessionIdentities())
   browserManager.setBrowserGuestStateChangedListener((worktreeId) => {

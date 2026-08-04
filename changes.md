@@ -166,6 +166,17 @@ appeared not to work. It presented as "only non-worktree workspaces fail", consi
 sessions. Measured on one run, a worktree pane notified in **30 ms** while instance-workspace panes
 took 21 s, 35 s, and 602 s — each landing exactly when the workspace was reopened.
 
+**c. Headless completions did not mark mobile workspaces unread.** `worktree.ps` carried the agent's
+`done` row, but its `unread` field came only from workspace metadata. With no renderer attached,
+nothing converted the completion into that metadata update, so shipped mobile clients hid the bell.
+The runtime now marks new `done`/`waiting`/`blocked` turns unread when no authoritative renderer is
+available, deduplicated by pane and state-start time. Hook-cache replay is ignored, acknowledgement
+does not resurrect the same turn, and renderer-attached hosts retain their visibility-aware behavior.
+This is host-side; no mobile rebuild is required for the workspace bell.
+
+**Regression test:** `src/main/runtime/headless-agent-unread.test.ts` pins regular and folder
+workspaces, acknowledgement deduplication, replay suppression, and the renderer-attached guard.
+
 **Why the worktree correlation is probably causal.** For an *unstreamed* pane the host still tries to
 resolve a PTY record, via `findPtyForMobileTerminalTab` → `mobileTerminalTabMatchesPty`, which gates
 on an exact string match: `pty.worktreeId === worktreeId`. Worktree workspaces use `repoId::path`;

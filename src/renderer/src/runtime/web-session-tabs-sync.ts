@@ -2745,11 +2745,27 @@ export function applyWebSessionTabsStorePatch(
   }
 }
 
+// Why: a reconnect republishes each pane's last status, and the mirror carries no
+// isReplay marker, so a turn that ended minutes ago would re-fire as a fresh
+// completion and re-raise a bell the user already dismissed.
+const MIRRORED_STALE_ATTENTION_MS = 60_000
+
+export function isStaleMirroredAttentionStatus(entry: AgentStatusEntry, now: number): boolean {
+  if (entry.state !== 'done' && entry.state !== 'waiting' && entry.state !== 'blocked') {
+    return false
+  }
+  return (
+    Number.isFinite(entry.stateStartedAt) &&
+    now - entry.stateStartedAt > MIRRORED_STALE_ATTENTION_MS
+  )
+}
+
 /** Mirrored pane statuses that actually changed, so the notification observer sees each
  *  transition once rather than on every republished snapshot. */
-function collectChangedMirroredAgentStatuses(
+export function collectChangedMirroredAgentStatuses(
   previous: Readonly<Record<string, AgentStatusEntry>>,
-  next: Readonly<Record<string, AgentStatusEntry>>
+  next: Readonly<Record<string, AgentStatusEntry>>,
+  now = Date.now()
 ): { paneKey: string; worktreeId: string; entry: AgentStatusEntry }[] {
   const changed: { paneKey: string; worktreeId: string; entry: AgentStatusEntry }[] = []
   for (const [paneKey, entry] of Object.entries(next)) {
@@ -2763,6 +2779,10 @@ function collectChangedMirroredAgentStatuses(
     }
     const before = previous[paneKey]
     if (before && agentStatusEntryEqual(before, entry)) {
+      continue
+    }
+    // Why: the store patch already applied, so suppressing here costs visuals nothing.
+    if (isStaleMirroredAttentionStatus(entry, now)) {
       continue
     }
     changed.push({ paneKey, worktreeId, entry })

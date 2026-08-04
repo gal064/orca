@@ -198,6 +198,24 @@ reported `done` for unfocused panes would fire a false "task complete" on every 
 `remote-server-parity.test.ts` covers tab ordering and focus parity but has no notification
 coverage — which is why this went unnoticed.
 
+**d. Dismissed bells came back minutes later on remote workspaces.** A remote host's hooks reach the
+renderer only through the session mirror, which republishes each pane's last status on reconnect and
+carries no replay marker. `agentStatusEntryEqual` treats a missing previous entry as changed, so
+those old `done` rows re-entered `observeAgentHookCompletionForNotification` as fresh completions.
+The only guard was the coordinator's in-memory `lastCompletionIdentity`, which
+`pruneClosedPaneCoordinators` discards during the very rehydrate that triggers the replay. Mirrored
+`done`/`waiting`/`blocked` rows whose turn started over a minute ago are now dropped before the
+notification observer; the store patch has already applied, so pane visuals are unaffected.
+
+Confirmed from desktop traces: 39 stale republished completions, 8 of which re-marked a workspace
+unread. One reconnect at 2026-08-02T02:15:33 re-raised five workspaces within 17 ms for turns that
+had ended 8.9–33 minutes earlier. Median mirror lag is −17 ms and p95 is 3.7 s, while every false
+mark had a lag of at least 477 s.
+
+**Regression test:** `src/renderer/src/runtime/mirrored-attention-staleness.test.ts` pins fresh
+completions through, stale `done`/`waiting`/`blocked` dropped, long-running `working` retained for
+turn sequencing, and the unchanged-row skip.
+
 ---
 
 ## 4. Shift-click workspace pinning — **Carry** (fork feature)

@@ -269,6 +269,21 @@ The running process keeps its own open inodes alive, so it survives until the us
 Anything it loads lazily afterwards comes from the new bundle, so tell the user to relaunch
 promptly rather than leaving a half-old process running for hours.
 
+**"Promptly" means before you start anything else — the swapped-in app breaks within minutes, not
+hours.** The renderer imports chunks lazily (`void import('@/hooks/agent-hook-completion-notifications')`
+in the mirror path, among others). Once the bundle is replaced, the next lazy import parses a
+new-bundle file against the old entry graph and throws `SyntaxError: Unexpected token ','`, then
+`lazy_chunk_reload`, then a forced main-process restart. Observed live: swap at 21:08, first
+SyntaxError at 21:23, forced restart at 21:25. The crash loop also leaves the remote control
+websocket half-open, so remote workspaces then fail with `RemoteRuntimeClientError: Remote Orca
+runtime stopped responding` even though the server is completely healthy (HTTP fast, runtime RPC in
+milliseconds, Tailscale direct). **Do not diagnose that as a server fault.** Recovery is
+`systemctl --user restart orca-server.service` on the host — the front-end only, which resets the
+control listener while the daemon keeps every session alive.
+
+So: do the in-place swap **last**, after the remote host is fully deployed and verified, and tell
+the user to relaunch immediately. Never swap and then spend twenty minutes on other work.
+
 Verify the installed copy without re-signing it:
 
 ```bash

@@ -94,7 +94,7 @@ describe('terminal programmatic text paste', () => {
     const transport = makeTransport({ connected: false })
 
     handleTerminalProgrammaticTextPaste({
-      detail: { tabId: 'tab-1', text: 'git status' },
+      detail: { tabId: 'tab-1', text: 'git status', submitAfterPaste: true },
       getManager: () => makeManager(pane) as never,
       getPaneTransports: () => new Map([[pane.id, transport]]) as never,
       tabId: 'tab-1',
@@ -183,5 +183,29 @@ describe('terminal programmatic text paste', () => {
     expect(activeTransport.sendInput).not.toHaveBeenCalled()
     expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-2')
     expect(targetPane.terminal.focus).toHaveBeenCalledOnce()
+  })
+
+  it('submits only after the dictated text paste succeeds', async () => {
+    const pane = makePane()
+    const transport = makeTransport()
+
+    handleTerminalProgrammaticTextPaste({
+      detail: {
+        paneId: pane.id,
+        tabId: 'tab-1',
+        text: 'run the focused tests',
+        submitAfterPaste: true
+      },
+      getManager: () => makeManager(pane) as never,
+      getPaneTransports: () => new Map([[pane.id, transport]]) as never,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1'
+    })
+    await flushPasteTasks()
+
+    expect(mocks.pasteTerminalText).toHaveBeenCalledWith(pane.terminal, 'run the focused tests', {
+      forceBracketedPaste: false
+    })
+    expect(transport.sendInput).toHaveBeenCalledWith('\r')
   })
 })

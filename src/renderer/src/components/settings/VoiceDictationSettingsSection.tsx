@@ -96,6 +96,41 @@ export function VoiceDictationSettingsSection({
 
       <Separator />
 
+      <div className="flex items-center justify-between gap-4 py-2">
+        <div className="space-y-0.5">
+          <Label>
+            {translate('auto.components.settings.VoicePane.autoSubmitLabel', 'Send Automatically')}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {translate(
+              'auto.components.settings.VoicePane.autoSubmitDescription',
+              'Send dictated text in terminals and chat when transcription finishes.'
+            )}
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={voiceSettings.autoSubmit}
+          aria-label={translate(
+            'auto.components.settings.VoicePane.autoSubmitLabel',
+            'Send Automatically'
+          )}
+          disabled={!voiceSettings.enabled}
+          onClick={() => onUpdateVoiceSettings({ autoSubmit: !voiceSettings.autoSubmit })}
+          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-colors ${
+            voiceSettings.autoSubmit ? 'bg-foreground' : 'bg-muted-foreground/30'
+          } ${!voiceSettings.enabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+        >
+          <span
+            className={`pointer-events-none block size-3.5 rounded-full bg-background shadow-sm transition-transform ${
+              voiceSettings.autoSubmit ? 'translate-x-4' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </div>
+
+      <Separator />
+
       <VoiceMicrophoneSetting
         voiceSettings={voiceSettings}
         onUpdateVoiceSettings={onUpdateVoiceSettings}

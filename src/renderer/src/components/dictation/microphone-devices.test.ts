@@ -36,6 +36,7 @@ describe('getDefaultVoiceSettings microphone fields', () => {
     const voice = getDefaultVoiceSettings()
     expect(voice.microphoneDeviceId).toBeNull()
     expect(voice.microphoneDeviceLabel).toBeNull()
+    expect(voice.autoSubmit).toBe(false)
   })
 })
 

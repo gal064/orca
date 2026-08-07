@@ -87,11 +87,24 @@ export function handleTerminalProgrammaticTextPaste({
           })
       })
     )
-    .then((result) => {
+    .then(async (result) => {
       if (result.status !== 'pasted') {
         return
       }
       recordTerminalUserInputForLeaf(tabId, pane.leafId)
+      if (detail.submitAfterPaste) {
+        const targetIsCurrent = isTerminalPanePasteTargetCurrent({
+          manager: getManager(),
+          paneTransports: getPaneTransports(),
+          paneId: pane.id,
+          leafId: pane.leafId,
+          transport,
+          ptyId
+        })
+        if (targetIsCurrent) {
+          await writeTerminalPastePtyInput(transport, '\r')
+        }
+      }
       pane.terminal.focus()
     })
 }

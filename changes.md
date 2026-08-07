@@ -339,6 +339,38 @@ Main file: `config/scripts/verify-packaged-daemon-entry.cjs`.
 
 ---
 
+## 7. Automatically send completed dictation — **Carry** (fork feature)
+
+| | |
+|---|---|
+| Commits | this commit (2026-08-07) |
+| Upstream issue | none filed |
+| Upstream PR | none |
+| Upstream status | **absent** at `v1.4.176` — voice settings have no `autoSubmit` field |
+
+Voice settings now include an opt-in **Send Automatically** toggle. When enabled, dictation waits
+for the active speech session to finish, inserts the complete final transcript, then submits it in
+terminal panes and the native chat composer. The terminal path preserves the submission flag across
+the global dictation event and sends Enter only after the paste succeeds. Other text fields still
+receive dictated text without being submitted.
+
+This is a desktop-client change only. Local and cloud transcription can both take time, but no
+speech RPC or remote-wire change is required; submission happens after the existing per-session
+stopped event reaches the renderer.
+
+Main files: `src/renderer/src/components/dictation/DictationController.tsx`,
+`src/renderer/src/components/dictation/dictation-auto-submit.ts`,
+`src/renderer/src/components/dictation/dictation-insertion-target.ts`,
+`src/renderer/src/components/terminal-pane/terminal-programmatic-text-paste.ts`, and
+`src/renderer/src/components/native-chat/use-native-chat-composer-keydown.ts`.
+
+**Regression tests:** `DictationController.auto-submit.test.tsx` pins completion ordering;
+`dictation-insertion-target.test.ts`, `terminal-dictation-paste-detail.test.ts`, and
+`terminal-programmatic-text-paste.test.ts` pin insert-then-submit delivery; native-chat tests pin
+the marked Enter path.
+
+---
+
 ## Review checklist for the next upstream merge
 
 1. `git fetch upstream --tags --prune`, then check the merge base — upstream stable tags are release
@@ -369,6 +401,9 @@ Main file: `config/scripts/verify-packaged-daemon-entry.cjs`.
    shared client-side wiring.
 7. Check whether the merge reset `verify-packaged-daemon-entry.cjs` back to `timeout: 10_000` (§6) —
    a cold pack fails at that budget on this Mac.
+7b. Check whether upstream added a voice `autoSubmit` setting or equivalent completion-triggered
+   terminal/native-chat submission (§7). If so, compare final-transcript ordering and remove the
+   fork path only when upstream waits for the matching session's stopped event.
 8. New at `v1.4.176` — watch `projectSessionTabAgentStatus`
    (`src/main/runtime/rpc/methods/session-tab-agent-status-projection.ts`). It strips `agentStatus`
    for runtime clients without `AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY`, i.e. a *new* source of

@@ -81,6 +81,17 @@ describe('useNativeChatComposerKeyDown', () => {
     expect(callbacks.send).toHaveBeenCalledOnce()
   })
 
+  it('auto-submits dictation without accepting an open picker option', () => {
+    const { handler, callbacks } = setup()
+    const event = keyEvent('Enter')
+    Object.assign(event.nativeEvent, { dictationAutoSubmit: true })
+
+    handler(event as never)
+
+    expect(callbacks.send).toHaveBeenCalledOnce()
+    expect(callbacks.dispatchPickerCommand).not.toHaveBeenCalled()
+  })
+
   it('dismisses Escape without interrupting the agent', () => {
     const { handler, callbacks } = setup()
     handler(keyEvent('Escape') as never)

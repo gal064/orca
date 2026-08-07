@@ -173,6 +173,7 @@ export function NativeChatComposerField({
               onCompositionEnd={onCompositionEnd}
               onPaste={onPaste}
               onSelect={(e) => onTextareaSelect(e.currentTarget)}
+              data-dictation-submit="enter"
               aria-expanded={autocomplete.mode === 'slash' || autocomplete.mode === 'skill'}
               aria-controls={
                 autocomplete.mode === 'slash' || autocomplete.mode === 'skill'

@@ -16,6 +16,7 @@ import { useAppStore } from '@/store'
 import { useTerminalScrollVisibilityMemory } from './use-terminal-scroll-visibility-memory'
 import { useTerminalContainerFitSync } from './use-terminal-container-fit-sync'
 import { handleTerminalProgrammaticTextPaste } from './terminal-programmatic-text-paste'
+import { resolveTerminalDictationPasteDetail } from './terminal-dictation-paste-detail'
 import {
   hideTerminalVisibility,
   resumeTerminalVisibility,
@@ -263,23 +264,15 @@ export function useTerminalPaneGlobalEffects({
       if (!isActiveRef.current) {
         return
       }
-      const detail = (
-        event as CustomEvent<string | { text?: string; tabId?: string; paneId?: number }>
-      ).detail
-      const text = typeof detail === 'string' ? detail : detail?.text
-      if (!text) {
+      const detail = resolveTerminalDictationPasteDetail(
+        (event as CustomEvent<string | Partial<PasteTerminalTextDetail>>).detail,
+        tabId
+      )
+      if (!detail) {
         return
       }
-      if (typeof detail === 'object' && detail.tabId && detail.tabId !== tabId) {
-        return
-      }
-      const requestedPaneId = typeof detail === 'object' ? detail.paneId : undefined
       handleTerminalProgrammaticTextPaste({
-        detail: {
-          tabId,
-          text,
-          ...(typeof requestedPaneId === 'number' ? { paneId: requestedPaneId } : {})
-        },
+        detail,
         tabId,
         worktreeId: worktreeIdRef.current,
         getManager: () => managerRef.current,

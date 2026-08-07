@@ -3,11 +3,8 @@ import { useAppStore } from '@/store'
 import { useAudioCapture } from '@/hooks/use-audio-capture'
 import { toast } from 'sonner'
 import { DictationIndicator } from './DictationIndicator'
-import {
-  captureInsertionTarget,
-  insertText,
-  type DictationInsertionTarget
-} from './dictation-insertion-target'
+import { captureInsertionTarget, type DictationInsertionTarget } from './dictation-insertion-target'
+import { deliverFinalDictationSegment, submitCompletedDictation } from './dictation-auto-submit'
 import { formatFinalTranscriptSegment } from './dictation-final-segments'
 import { recordStoppedSession, waitForStoppedSession } from './dictation-stopped-sessions'
 import { translate } from '@/i18n/i18n'
@@ -43,6 +40,7 @@ export function DictationController() {
   const erroredSessionIdsRef = useRef(new Set<string>())
   const intentionalTargetCancellationRef = useRef(false)
   const insertedFinalTranscriptRef = useRef('')
+  const autoSubmitRunRef = useRef(false)
   // Why: push-to-talk restarts capture per utterance; toast once per preference,
   // not once per press, while the selected mic stays gone.
   const micFallbackNotifiedForRef = useRef<string | null>(null)
@@ -75,9 +73,16 @@ export function DictationController() {
           )
         )
       }
+      await submitCompletedDictation({
+        autoSubmit: autoSubmitRunRef.current,
+        sessionErrored,
+        target: insertionTargetRef.current,
+        text: insertedFinalTranscriptRef.current
+      })
       insertionTargetRef.current = null
       finalTranscriptReceivedRef.current = false
       insertedFinalTranscriptRef.current = ''
+      autoSubmitRunRef.current = false
       intentionalTargetCancellationRef.current = false
       stopRequestedDuringStartRef.current = false
       if (activeSessionIdRef.current === sessionId) {
@@ -122,6 +127,7 @@ export function DictationController() {
     dictationRunRef.current = runId
     activeSessionIdRef.current = sessionId
     insertionTargetRef.current = captureInsertionTarget()
+    autoSubmitRunRef.current = settings?.voice?.autoSubmit === true
     stopRequestedDuringStartRef.current = false
     finalTranscriptReceivedRef.current = false
     erroredSessionIdsRef.current.clear()
@@ -227,6 +233,7 @@ export function DictationController() {
       finalTranscriptReceivedRef.current = false
       erroredSessionIdsRef.current.clear()
       insertedFinalTranscriptRef.current = ''
+      autoSubmitRunRef.current = false
       activeSessionIdRef.current = null
       setPartialTranscript('')
       if (message.includes('dictation_canceled')) {
@@ -370,7 +377,7 @@ export function DictationController() {
           data.text,
           insertedFinalTranscriptRef.current
         )
-        insertText(textToInsert, target)
+        deliverFinalDictationSegment(textToInsert, target, autoSubmitRunRef.current)
         insertedFinalTranscriptRef.current += textToInsert
       } else if (!intentionalTargetCancellationRef.current) {
         toast.message(
@@ -413,6 +420,7 @@ export function DictationController() {
         stopRequestedDuringStartRef.current = false
         finalTranscriptReceivedRef.current = false
         insertedFinalTranscriptRef.current = ''
+        autoSubmitRunRef.current = false
         dictationStateRef.current = 'idle'
         setDictationState('idle')
         setPartialTranscript('')

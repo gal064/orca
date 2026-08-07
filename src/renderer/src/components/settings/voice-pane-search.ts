@@ -74,6 +74,35 @@ export const getVoicePaneSearchEntries = createLocalizedCatalog(() => [
     ]
   },
   {
+    title: translate(
+      'auto.components.settings.voice.pane.search.autoSubmitTitle',
+      'Send Automatically'
+    ),
+    description: translate(
+      'auto.components.settings.voice.pane.search.autoSubmitDescription',
+      'Send dictated text when transcription finishes.'
+    ),
+    keywords: [
+      ...translateSearchKeyword('auto.components.settings.voice.pane.search.7640ed9848', 'voice'),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.089d31a45b',
+        'dictation'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.autoSubmitSend',
+        'send'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.autoSubmitEnter',
+        'enter'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.voice.pane.search.autoSubmitAutomatic',
+        'automatic'
+      )
+    ]
+  },
+  {
     title: translate('auto.components.settings.voice.pane.search.microphoneTitle', 'Microphone'),
     description: translate(
       'auto.components.settings.voice.pane.search.microphoneDescription',

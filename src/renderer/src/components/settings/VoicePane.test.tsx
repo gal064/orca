@@ -146,6 +146,28 @@ describe('VoicePane', () => {
     expect(refreshModelStates).toHaveBeenCalledTimes(1)
   })
 
+  it('enables automatic submission from the voice settings row', async () => {
+    const updateSettings = vi.fn()
+    const { root, container } = await renderVoicePane({
+      voiceEnabled: true,
+      markFeatureTipsSeen: vi.fn(),
+      updateSettings
+    })
+    const autoSubmitSwitch = container.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="Send Automatically"]'
+    )
+
+    expect(autoSubmitSwitch).not.toBeNull()
+    await clickSwitch(autoSubmitSwitch!)
+    root.unmount()
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        voice: expect.objectContaining({ autoSubmit: true })
+      })
+    )
+  })
+
   it('clicking the switch marks the voice tip seen before disabling voice settings', async () => {
     const calls: string[] = []
     const requestMicrophonePermission = vi.fn()

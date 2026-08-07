@@ -8,7 +8,7 @@ import {
   TEXT_CONTROL_PASTE_MAX_BYTES,
   getTextControlPasteByteLength
 } from '@/lib/text-control-paste'
-import { insertText } from './dictation-insertion-target'
+import { insertText, insertTextAndSubmit } from './dictation-insertion-target'
 
 type DocumentWithExecCommand = Document & {
   execCommand?: (commandId: string, showUi?: boolean, value?: string) => boolean
@@ -66,6 +66,49 @@ describe('dictation insertion target', () => {
       tabId: 'tab-1',
       paneId: 7
     })
+  })
+
+  it('marks terminal dictation for submission after the paste completes', async () => {
+    const listener = vi.fn()
+    document.addEventListener('dictation:insertText', listener)
+
+    await insertTextAndSubmit('git status', { kind: 'terminal', tabId: 'tab-1', paneId: 7 })
+
+    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      text: 'git status',
+      tabId: 'tab-1',
+      paneId: 7,
+      submitAfterPaste: true
+    })
+  })
+
+  it('submits a marked text target only after dictated text is inserted', async () => {
+    vi.useFakeTimers()
+    const textarea = appendTextarea()
+    textarea.dataset.dictationSubmit = 'enter'
+    const valuesAtSubmit: string[] = []
+    textarea.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        valuesAtSubmit.push(textarea.value)
+      }
+    })
+
+    const insertion = insertTextAndSubmit('ship it', { kind: 'text', element: textarea })
+    await vi.runAllTimersAsync()
+    await insertion
+
+    expect(valuesAtSubmit).toEqual(['ship it'])
+  })
+
+  it('does not submit an ordinary text target', async () => {
+    const textarea = appendTextarea()
+    const keydown = vi.fn()
+    textarea.addEventListener('keydown', keydown)
+
+    await insertTextAndSubmit('keep editing', { kind: 'text', element: textarea })
+
+    expect(textarea.value).toBe('keep editing')
+    expect(keydown).not.toHaveBeenCalled()
   })
 
   it('chunks large textarea dictation without one large input event', async () => {

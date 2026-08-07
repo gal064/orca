@@ -14,6 +14,13 @@ export type DictationInsertionTarget =
   | { kind: 'text'; element: HTMLInputElement | HTMLTextAreaElement }
   | { kind: 'contentEditable'; element: HTMLElement }
 
+type TerminalDictationDetail = {
+  text: string
+  tabId: string
+  paneId: number
+  submitAfterPaste?: boolean
+}
+
 export function captureInsertionTarget(): DictationInsertionTarget | null {
   const activeElement = document.activeElement
 
@@ -45,30 +52,78 @@ export function captureInsertionTarget(): DictationInsertionTarget | null {
 
 export function insertText(text: string, target: DictationInsertionTarget): void {
   if (target.kind === 'terminal') {
-    document.dispatchEvent(
-      new CustomEvent('dictation:insertText', {
-        detail: { text, tabId: target.tabId, paneId: target.paneId }
-      })
-    )
+    dispatchTerminalDictation({ text, tabId: target.tabId, paneId: target.paneId })
     return
   }
 
   if (target.kind === 'text') {
-    const element = target.element
-    if (!element.isConnected) {
-      return
-    }
-    void pasteTextIntoTextControl(element, text, {
-      source: 'programmatic',
-      inputType: 'insertText',
-      canContinue: (candidate) => candidate.ownerDocument.activeElement === candidate
-    }).catch(() => {})
+    void insertTextIntoTextTarget(target.element, text)
     return
   }
 
   if (target.kind === 'contentEditable') {
     void insertTextIntoContentEditableTarget(target.element, text).catch(() => {})
   }
+}
+
+export async function insertTextAndSubmit(
+  text: string,
+  target: DictationInsertionTarget
+): Promise<void> {
+  if (target.kind === 'terminal') {
+    dispatchTerminalDictation({
+      text,
+      tabId: target.tabId,
+      paneId: target.paneId,
+      submitAfterPaste: true
+    })
+    return
+  }
+
+  if (target.kind === 'text') {
+    const inserted = await insertTextIntoTextTarget(target.element, text)
+    if (!inserted || target.element.dataset.dictationSubmit !== 'enter') {
+      return
+    }
+    await yieldToEventLoop()
+    if (!isTextTargetCurrent(target.element)) {
+      return
+    }
+    const submitEvent = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      code: 'Enter',
+      bubbles: true,
+      cancelable: true
+    })
+    Object.defineProperty(submitEvent, 'dictationAutoSubmit', { value: true })
+    target.element.dispatchEvent(submitEvent)
+    return
+  }
+
+  await insertTextIntoContentEditableTarget(target.element, text)
+}
+
+function dispatchTerminalDictation(detail: TerminalDictationDetail): void {
+  document.dispatchEvent(new CustomEvent('dictation:insertText', { detail }))
+}
+
+async function insertTextIntoTextTarget(
+  element: HTMLInputElement | HTMLTextAreaElement,
+  text: string
+): Promise<boolean> {
+  if (!isTextTargetCurrent(element)) {
+    return false
+  }
+  const result = await pasteTextIntoTextControl(element, text, {
+    source: 'programmatic',
+    inputType: 'insertText',
+    canContinue: isTextTargetCurrent
+  }).catch(() => null)
+  return result?.status === 'pasted'
+}
+
+function isTextTargetCurrent(element: HTMLInputElement | HTMLTextAreaElement): boolean {
+  return element.isConnected && element.ownerDocument.activeElement === element
 }
 
 function findClosestEditorElement(element: HTMLElement): HTMLElement | null {

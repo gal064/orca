@@ -7,6 +7,8 @@ import {
   type NativeChatPickerItem
 } from './native-chat-composer-state'
 
+type DictationSubmitKeyboardEvent = KeyboardEvent & { dictationAutoSubmit?: boolean }
+
 export type UseNativeChatComposerKeyDownArgs = {
   autocomplete: ComposerAutocomplete
   activeSuggestion: number
@@ -48,6 +50,12 @@ export function useNativeChatComposerKeyDown({
         if (event.key === 'Enter') {
           event.preventDefault()
         }
+        return
+      }
+
+      if ((event.nativeEvent as DictationSubmitKeyboardEvent).dictationAutoSubmit === true) {
+        event.preventDefault()
+        send()
         return
       }
 

@@ -8446,6 +8446,168 @@ describe('OrcaRuntimeService', () => {
     })
   })
 
+  // Why: this pins the mechanism the refusals below exist for. cursor-agent emits only the
+  // bare native title, and the tracker drops it on sight — so a pane can never hold it
+  // because Cursor said so *now*. The one route into main's records is the stale-working
+  // clear stripping the spinner off Orca's synthesized title after 3s of quiet output, and
+  // that fires whether Cursor parked idle or exited and the shell took the pane back. That
+  // is exactly why the title cannot tell a live pane from a dead one.
+  it('only records the bare Cursor native title via the stale-working clear', async () => {
+    vi.useFakeTimers()
+    try {
+      const ptyId = `${TEST_REPO_ID}::/tmp/worktree-a@@pty-bg`
+      const runtime = createRuntime()
+      runtime.setPtyController({
+        write: () => true,
+        kill: () => true,
+        getForegroundProcess: async () => null,
+        listProcesses: async () => [{ id: ptyId, cwd: '/tmp/worktree-a', title: 'shell' }]
+      })
+      runtime.attachWindow(1)
+      runtime.markGraphReady(1)
+
+      // Live from cursor-agent: dropped, never recorded.
+      runtime.onPtyData(ptyId, '\x1b]0;Cursor Agent\x07', 100)
+      expect((await runtime.listTerminals()).terminals[0].title).not.toBe('Cursor Agent')
+
+      // Orca's synthesized spinner, then quiet output: the clear strips it to the bare title.
+      runtime.onPtyData(ptyId, '\x1b]0;⠋ Cursor Agent\x07', 101)
+      runtime.onPtyData(ptyId, 'agent finished; shell prompt returns\r\n', 102)
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      expect((await runtime.listTerminals()).terminals[0].title).toBe('Cursor Agent')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Why: this pane reads no foreground and the next reads a live shell, yet both hold the
+  // same bare title the stale-working clear left behind. Neither read makes that title
+  // liveness, so both must refuse.
+  it('refuses a bare Cursor title while the foreground read is unavailable', async () => {
+    vi.useFakeTimers()
+    try {
+      const ptyId = `${TEST_REPO_ID}::/tmp/worktree-a@@pty-bg`
+      const runtime = createRuntime()
+      runtime.setPtyController({
+        write: () => true,
+        kill: () => true,
+        getForegroundProcess: async () => null,
+        listProcesses: async () => [{ id: ptyId, cwd: '/tmp/worktree-a', title: 'shell' }]
+      })
+      runtime.attachWindow(1)
+      runtime.markGraphReady(1)
+
+      runtime.onPtyData(ptyId, '\x1b]0;⠋ Cursor Agent\x07', 100)
+      runtime.onPtyData(ptyId, 'streaming output with no title\r\n', 101)
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      const terminal = (await runtime.listTerminals()).terminals[0]
+      expect(terminal.title).toBe('Cursor Agent')
+      await expect(runtime.isTerminalRunningAgent(terminal.handle)).resolves.toBe(false)
+      await expect(runtime.getTerminalAgentStatus(terminal.handle)).resolves.toEqual({
+        handle: terminal.handle,
+        isRunningAgent: false,
+        status: null
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not treat a bare Cursor title as an agent once the shell owns the foreground', async () => {
+    vi.useFakeTimers()
+    try {
+      const ptyId = `${TEST_REPO_ID}::/tmp/worktree-a@@pty-bg`
+      const runtime = createRuntime()
+      let foreground: string | null = null
+      runtime.setPtyController({
+        write: () => true,
+        kill: () => true,
+        getForegroundProcess: async () => foreground,
+        listProcesses: async () => [{ id: ptyId, cwd: '/tmp/worktree-a', title: 'shell' }]
+      })
+      runtime.attachWindow(1)
+      runtime.markGraphReady(1)
+
+      runtime.onPtyData(ptyId, '\x1b]0;⠋ Cursor Agent\x07', 100)
+      runtime.onPtyData(ptyId, 'agent exited; back at the shell\r\n', 101)
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      // cursor-agent is gone and the user's shell owns the pane, but the title still reads
+      // "Cursor Agent". A guarded send here would auto-submit Enter into that shell.
+      foreground = 'zsh'
+      const terminal = (await runtime.listTerminals()).terminals[0]
+      expect(terminal.title).toBe('Cursor Agent')
+      await expect(runtime.isTerminalRunningAgent(terminal.handle)).resolves.toBe(false)
+      await expect(runtime.getTerminalAgentStatus(terminal.handle)).resolves.toEqual({
+        handle: terminal.handle,
+        isRunningAgent: false,
+        status: null
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Why: the refusals here must stay scoped to missing evidence. A working foreground read
+  // is what unlocks a live Cursor pane — and is the layer to fix if one is ever refused.
+  it('accepts a bare Cursor title when the foreground read confirms cursor-agent', async () => {
+    vi.useFakeTimers()
+    try {
+      const ptyId = `${TEST_REPO_ID}::/tmp/worktree-a@@pty-bg`
+      const runtime = createRuntime()
+      let foreground: string | null = null
+      runtime.setPtyController({
+        write: () => true,
+        kill: () => true,
+        getForegroundProcess: async () => foreground,
+        listProcesses: async () => [{ id: ptyId, cwd: '/tmp/worktree-a', title: 'shell' }]
+      })
+      runtime.attachWindow(1)
+      runtime.markGraphReady(1)
+
+      runtime.onPtyData(ptyId, '\x1b]0;⠋ Cursor Agent\x07', 100)
+      runtime.onPtyData(ptyId, 'streaming output with no title\r\n', 101)
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      foreground = 'cursor-agent'
+      const terminal = (await runtime.listTerminals()).terminals[0]
+      await expect(runtime.isTerminalRunningAgent(terminal.handle)).resolves.toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Why: pins the type-narrowing branch, not a reachable state — no caller detaches the
+  // controller. It is the runtime-owned pty path, which the window-graph leaf tests below
+  // never reach, so nothing else would notice it being widened.
+  it('refuses a bare Cursor title on a runtime pty with no controller attached', async () => {
+    vi.useFakeTimers()
+    try {
+      const ptyId = `${TEST_REPO_ID}::/tmp/worktree-a@@pty-bg`
+      const runtime = createRuntime()
+      runtime.setPtyController({
+        write: () => true,
+        kill: () => true,
+        getForegroundProcess: async () => 'cursor-agent',
+        listProcesses: async () => [{ id: ptyId, cwd: '/tmp/worktree-a', title: 'shell' }]
+      })
+      runtime.attachWindow(1)
+      runtime.markGraphReady(1)
+
+      runtime.onPtyData(ptyId, '\x1b]0;⠋ Cursor Agent\x07', 100)
+      runtime.onPtyData(ptyId, 'streaming output with no title\r\n', 101)
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      const terminal = (await runtime.listTerminals()).terminals[0]
+      runtime.setPtyController(null)
+      await expect(runtime.isTerminalRunningAgent(terminal.handle)).resolves.toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('clears a stale working title after 3s of title-less output', async () => {
     vi.useFakeTimers()
     try {
@@ -13946,6 +14108,212 @@ describe('OrcaRuntimeService', () => {
         worktreeId: TEST_WORKTREE_ID
       })
     )
+  })
+
+  // Why (#10333): `orca serve` publishes a ready graph under
+  // HEADLESS_RUNTIME_WINDOW_ID with no BrowserWindow behind it, so every
+  // focus-requested create used to fall through to getAuthoritativeWindow().
+  const wireHeadlessServeRuntime = (): OrcaRuntimeService => {
+    const runtime = new OrcaRuntimeService(store)
+    electronMocks.BrowserWindow.fromId.mockReturnValue(null as never)
+    runtime.syncWindowGraph(HEADLESS_RUNTIME_WINDOW_ID, { tabs: [], leaves: [] })
+    return runtime
+  }
+
+  it('spawns focus-requested CLI terminal creates in background on headless serve', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-focus-headless' })
+    const runtime = wireHeadlessServeRuntime()
+    const revealTerminalSession = vi.fn()
+    runtime.setNotifier({
+      worktreesChanged: vi.fn(),
+      reposChanged: vi.fn(),
+      activateWorktree: vi.fn(),
+      createTerminal: vi.fn(),
+      revealTerminalSession,
+      splitTerminal: vi.fn(),
+      renameTerminal: vi.fn(),
+      focusTerminal: vi.fn(),
+      closeTerminal: vi.fn(),
+      sleepWorktree: vi.fn(),
+      resumeSleepingAgents: vi.fn(),
+      terminalFitOverrideChanged: vi.fn(),
+      terminalDriverChanged: vi.fn()
+    } as never)
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    // `orca terminal create --worktree <wt> --command "echo test" --focus`
+    await expect(
+      runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        command: 'echo test',
+        focus: true
+      })
+    ).resolves.toMatchObject({
+      worktreeId: TEST_WORKTREE_ID,
+      handle: expect.stringMatching(/^term_/)
+    })
+    expect(spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'echo test',
+        cwd: TEST_WORKTREE_PATH,
+        worktreeId: TEST_WORKTREE_ID,
+        persistHostSessionBinding: true
+      })
+    )
+    // Why: degrading the create must not silently drop the focus request — the
+    // host still asks whatever surface exists to activate the new pane.
+    expect(revealTerminalSession).toHaveBeenCalledWith(
+      TEST_WORKTREE_ID,
+      expect.objectContaining({ activate: true, presentation: 'focused' })
+    )
+  })
+
+  it('spawns presentation:focused terminal creates in background on headless serve', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-presentation-headless' })
+    const runtime = wireHeadlessServeRuntime()
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    // Paired desktop `+` button: clients send presentation:'focused', not focus.
+    await expect(
+      runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        command: 'codex',
+        presentation: 'focused'
+      })
+    ).resolves.toMatchObject({
+      worktreeId: TEST_WORKTREE_ID,
+      surface: 'background',
+      handle: expect.stringMatching(/^term_/)
+    })
+    expect(spawn).toHaveBeenCalled()
+  })
+
+  it('spawns focused agent-session creates in background on headless serve', async () => {
+    // Why: RPC only downgrades `focused` for clients that report a clientKind
+    // (#10193), so loopback/CLI callers still reach the runtime asking for focus.
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-agent-headless' })
+    const runtime = wireHeadlessServeRuntime()
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    await expect(
+      runtime.createAgentSession({
+        clientOperationId: `${Date.now()}-0123456789abcdef0123456789abcdef`,
+        worktree: `path:${TEST_WORKTREE_PATH}`,
+        agent: 'codex',
+        prompt: 'hello',
+        presentation: 'focused'
+      })
+    ).resolves.toMatchObject({
+      disposition: 'created',
+      terminal: expect.objectContaining({
+        worktreeId: TEST_WORKTREE_ID,
+        handle: expect.stringMatching(/^term_/)
+      })
+    })
+    expect(spawn).toHaveBeenCalled()
+  })
+
+  it('activates the paired mobile session tab for a degraded focused headless create', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-focus-publish' })
+    const runtime = wireHeadlessServeRuntime()
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    const created = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+      command: 'echo test',
+      focus: true
+    })
+
+    // Why: with no renderer notifier on a serve host, the session-tab publish is
+    // the only channel a paired client learns about the terminal on — a degraded
+    // focused create must still land there selected, or focus is silently lost.
+    const tabs = await runtime.listMobileSessionTabs(`id:${TEST_WORKTREE_ID}`)
+    const published = tabs.tabs.find(
+      (tab) => tab.type === 'terminal' && tab.parentTabId === created.tabId
+    )
+    expect(published).toBeDefined()
+    expect(published?.isActive).toBe(true)
+    expect(tabs.activeTabId).toBe(published?.id)
+  })
+
+  it('keeps focus-requested terminal creates on the renderer when a window exists', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-should-not-spawn' })
+    const webContents = { send: vi.fn() }
+    const send = vi.fn((_channel: string, payload: { requestId: string }) => {
+      runtime.syncWindowGraph(1, {
+        tabs: [
+          {
+            tabId: 'tab-focused',
+            worktreeId: TEST_WORKTREE_ID,
+            title: 'Focused Terminal',
+            activeLeafId: 'pane:1',
+            layout: null
+          }
+        ],
+        leaves: [
+          {
+            tabId: 'tab-focused',
+            worktreeId: TEST_WORKTREE_ID,
+            leafId: 'pane:1',
+            paneRuntimeId: 1,
+            ptyId: 'pty-focused',
+            paneTitle: null
+          }
+        ]
+      })
+      ipcMain.emit(
+        'terminal:tabCreateReply',
+        { sender: webContents },
+        { requestId: payload.requestId, tabId: 'tab-focused', title: 'Focused Terminal' }
+      )
+    })
+    webContents.send = send
+    const runtime = new OrcaRuntimeService(store)
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
+    electronMocks.BrowserWindow.fromId.mockReturnValue({
+      isDestroyed: () => false,
+      webContents
+    })
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    await expect(
+      runtime.createTerminal(`id:${TEST_WORKTREE_ID}`, {
+        command: 'echo test',
+        focus: true
+      })
+    ).resolves.toMatchObject({
+      tabId: 'tab-focused',
+      worktreeId: TEST_WORKTREE_ID,
+      surface: 'visible'
+    })
+    expect(send).toHaveBeenCalledWith(
+      'terminal:requestTabCreate',
+      expect.objectContaining({ activate: true, presentation: 'focused' })
+    )
+    expect(spawn).not.toHaveBeenCalled()
   })
 
   it('accepts renderer-backed terminal create replies only from the target renderer', async () => {
@@ -21670,6 +22038,105 @@ describe('OrcaRuntimeService', () => {
     })
 
     await expect(runtime.isTerminalRunningAgent(handle)).resolves.toBe(true)
+  })
+
+  it('does not treat a bare Cursor Agent native title as a running agent session', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    // Why: the native title is identity, not liveness — Cursor never decorates it, so it
+    // reads the same whether cursor-agent is parked or long gone. Sends auto-submit Enter,
+    // so identity alone must not unlock one.
+    syncSinglePty(runtime, 'pty-1', { tabTitle: 'bash', paneTitle: 'Cursor Agent' })
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    await expect(runtime.isTerminalRunningAgent(terminal.handle)).resolves.toBe(false)
+    await expect(runtime.getTerminalAgentStatus(terminal.handle)).resolves.toEqual({
+      handle: terminal.handle,
+      isRunningAgent: false,
+      status: null
+    })
+  })
+
+  // Why: a leaf with no PTY is the same no-evidence case as an unreadable foreground —
+  // nothing was even asked, so the bare title is all that is left. The corroborating
+  // foreground here is deliberately unreachable: no ptyId means no read.
+  it('does not treat a bare Cursor title as an agent on a leaf with no pty', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => 'cursor-agent'
+    })
+    syncSinglePty(runtime, null, { tabTitle: 'bash', paneTitle: 'Cursor Agent' })
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    await expect(runtime.isTerminalRunningAgent(terminal.handle)).resolves.toBe(false)
+  })
+
+  // Why: a renderer can push the bare title straight onto the pane, skipping the stale
+  // clear the other tests drive. Arriving that way it lands on top of a `working` status
+  // the spinner left behind, so the pane looks doubly like an agent — and is still just a
+  // shell. The tab is left untitled so the bare title is the only evidence in play: the
+  // refusal is decided at the foreground, and the stale-status gate is held shut behind it.
+  it('does not let a renderer-pushed bare Cursor title revive stale agent status', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => 'zsh'
+    })
+    syncSinglePty(runtime, 'pty-1', { tabTitle: '' })
+    runtime.onPtyData('pty-1', '\x1b]0;⠋ Cursor Agent\x07', 100)
+    syncSinglePty(runtime, 'pty-1', { tabTitle: '', paneTitle: 'Cursor Agent' })
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    expect(terminal.title).toBe('Cursor Agent')
+    await expect(runtime.isTerminalRunningAgent(terminal.handle)).resolves.toBe(false)
+  })
+
+  // Why: pins the outer catch, not a reachable state — the production controller
+  // (src/main/ipc/pty.ts) already normalizes provider failures, a dropped SSH channel
+  // included, to null before this sees them. Nothing else here makes the read throw.
+  it('does not treat a bare Cursor title as an agent when the foreground read throws', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => {
+        throw new Error('ssh channel closed')
+      }
+    })
+    syncSinglePty(runtime, 'pty-1', { tabTitle: '', paneTitle: 'Cursor Agent' })
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    await expect(runtime.isTerminalRunningAgent(terminal.handle)).resolves.toBe(false)
+  })
+
+  // Why: cursor-agent is a node program, so `node` in the foreground plus a Cursor title
+  // looks like corroboration. It is not — the wrapper retry has to resolve a real agent
+  // name, and timing out means it never did.
+  it('does not treat a bare Cursor title as an agent behind a wrapper foreground', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      runtime.setPtyController({
+        write: () => true,
+        kill: () => true,
+        getForegroundProcess: async () => 'node'
+      })
+      syncSinglePty(runtime, 'pty-1', { tabTitle: '', paneTitle: 'Cursor Agent' })
+      const [terminal] = (await runtime.listTerminals()).terminals
+
+      const running = runtime.isTerminalRunningAgent(terminal.handle)
+      await vi.advanceTimersByTimeAsync(7_000)
+      await expect(running).resolves.toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('does not recognize runtime-created Claude agents management screens as agents', async () => {

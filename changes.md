@@ -4,15 +4,15 @@ What this branch (`feat/reuse-checkout-workspace`) carries on top of upstream
 [`stablyai/orca`](https://github.com/stablyai/orca), and what to watch upstream so each change can be
 dropped once it is no longer needed.
 
-- **Upstream base merged:** `v1.4.164`
-- **Latest upstream tag seen:** `v1.4.165-rc.0`
-- **Last audited:** 2026-08-02
+- **Upstream base merged:** `v1.4.175`
+- **Latest upstream tag seen:** `v1.4.175`
+- **Last audited:** 2026-08-06
 
 Regenerate the raw delta with:
 
 ```bash
 git fetch upstream --tags --prune
-git diff --stat v1.4.164..HEAD -- src/            # fork's own source delta
+git diff --stat v1.4.175..HEAD -- src/            # fork's own source delta
 git log --no-merges --cherry-pick --right-only --format='%h %an %s' upstream/main...HEAD
 ```
 
@@ -39,10 +39,29 @@ gh pr list --repo stablyai/orca --author gal064 --state all \
 |---|---|
 | Commits | `d7dcc539f1`, `17979b5094`, `ba4e83323b`, `1054560674`, `dd171ffc66`, `72dd050a64`, `cc91750548` |
 | Upstream issue | none filed |
-| Upstream PR | [#12042](https://github.com/stablyai/orca/pull/12042) — order + titles (§1a/§1b) · [#12044](https://github.com/stablyai/orca/pull/12044) — agent status (§1c/§1c′) · opened 2026-08-01, both still **OPEN** at `v1.4.164` |
-| Upstream status | **not fixed** at `v1.4.164` — `collectHeadlessTopLevelTabOrder` still rebuilds `tabOrder` from the tabs-array order (§1a); `getHookAgentRowForPane` still returns only `providerSession`/`agentType` with no `state`/`prompt`/`stateStartedAt` (§1c′); the hook-only branch of `buildPtyMobileAgentStatus` still attributes `...(pty?.worktreeId ? { worktreeId: pty.worktreeId } : {})` with no hook-row fallback (§1d); no placeholder/status-retention guards in `web-session-tabs-sync.ts` (§1b/§1c). All three fork regression suites remain absent upstream. |
+| Upstream PR | [#12042](https://github.com/stablyai/orca/pull/12042) — order + titles (§1a/§1b) · [#12044](https://github.com/stablyai/orca/pull/12044) — agent status (§1c/§1c′) · opened 2026-08-01, both still **OPEN** at `v1.4.175` |
+| Upstream status | **partially fixed** at `v1.4.175`. **§1c′ and §1d landed** under different authorship and a different shape — see below; both fork implementations were **removed** in the `v1.4.175` merge. Still absent: `collectHeadlessTopLevelTabOrder` rebuilds `tabOrder` from the tabs-array order (§1a, 0 changed lines in `v1.4.164..v1.4.175`); no placeholder-title guard in `buildMirroredTerminalTabs` (§1b); no `pending-handle` status-retention guard (§1c); live-PTY-title precedence in `worktree.ps` untouched (§1e). The `headless-tab-order-stability` and `headless-agent-status-from-hooks` suites remain absent upstream. |
 
-The §1d worktree-attribution fix went up with the notifications work instead — see §3.
+**Landed upstream at `v1.4.175` (fork code dropped).** Upstream reworked `getHookAgentRowForPane`
+to return a `live: HookLiveAgentRow | null` — the newest fresh, non-`providerSessionOnly`,
+non-`restoredUnconfirmed` hook row, carrying `payload`/`updatedAt`/`stateStartedAt`/`worktreeId`.
+`buildPtyMobileAgentStatus` now prefers `retained ?? resolveHookLiveAgentRow(hookRow.live, …)` and
+attributes it with `pty?.worktreeId ?? liveRow.worktreeId`. That is §1c′ (hook state beating a
+title-derived `done`) and §1d (worktree attribution surviving a missing PTY) in one mechanism, with
+a stricter freshness gate than the fork's — it dates the fallback by `lastOscTitleEpochMs` instead
+of the byte stream, so a paired client's live status can outrank it. Both functions are now
+byte-identical to `v1.4.175`, and all 12 tests in `headless-agent-status-from-hooks.test.ts`,
+`headless-tab-order-stability.test.ts`, and `headless-agent-unread.test.ts` pass against it.
+
+**Not subsumed: §1c.** Upstream #12641/#12664 added a delete-loop guard to
+`buildMirroredAgentStatusPatch`, but it gates on `isClientAuthoritativeAgentStatusPane` — a pane
+*this renderer* claimed at transport creation and writes byte-derived status for. The fork's guard
+gates on the *host surface* reporting `pending-handle` with no status, which is precisely a pane
+this renderer is **not** streaming and therefore never claimed. Verified empirically: with the fork
+guard removed and upstream's in place, `keeps a running agent status when the host republishes the
+pane without one` fails (`expected undefined to be 'working'`). Both guards now sit in the same loop
+and all 82 tests across `web-session-tabs-sync.test.ts`, `mirrored-attention-staleness.test.ts`, and
+upstream's new `web-session-tabs-sync-remote-status-title-flap.test.ts` pass together.
 
 Four symptoms on a remote (`orca serve`) host, one theme: the host publishes degraded state for
 panes it is not actively streaming, and the client reads that as fact.
@@ -65,18 +84,21 @@ for `ready` surfaces, where absence genuinely means no agent and must still prun
 return (#1437).
 
 **c′. The status the host published was title-derived, so it said `done` over a running agent.**
-Retaining the client's status (c) was necessary but not sufficient: `buildPtyMobileAgentStatus` read
+~~Retaining the client's status (c) was necessary but not sufficient: `buildPtyMobileAgentStatus` read
 *identity* from the agent hook but *state* from the PTY title — and an unstreamed pane's title is the
-`Terminal` placeholder. Fixed by returning the hook row's `state`/`prompt`/`stateStartedAt` from
-`getHookAgentRowForPane` and preferring them over the title-derived fallback.
+`Terminal` placeholder.~~ **Landed upstream at `v1.4.175`; fork implementation removed.** Upstream's
+`hookRow.live` row plus `resolveHookLiveAgentRow` supplies the same hook-state precedence. Kept here
+only to explain why (c) alone is insufficient — that reasoning still holds.
 
 **d. Completions on an unfocused remote pane never notified** (see also §3). The same hook-only
 branch attributed the worktree as `pty?.worktreeId ? … : {}`, so whenever the host resolved no PTY
 record for the pane the published status carried **no `worktreeId` at all** — and the client skips a
 mirrored status it cannot attribute. The `done` arrived on time and updated the spinner, then was
 dropped before it could notify; switching back materialized the pane, a PTY appeared, and the
-notification fired tens of seconds late. Fixed with a `pty?.worktreeId ?? hookRow.worktreeId`
-fallback, mirroring what the `retained` branch directly above it already did.
+notification fired tens of seconds late. **Landed upstream at `v1.4.175`; fork implementation
+removed** — upstream's live-row branch attributes with `pty?.worktreeId ?? liveRow.worktreeId`. Its
+*last-resort* branch still uses `pty?.worktreeId` alone, which is acceptable: that branch only fires
+on identity-only hook evidence and publishes a title-derived `done` that should not notify.
 
 **e. A running agent intermittently showed no spinner in mobile's workspace list.** The terminal
 snapshot used its live PTY title and correctly reported `working`, but `worktree.ps` preferred the
@@ -90,14 +112,15 @@ depend on that lookup succeeding.
 
 **Regression tests:** `src/main/runtime/headless-tab-order-stability.test.ts` (4 tests, pins both
 order builders), `src/main/runtime/headless-agent-status-from-hooks.test.ts` (4 tests: hook state
-beats a title-derived `done`, and worktree attribution survives a missing PTY), and 3 tests in
+beats a title-derived `done`, and worktree attribution survives a missing PTY — these now pass
+against *upstream's* implementation and are retained as tripwires), and 3 tests in
 `web-session-tabs-sync.test.ts` (title placeholder, status retention, stuck-spinner guard).
 `orca-runtime.test.ts` also pins live PTY title precedence, the saved-title fallback, and stale-row
-removal in `worktree.ps`. All fail if their fix is reverted.
+removal in `worktree.ps`.
 
-**Action:** worth upstreaming — upstream still has these and no issue tracks them. Re-check
-`collectHeadlessTopLevelTabOrder(tabs)` and the `worktreeId` attribution in
-`buildPtyMobileAgentStatus`, plus live-title precedence in `worktree.ps`, at each merge.
+**Action:** §1a, §1b, §1c, §1e remain worth upstreaming — upstream still has them and no issue
+tracks them. §1c′/§1d are done. Re-check `collectHeadlessTopLevelTabOrder(tabs)` and live-title
+precedence in `worktree.ps` at each merge.
 
 ---
 
@@ -108,7 +131,7 @@ removal in `worktree.ps`. All fail if their fix is reverted.
 | Commits | `0e6a3daff6`, `8c611ebec5`, `9b6a10d073`, `53787632fa`, `14be9b2a60` (2026-07-13 → 07-28) |
 | Upstream issue | none |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.164` — no `reuseCheckout` reference anywhere in `src/` |
+| Upstream status | **absent** at `v1.4.175` — no `reuseCheckout` reference anywhere in `src/` |
 
 Workspaces that reuse an existing checkout instead of creating a new git worktree, including SSH
 repos and remote servers, the quick composer (defaulted on), detected-scan synthesis so a restart
@@ -143,8 +166,8 @@ session-tab refreshes and excludes stale hook rows from workspace summaries.
 |---|---|
 | Commits | `cc91750548` (shared with §1c′/§1d — one commit fixed both) |
 | Upstream issue | none filed |
-| Upstream PR | [#12045](https://github.com/stablyai/orca/pull/12045) — opened 2026-08-01, stacked on [#12044](https://github.com/stablyai/orca/pull/12044), still **OPEN** at `v1.4.164` |
-| Upstream status | **not fixed** at `v1.4.164` — `observeAgentHookCompletionForNotification` still has exactly one non-test call site, `useIpcEvents.ts` (local IPC); the snapshot mirror still never dispatches a notification, and there is no serve-host `ingestRemote` path |
+| Upstream PR | [#12045](https://github.com/stablyai/orca/pull/12045) — opened 2026-08-01, stacked on [#12044](https://github.com/stablyai/orca/pull/12044), still **OPEN** at `v1.4.175` |
+| Upstream status | **not fixed** at `v1.4.175` — `observeAgentHookCompletionForNotification` still has exactly one non-test call site, `useIpcEvents.ts` (local IPC), and 0 changed lines across `v1.4.164..v1.4.175`; the snapshot mirror still never dispatches a notification; `ingestRemote` still has only SSH and WSL callers, no serve-host path. §3c and §3d are likewise untouched (`headless-agent-unread.test.ts` and `mirrored-attention-staleness.test.ts` absent upstream). **§3b's dependency changed:** the §1d attribution gap it describes is now fixed *upstream* rather than by fork code — see §1. |
 
 Agents on a remote `orca serve` host produced no desktop notification; local sessions always worked.
 Two independent causes, both needed:
@@ -225,7 +248,7 @@ turn sequencing, and the unchanged-row skip.
 | Commits | `67048d7c06` (2026-08-02) |
 | Upstream issue | none |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.164` — `WorktreeCard.tsx` has no `shiftKey` handling |
+| Upstream status | **absent** at `v1.4.175` — `WorktreeCard.tsx` has no `shiftKey` handling |
 
 Shift-clicking a workspace card toggles its pinned state without activating the workspace or
 changing the multi-selection. The shortcut uses the same pin/reveal mutation as the context menu,
@@ -243,7 +266,7 @@ Main files: `src/renderer/src/components/sidebar/WorktreeCard.tsx` and
 | Commits | `06569213d9` (2026-08-02) |
 | Upstream issue | none |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.164` — no `remote-file-download.ts`, no Download action in `EditorFileTabContextMenu.tsx` |
+| Upstream status | **absent** at `v1.4.175` — no `remote-file-download.ts`, no Download action in `EditorFileTabContextMenu.tsx` |
 
 The editor tab context menu now shows **Download** beside the path-copy actions for concrete files
 opened from a remote server or SSH workspace, including Markdown preview tabs. It reuses the file
@@ -271,7 +294,7 @@ runtime/SSH download behavior.
 | Commits | this commit (2026-08-03) |
 | Upstream issue | none filed |
 | Upstream PR | none |
-| Upstream status | **10 s** at `v1.4.164` and on `upstream/main` — `verifyPackagedDaemonEntryBoots` still spawns with `timeout: 10_000` |
+| Upstream status | **10 s** at `v1.4.175` — `verifyPackagedDaemonEntryBoots` still spawns with `timeout: 10_000` |
 
 `afterPack`'s `verify-packaged-daemon-entry` gate boots the freshly packaged `daemon-entry.js` under
 a spawn timeout. On a cold pack this Mac takes ~13 s to load the just-written native modules (~0.5 s
@@ -299,8 +322,18 @@ Main file: `config/scripts/verify-packaged-daemon-entry.cjs`.
 3. Run `src/main/runtime/headless-tab-order-stability.test.ts` and
    `headless-agent-status-from-hooks.test.ts` after the merge — they are the tripwires for an
    upstream change that reintroduces array-derived ordering or title-derived agent state.
+   `headless-agent-status-from-hooks.test.ts` now guards *upstream's* `hookRow.live` mechanism; if it
+   starts failing, upstream regressed §1c′/§1d and the fork code may need reinstating from
+   `git show <pre-v1.4.175-merge>:src/main/runtime/orca-runtime.ts`.
+3b. Re-check §1c specifically: upstream's `isClientAuthoritativeAgentStatusPane` delete-loop guard
+   and the fork's `unreportedPaneKeys` guard now sit side by side in
+   `buildMirroredAgentStatusPatch`. They cover different panes (claimed-by-this-renderer vs
+   host-has-no-handle) — do not collapse them without deleting the fork guard and confirming
+   `keeps a running agent status when the host republishes the pane without one` still passes.
 4. Check whether upstream has given serve hosts an `ingestRemote` path or its own notification
-   emitter (§3a) — either would make the mirror wiring droppable.
+   emitter (§3a) — either would make the mirror wiring droppable. Cheapest probe:
+   `git grep -c observeAgentHookCompletionForNotification <tag> -- src | grep -v test` must stay at
+   the single `useIpcEvents.ts` call site.
 5. Run the reuse-checkout mobile refresh and stale-agent projection regressions in
    `orca-runtime.test.ts` (§2).
 6. Check whether upstream has added editor-tab downloads for remote files (§5); if so, drop the

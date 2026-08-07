@@ -285,13 +285,13 @@ function makeTerminalTab(overrides: Partial<TerminalTab> & { id: string; worktre
 }
 
 function createWebview(overrides: Partial<Electron.WebviewTag> = {}): Electron.WebviewTag {
-  return {
+  return Object.assign(new EventTarget(), {
     style: {},
     blur: vi.fn(),
     remove: vi.fn(),
     contains: vi.fn(() => false),
     ...overrides
-  } as unknown as Electron.WebviewTag
+  }) as unknown as Electron.WebviewTag
 }
 
 function makeLineage(overrides: Partial<WorktreeLineage> = {}): WorktreeLineage {
@@ -570,6 +570,55 @@ describe('fetchWorktrees', () => {
 
     expect(store.getState().worktreesByRepo.repo1).toEqual([latest])
     expect(mockApi.worktrees.updateMeta).not.toHaveBeenCalled()
+  })
+
+  it('does not merge stale manual order over a reorder completed during refresh', async () => {
+    const store = createTestStore()
+    const daily = makeWorktree({
+      id: 'repo1::/path/daily',
+      repoId: 'repo1',
+      path: '/path/daily',
+      manualOrder: 20
+    })
+    const relay = makeWorktree({
+      id: 'repo1::/path/relay',
+      repoId: 'repo1',
+      path: '/path/relay',
+      manualOrder: 10
+    })
+    const refreshedDaily = { ...daily, head: 'def456' }
+    const detected = makeDetectedResult('repo1', [daily, relay])
+    let resolveListing!: (worktrees: Worktree[]) => void
+    const listing = new Promise<Worktree[]>((resolve) => {
+      resolveListing = resolve
+    })
+    worktreeListMock.mockReturnValueOnce(listing)
+    store.setState({
+      worktreesByRepo: { repo1: [daily, relay] },
+      detectedWorktreesByRepo: { repo1: detected }
+    } as Partial<AppState>)
+
+    const refresh = store.getState().fetchWorktrees('repo1')
+    await vi.waitFor(() => expect(worktreeListMock).toHaveBeenCalledTimes(1))
+    await store.getState().updateWorktreesMeta(
+      new Map([
+        [daily.id, { manualOrder: 100 }],
+        [relay.id, { manualOrder: 200 }]
+      ])
+    )
+    resolveListing([refreshedDaily, relay])
+
+    await refresh
+
+    expect(store.getState().worktreesByRepo.repo1.map((worktree) => worktree.manualOrder)).toEqual([
+      100, 200
+    ])
+    expect(
+      store
+        .getState()
+        .detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.manualOrder)
+    ).toEqual([100, 200])
+    expect(store.getState().worktreesByRepo.repo1[0]?.head).toBe('def456')
   })
 
   it('updates the repo entry when only the persisted base ref changes', async () => {
@@ -4974,6 +5023,10 @@ describe('removeWorktree state cleanup', () => {
         'repo1::/path/wt1': 'head-1',
         'repo1::/path/wt2': 'head-2'
       },
+      gitBranchLineTotalByWorktree: {
+        'repo1::/path/wt1': { added: 24, removed: 3, mergeBase: 'base-1' },
+        'repo1::/path/wt2': { added: 1, removed: 0, mergeBase: 'base-2' }
+      },
       gitIgnoredPathsByWorktree: {
         'repo1::/path/wt1': ['dist/'],
         'repo1::/path/wt2': ['coverage/']
@@ -5011,6 +5064,9 @@ describe('removeWorktree state cleanup', () => {
     })
     expect(store.getState().gitStatusHeadByWorktree).toEqual({
       'repo1::/path/wt2': 'head-2'
+    })
+    expect(store.getState().gitBranchLineTotalByWorktree).toEqual({
+      'repo1::/path/wt2': { added: 1, removed: 0, mergeBase: 'base-2' }
     })
     expect(store.getState().gitIgnoredPathsByWorktree).toEqual({
       'repo1::/path/wt2': ['coverage/']
@@ -5434,7 +5490,12 @@ describe('worktree remote runtime mutations', () => {
     expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
       selector: 'env-1',
       method: 'worktree.rm',
-      params: { worktree: `id:${wt.id}`, force: undefined, runHooks: true },
+      params: {
+        worktree: `id:${wt.id}`,
+        force: undefined,
+        allowUnverifiedPtyStop: false,
+        runHooks: true
+      },
       timeoutMs: 60_000
     })
     expect(mockApi.worktrees.remove).not.toHaveBeenCalled()
@@ -5471,7 +5532,12 @@ describe('worktree remote runtime mutations', () => {
     expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
       selector: 'owner-hub',
       method: 'worktree.rm',
-      params: { worktree: `id:${wt.id}`, force: undefined, runHooks: true },
+      params: {
+        worktree: `id:${wt.id}`,
+        force: undefined,
+        allowUnverifiedPtyStop: false,
+        runHooks: true
+      },
       timeoutMs: 60_000
     })
     expect(mockApi.worktrees.remove).not.toHaveBeenCalled()
@@ -5611,6 +5677,30 @@ describe('worktree remote runtime mutations', () => {
     expect(store.getState().worktreesByRepo.repo1).toEqual([wt])
   })
 
+  // Why (#11960): the store is where `force` and the PTY-stop waiver could most
+  // easily be collapsed back into one flag. The ordinary delete confirmation
+  // passes force:true, so that alone must never reach the gate as a waiver.
+  it('sends force without the PTY-stop waiver unless a caller asks for it', async () => {
+    const store = createTestStore()
+    const wt = makeWorktree({ id: 'repo1::/w/one', repoId: 'repo1', path: '/w/one' })
+    store.setState({ worktreesByRepo: { repo1: [wt] } } as Partial<AppState>)
+
+    await store.getState().removeWorktree(wt.id, true)
+    expect(mockApi.worktrees.remove).toHaveBeenLastCalledWith(
+      expect.objectContaining({ force: true, allowUnverifiedPtyStop: false })
+    )
+
+    // Re-seed: the first removal dropped the row, and a second call for a missing
+    // worktree never reaches the API — which would silently re-read the call above.
+    const retry = makeWorktree({ id: 'repo1::/w/two', repoId: 'repo1', path: '/w/two' })
+    store.setState({ worktreesByRepo: { repo1: [retry] } } as Partial<AppState>)
+
+    await store.getState().removeWorktree(retry.id, true, { allowUnverifiedPtyStop: true })
+    expect(mockApi.worktrees.remove).toHaveBeenLastCalledWith(
+      expect.objectContaining({ force: true, allowUnverifiedPtyStop: true })
+    )
+  })
+
   it('removes SSH-owned worktrees through local IPC even when a runtime is focused', async () => {
     const store = createTestStore()
     const wt = makeWorktree({
@@ -5640,6 +5730,8 @@ describe('worktree remote runtime mutations', () => {
       worktreeId: wt.id,
       hostId: 'ssh:ssh-1',
       force: undefined,
+      // Why (#11960): an ordinary remove never waives the PTY-stop proof.
+      allowUnverifiedPtyStop: false,
       skipArchive: false
     })
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
@@ -6939,6 +7031,37 @@ describe('worktree remote runtime mutations', () => {
     })
   })
 
+  // A rejected folder update reconciles the optimistic write away, so reporting
+  // ok would show the dialog a save that silently undid itself.
+  it('reports a rejected folder workspace update to the caller', async () => {
+    const store = createTestStore()
+    const folderWorkspace = makeFolderWorkspace({ id: 'folder-rejected' })
+    store.setState({ folderWorkspaces: [folderWorkspace] } as Partial<AppState>)
+    const updateFolderWorkspace = vi.fn().mockResolvedValue(false)
+    store.setState({ updateFolderWorkspace } as Partial<AppState>)
+
+    const result = await store
+      .getState()
+      .updateWorktreeMeta(folderWorkspaceKey(folderWorkspace.id), { comment: 'note' })
+
+    expect(updateFolderWorkspace).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ ok: false, error: expect.any(String) })
+  })
+
+  it('reports a thrown folder workspace update instead of rejecting', async () => {
+    const store = createTestStore()
+    const folderWorkspace = makeFolderWorkspace({ id: 'folder-throwing' })
+    store.setState({ folderWorkspaces: [folderWorkspace] } as Partial<AppState>)
+    const updateFolderWorkspace = vi.fn().mockRejectedValue(new Error('Runtime is offline'))
+    store.setState({ updateFolderWorkspace } as Partial<AppState>)
+
+    const result = await store
+      .getState()
+      .updateWorktreeMeta(folderWorkspaceKey(folderWorkspace.id), { comment: 'note' })
+
+    expect(result).toEqual({ ok: false, error: 'Runtime is offline' })
+  })
+
   it('persists activity for hidden detected worktrees', async () => {
     const store = createTestStore()
     const hidden = makeWorktree({
@@ -8141,6 +8264,10 @@ describe('purgeWorktreeTerminalState direct (design §4.4)', () => {
         'repoA::/a/wt1': 'head-1',
         'repoA::/a/wt2': 'head-2'
       },
+      gitBranchLineTotalByWorktree: {
+        'repoA::/a/wt1': { added: 24, removed: 3, mergeBase: 'base-1' },
+        'repoA::/a/wt2': { added: 1, removed: 0, mergeBase: 'base-2' }
+      },
       gitBranchCompareRequestStatusHeadByWorktree: {
         'repoA::/a/wt1': 'head-1',
         'repoA::/a/wt2': 'head-2'
@@ -8184,6 +8311,9 @@ describe('purgeWorktreeTerminalState direct (design §4.4)', () => {
     expect(s.editorDrafts).toEqual({ 'file-99': 'other' })
     expect(s.markdownFrontmatterVisible).toEqual({ 'file-99': true })
     expect(s.gitStatusHeadByWorktree).toEqual({ 'repoA::/a/wt2': 'head-2' })
+    expect(s.gitBranchLineTotalByWorktree).toEqual({
+      'repoA::/a/wt2': { added: 1, removed: 0, mergeBase: 'base-2' }
+    })
     expect(s.gitBranchCompareRequestStatusHeadByWorktree).toEqual({
       'repoA::/a/wt2': 'head-2'
     })
@@ -8754,6 +8884,7 @@ describe('migrateWorktreeIdentity', () => {
       groupsByWorktree: { [OLD]: [{ id: 'group1', worktreeId: OLD }] },
       gitStatusByWorktree: { [OLD]: [{ path: 'a.ts' }] },
       gitStatusHeadByWorktree: { [OLD]: 'head-old' },
+      gitBranchLineTotalByWorktree: { [OLD]: { added: 24, removed: 3, mergeBase: 'base-old' } },
       gitBranchCompareRequestStatusHeadByWorktree: { [OLD]: 'head-old' },
       lastVisitedAtByWorktreeId: { [OLD]: 123 },
       defaultTerminalTabsAppliedByWorktreeId: { [OLD]: true },
@@ -8801,6 +8932,12 @@ describe('migrateWorktreeIdentity', () => {
     expect(s.groupsByWorktree[NEW]?.[0]?.worktreeId).toBe(NEW)
     expect(s.gitStatusByWorktree[NEW]).toEqual([{ path: 'a.ts' }])
     expect(s.gitStatusHeadByWorktree[NEW]).toBe('head-old')
+    expect(s.gitBranchLineTotalByWorktree[OLD]).toBeUndefined()
+    expect(s.gitBranchLineTotalByWorktree[NEW]).toEqual({
+      added: 24,
+      removed: 3,
+      mergeBase: 'base-old'
+    })
     expect(s.gitBranchCompareRequestStatusHeadByWorktree[NEW]).toBe('head-old')
     expect(s.rightSidebarExplorerViewByWorktree[OLD]).toBeUndefined()
     expect(s.rightSidebarExplorerViewByWorktree[NEW]).toBe('search')

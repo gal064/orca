@@ -4,9 +4,25 @@ What this branch (`feat/reuse-checkout-workspace`) carries on top of upstream
 [`stablyai/orca`](https://github.com/stablyai/orca), and what to watch upstream so each change can be
 dropped once it is no longer needed.
 
-- **Upstream base merged:** `v1.4.176`
-- **Latest upstream tag seen:** `v1.4.176`
-- **Last audited:** 2026-08-07
+- **Upstream base merged:** `v1.4.177`
+- **Latest upstream tag seen:** `v1.4.177`
+- **Last audited:** 2026-08-09
+
+**`v1.4.177` audit result: nothing landed upstream — no fork code dropped.** Basis: all 48 non-merge
+commit subjects in `v1.4.176..v1.4.177` read, and a per-symbol line count over the range for **24**
+fork-critical symbols — every one **0 changed lines**, including the four that gate whole sections
+(`reuseCheckout`, `shiftKey`, `autoSubmit`, `verifyPackagedDaemonEntryBoots`). Six commits whose
+symptoms sit adjacent to carried sections were opened and read (#12976, #12990, #13139, #13135,
+#12959, #12458); none fixes a carried symptom — see the notes per section.
+
+**Merge hazard found at `v1.4.177` — a *fork-move* silently dropped an upstream fix.** §5 extracted
+`downloadRemoteFile` out of `FileExplorerRow.tsx` into `src/renderer/src/lib/remote-file-download.ts`.
+Upstream #12959 then fixed the download toast to name the *saved* file **in the old location**, so the
+merge presented it as an add-only hunk against a function the fork no longer has there. Taking the
+fork side alone would have lost the fix with no conflict left to notice. `getLocalDownloadName` and the
+`savedName` toast argument were ported into the lib during this merge. **This is the general risk of
+§5's extraction: every future upstream edit to `downloadRemoteFile` lands in a file the fork does not
+call.** Diff that function against upstream at each merge rather than trusting a clean merge.
 
 **`v1.4.176` audit result: nothing landed upstream — no fork code dropped.** Basis: all 56 non-merge
 commit subjects in `v1.4.175..v1.4.176` read, and a per-symbol line count over the range for 20
@@ -27,9 +43,10 @@ git log --no-merges --cherry-pick --right-only --format='%h %an %s' upstream/mai
 Status legend: **Carry** = still needed · **Drop next merge** = upstream has it, remove on the next
 update · **Watch** = no upstream fix yet, re-check each merge.
 
-**Open upstream PRs** (check these first at each merge — a merged one means the local change can be
-dropped): [#12042](https://github.com/stablyai/orca/pull/12042) tab order + titles — **OPEN** ·
-[#12045](https://github.com/stablyai/orca/pull/12045) completion notifications — **OPEN**.
+**Open upstream PRs** (corroborating detail only — the verdict comes from the code and the commit
+range, never from this list): [#12042](https://github.com/stablyai/orca/pull/12042) tab order +
+titles — **OPEN** at `v1.4.177` · [#12045](https://github.com/stablyai/orca/pull/12045) completion
+notifications — **OPEN** at `v1.4.177`.
 [#12044](https://github.com/stablyai/orca/pull/12044) agent status was **closed unmerged**
 2026-08-04 (`mergedAt=null`), superseded by upstream's own `hookRow.live` fix that landed at
 `v1.4.175` — see §1. Its remaining uncovered part is §1c, which is still carried.
@@ -50,7 +67,7 @@ gh pr list --repo stablyai/orca --author gal064 --state all \
 | Commits | `d7dcc539f1`, `17979b5094`, `ba4e83323b`, `1054560674`, `dd171ffc66`, `72dd050a64`, `cc91750548` |
 | Upstream issue | none filed |
 | Upstream PR | [#12042](https://github.com/stablyai/orca/pull/12042) — order + titles (§1a/§1b), opened 2026-08-01, still **OPEN** at `v1.4.176` · [#12044](https://github.com/stablyai/orca/pull/12044) — agent status (§1c/§1c′), **closed unmerged** 2026-08-04 after upstream shipped its own §1c′/§1d fix |
-| Upstream status | **unchanged at `v1.4.176`** — no movement since the `v1.4.175` partial fix. §1c′/§1d remain upstream's (fork code stays removed). Still absent: `collectHeadlessTopLevelTabOrder` rebuilds `tabOrder` from the tabs-array order (§1a); no placeholder-title guard in `buildMirroredTerminalTabs` (§1b); no `pending-handle` status-retention guard (§1c — the string `pending-handle` does not appear in upstream's `web-session-tabs-sync.ts` at all); live-PTY-title precedence in `worktree.ps` untouched (§1e). Range evidence over `v1.4.175..v1.4.176`: `collectHeadlessTopLevelTabOrder`, `buildHeadlessMobileSessionTabGroups`, `mergeMobileSessionTabGroups`, `buildMirroredTerminalTabs`, `buildMirroredAgentStatusPatch`, `isClientAuthoritativeAgentStatusPane`, `buildPtyMobileAgentStatus`, `resolveHookLiveAgentRow`, `getHookAgentRowForPane`, `lastOscTitleEpochMs`, `findPtyForMobileTerminalTab`, `mobileTerminalTabMatchesPty`, `allowWorktreeOnlyMatch` — **all 0 changed lines**. Both suites remain absent upstream. |
+| Upstream status | **unchanged at `v1.4.177`** — all 13 symbols below are again **0 changed lines** across `v1.4.176..v1.4.177`, and #12042 is still **OPEN**. Two commits land in fork-critical files without touching this section: #12990 adds `reconcileSubscriberDrivenProviderAttach` to `orca-runtime.ts`'s controller-inventory sweep (re-triggers a *provider stream attach* for remote view subscribers — nothing about tab order, titles, or status attribution), and #12976 reclassifies `unknown`/`absent` in `daemon-session-owner-resolution.ts` (session→provider *routing*, a different layer from workspace-id attribution). Previous audit, unchanged at `v1.4.176`: no movement since the `v1.4.175` partial fix. §1c′/§1d remain upstream's (fork code stays removed). Still absent: `collectHeadlessTopLevelTabOrder` rebuilds `tabOrder` from the tabs-array order (§1a); no placeholder-title guard in `buildMirroredTerminalTabs` (§1b); no `pending-handle` status-retention guard (§1c — the string `pending-handle` does not appear in upstream's `web-session-tabs-sync.ts` at all); live-PTY-title precedence in `worktree.ps` untouched (§1e). Range evidence over `v1.4.175..v1.4.176`: `collectHeadlessTopLevelTabOrder`, `buildHeadlessMobileSessionTabGroups`, `mergeMobileSessionTabGroups`, `buildMirroredTerminalTabs`, `buildMirroredAgentStatusPatch`, `isClientAuthoritativeAgentStatusPane`, `buildPtyMobileAgentStatus`, `resolveHookLiveAgentRow`, `getHookAgentRowForPane`, `lastOscTitleEpochMs`, `findPtyForMobileTerminalTab`, `mobileTerminalTabMatchesPty`, `allowWorktreeOnlyMatch` — **all 0 changed lines**. Both suites remain absent upstream. |
 
 **Landed upstream at `v1.4.175` (fork code dropped).** Upstream reworked `getHookAgentRowForPane`
 to return a `live: HookLiveAgentRow | null` — the newest fresh, non-`providerSessionOnly`,
@@ -153,7 +170,7 @@ precedence in `worktree.ps` at each merge.
 | Commits | `0e6a3daff6`, `8c611ebec5`, `9b6a10d073`, `53787632fa`, `14be9b2a60` (2026-07-13 → 07-28) |
 | Upstream issue | none |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.176` — `git grep -c reuseCheckout v1.4.176 -- src` returns nothing, and `src/main/ipc/reuse-checkout-workspace.ts` does not exist upstream |
+| Upstream status | **absent** at `v1.4.177` — `git grep -c reuseCheckout v1.4.177 -- src` returns nothing, `src/main/ipc/reuse-checkout-workspace.ts` still does not exist upstream, and `reuseCheckout` has 0 changed lines across `v1.4.176..v1.4.177`. The runtime-identity follow-up is also untouched: `findPtyForMobileTerminalTab`, `mobileTerminalTabMatchesPty`, and `allowWorktreeOnlyMatch` are all 0 changed lines. #12976 ("recover stale persisted owner bindings") is **not** this fix — it resolves session→provider owner routing in the daemon, not which workspace id a PTY is attributed to |
 
 Workspaces that reuse an existing checkout instead of creating a new git worktree, including SSH
 repos and remote servers, the quick composer (defaulted on), detected-scan synthesis so a restart
@@ -189,7 +206,7 @@ session-tab refreshes and excludes stale hook rows from workspace summaries.
 | Commits | `cc91750548` (shared with §1c′/§1d — one commit fixed both) |
 | Upstream issue | none filed |
 | Upstream PR | [#12045](https://github.com/stablyai/orca/pull/12045) — opened 2026-08-01, was stacked on the now-closed [#12044](https://github.com/stablyai/orca/pull/12044), still **OPEN** at `v1.4.176` |
-| Upstream status | **not fixed** at `v1.4.176` — `observeAgentHookCompletionForNotification` still has exactly one non-test call site, `useIpcEvents.ts` (local IPC); the 7 changed lines carrying that symbol across `v1.4.175..v1.4.176` are all in `useIpcEvents.test.ts` and `agent-hook-completion-notifications.test.ts`. The snapshot mirror still never dispatches a notification; `ingestRemote` has 0 changed lines and still only SSH and WSL callers, no serve-host path. §3c and §3d untouched (`headless-agent-unread.test.ts` and `mirrored-attention-staleness.test.ts` absent upstream). §3b's dependency remains upstream-owned since `v1.4.175` — see §1. |
+| Upstream status | **not fixed** at `v1.4.177` — `observeAgentHookCompletionForNotification`, `collectChangedMirroredAgentStatuses`, and `ingestRemote` are all **0 changed lines** across `v1.4.176..v1.4.177`; the observer still has exactly one non-definition call site (`useIpcEvents.ts`), and `ingestRemote` still has no serve-host caller. #12045 remains **OPEN**. Two hook-adjacent commits do *not* add a serve notification path: #13139 refreshes the **WSL** hook relay on PTY reattach (new `wsl-hook-relay-reattach.ts`, WSL-only), and #13135 keeps the Node 18 relay companion loadable (`sync-database.ts` + CI smoke). Previous audit, at `v1.4.176`: `observeAgentHookCompletionForNotification` still had exactly one non-test call site, `useIpcEvents.ts` (local IPC); the 7 changed lines carrying that symbol across `v1.4.175..v1.4.176` are all in `useIpcEvents.test.ts` and `agent-hook-completion-notifications.test.ts`. The snapshot mirror still never dispatches a notification; `ingestRemote` has 0 changed lines and still only SSH and WSL callers, no serve-host path. §3c and §3d untouched (`headless-agent-unread.test.ts` and `mirrored-attention-staleness.test.ts` absent upstream). §3b's dependency remains upstream-owned since `v1.4.175` — see §1. |
 
 Agents on a remote `orca serve` host produced no desktop notification; local sessions always worked.
 Two independent causes, both needed:
@@ -277,7 +294,7 @@ notification observer feed). Neither guard sees the other's case; both are neede
 | Commits | `67048d7c06` (2026-08-02) |
 | Upstream issue | none |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.176` — `WorktreeCard.tsx` still has no `shiftKey` handling (0 occurrences, 0 changed lines in range) |
+| Upstream status | **absent** at `v1.4.177` — `WorktreeCard.tsx` still has no `shiftKey` handling (0 occurrences at the tag, 0 changed lines in range) |
 
 Shift-clicking a workspace card toggles its pinned state without activating the workspace or
 changing the multi-selection. The shortcut uses the same pin/reveal mutation as the context menu,
@@ -295,7 +312,7 @@ Main files: `src/renderer/src/components/sidebar/WorktreeCard.tsx` and
 | Commits | `06569213d9` (2026-08-02) |
 | Upstream issue | none |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.176` — no `remote-file-download.ts`, and `EditorFileTabContextMenu.tsx` has 0 occurrences of `download` |
+| Upstream status | **absent** at `v1.4.177` — no `remote-file-download.ts`, and `EditorFileTabContextMenu.tsx` still has 0 occurrences of `download`. But upstream **did** change the function this section extracted — see the merge hazard below |
 
 The editor tab context menu now shows **Download** beside the path-copy actions for concrete files
 opened from a remote server or SSH workspace, including Markdown preview tabs. It reuses the file
@@ -314,6 +331,31 @@ Main files: `src/renderer/src/components/tab-bar/EditorFileTabContextMenu.tsx` a
 the action for local and virtual-file tabs; `FileExplorer.test.tsx` continues to cover shared
 runtime/SSH download behavior.
 
+**Merge hazard — this extraction hides upstream edits (found at `v1.4.177`).** `downloadRemoteFile`
+used to live in `FileExplorerRow.tsx`; this section moved it to `lib/remote-file-download.ts` and made
+`FileExplorerRow` import it. Upstream keeps editing the **original location**, so its changes arrive as
+add-only hunks against a function the fork no longer has there — resolvable with no conflict left over,
+and the fix silently absent from the path the app actually calls.
+
+Upstream #12959 hit this first: the success toast named the *remote node*, so renaming a file in the
+native save dialog left the label disagreeing with its own Open action, and folder downloads broke
+whenever `sanitizeLocalDownloadFilename` rewrote the basename. `getLocalDownloadName` plus the
+`savedName` toast argument were ported into `lib/remote-file-download.ts` during the `v1.4.177` merge.
+`FileExplorer.test.tsx`'s new upstream assertions pass against the ported version, which is what proves
+the port is equivalent.
+
+**At every merge, diff this function against upstream rather than trusting a clean merge:**
+
+```bash
+git show <tag>:src/renderer/src/components/right-sidebar/FileExplorerRow.tsx \
+  | sed -n '/^export async function downloadRemoteFile/,/^}/p' \
+  | diff - <(sed -n '/^export async function downloadRemoteFile/,/^}/p' \
+      src/renderer/src/lib/remote-file-download.ts)
+```
+
+Expect the `node`→`entry` rename and the extra `downloadRuntimeFile` branch; anything else is an
+upstream change that needs porting.
+
 ---
 
 ## 6. Packaged daemon-entry boot budget — **Carry** (fork build tooling)
@@ -323,7 +365,7 @@ runtime/SSH download behavior.
 | Commits | this commit (2026-08-03) |
 | Upstream issue | none filed |
 | Upstream PR | none |
-| Upstream status | **10 s** at `v1.4.176` — `verifyPackagedDaemonEntryBoots` still spawns with `timeout: 10_000` |
+| Upstream status | **10 s** at `v1.4.177` — `verifyPackagedDaemonEntryBoots` still spawns with `timeout: 10_000` (0 changed lines in range; the fork's `60_000` survived the merge) |
 
 `afterPack`'s `verify-packaged-daemon-entry` gate boots the freshly packaged `daemon-entry.js` under
 a spawn timeout. On a cold pack this Mac takes ~13 s to load the just-written native modules (~0.5 s
@@ -346,7 +388,7 @@ Main file: `config/scripts/verify-packaged-daemon-entry.cjs`.
 | Commits | this commit (2026-08-07) |
 | Upstream issue | none filed |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.176` — voice settings have no `autoSubmit` field |
+| Upstream status | **absent** at `v1.4.177` — voice settings have no `autoSubmit` field (`git grep -c autoSubmit v1.4.177 -- src` returns nothing, 0 changed lines in range) |
 
 Voice settings now include an opt-in **Send Automatically** toggle. When enabled, dictation waits
 for the active speech session to finish, inserts the complete final transcript, then submits it in
@@ -399,12 +441,20 @@ the marked Enter path.
    `orca-runtime.test.ts` (§2).
 6. Check whether upstream has added editor-tab downloads for remote files (§5); if so, drop the
    shared client-side wiring.
+6b. **Diff `downloadRemoteFile` against upstream's copy in `FileExplorerRow.tsx` (§5).** The fork moved
+   that function, so upstream edits to it merge cleanly into a file the app no longer calls and vanish
+   without leaving a conflict. #12959 was lost this way at `v1.4.177` and had to be ported by hand; the
+   diff command is in §5.
 7. Check whether the merge reset `verify-packaged-daemon-entry.cjs` back to `timeout: 10_000` (§6) —
    a cold pack fails at that budget on this Mac.
 7b. Check whether upstream added a voice `autoSubmit` setting or equivalent completion-triggered
    terminal/native-chat submission (§7). If so, compare final-transcript ordering and remove the
    fork path only when upstream waits for the matching session's stopped event.
-8. New at `v1.4.176` — watch `projectSessionTabAgentStatus`
+8b. New at `v1.4.177` — watch `reconcileSubscriberDrivenProviderAttach` (#12990) in
+   `orca-runtime.ts`. It runs inside the same controller-inventory session sweep that §2's
+   exact-runtime-ID preference guards, so future edits there are a likely conflict site. It re-triggers
+   a provider *stream attach*, not workspace-id attribution — do not read a change to it as covering §2.
+8. From `v1.4.176` — watch `projectSessionTabAgentStatus`
    (`src/main/runtime/rpc/methods/session-tab-agent-status-projection.ts`). It strips `agentStatus`
    for runtime clients without `AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY`, i.e. a *new* source of
    status-less panes. If upstream widens that stripping, re-run the §1c retention test

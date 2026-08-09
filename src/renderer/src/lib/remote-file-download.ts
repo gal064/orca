@@ -9,6 +9,14 @@ type RemoteDownloadEntry = {
   isDirectory: boolean
 }
 
+function getLocalDownloadName(destinationPath: string, platform: NodeJS.Platform): string {
+  const lastSeparatorIndex =
+    platform === 'win32'
+      ? Math.max(destinationPath.lastIndexOf('/'), destinationPath.lastIndexOf('\\'))
+      : destinationPath.lastIndexOf('/')
+  return destinationPath.slice(lastSeparatorIndex + 1)
+}
+
 export async function downloadRemoteFile(
   entry: RemoteDownloadEntry,
   connectionIdOrRuntimeContext: string | RuntimeFileOperationArgs
@@ -29,17 +37,22 @@ export async function downloadRemoteFile(
     if (result.canceled) {
       return
     }
+    // Why: POSIX permits backslashes in saved names; only Windows treats them as separators.
+    const savedName = getLocalDownloadName(
+      result.destinationPath,
+      window.api.platform.get().platform
+    )
     toast.success(
       entry.isDirectory
         ? translate(
             'auto.components.right.sidebar.FileExplorerRow.a4029c996b',
             "Downloaded folder '{{value0}}'",
-            { value0: entry.name }
+            { value0: savedName }
           )
         : translate(
             'auto.components.right.sidebar.FileExplorerRow.bce4d4e44f',
             "Downloaded '{{value0}}'",
-            { value0: entry.name }
+            { value0: savedName }
           ),
       {
         action: {

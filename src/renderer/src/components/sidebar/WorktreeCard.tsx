@@ -1631,13 +1631,17 @@ const WorktreeCard = React.memo(function WorktreeCard({
           {shortcutBadgeIndex !== null && workspaceShortcutModifiers.length > 0 && (
             <Tooltip>
               <TooltipTrigger asChild>
-                {/* Why hidden on card hover: the delete/primary cluster occupies this slot and would otherwise wrap. */}
-                <span className="shrink-0 group-hover/worktree-card:hidden group-focus-within/worktree-card:hidden">
+                {/* Why invisible and not hidden: the delete/primary cluster wants this slot on hover,
+                    but display:none drops the chip's box and every row below it jumps. */}
+                <span className="shrink-0 group-hover/worktree-card:invisible group-focus-within/worktree-card:invisible">
                   <ShortcutKeyCombo
                     keys={[...workspaceShortcutModifiers, String(shortcutBadgeIndex + 1)]}
                     className="inline-flex gap-0.5"
-                    keyCapClassName="min-w-4 border-border/60 bg-background/45 px-1 py-px text-[9px] text-muted-foreground/88 shadow-none"
-                    separatorClassName="text-[9px] text-muted-foreground/60"
+                    // Why a fixed h-4 with leading-none: text-[9px] sets only font-size, so the cap
+                    // would inherit the row's line-height and grow taller than the 20px title line,
+                    // making the badge — not the title — decide card height.
+                    keyCapClassName="h-4 min-w-4 border-border/60 bg-background/45 px-1 py-0 text-[9px] leading-none text-muted-foreground/88 shadow-none"
+                    separatorClassName="text-[9px] leading-none text-muted-foreground/60"
                   />
                 </span>
               </TooltipTrigger>

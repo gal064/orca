@@ -441,6 +441,15 @@ are not the numbered order), and the chip hides on card hover so the delete/prim
 slot. Modifiers come from the live binding minus its digit, so a remap and Linux/Windows `Ctrl+`
 render honestly.
 
+**Two layout rules the chip must keep — both were bugs on the first cut.** The hover-hide used
+`hidden` (`display: none`), which drops the chip's box and visibly jumps every row below it; it must
+hide with `invisible` so the box survives. And `text-[9px]` sets *font-size only*, so the cap
+inherited the row's line-height and — with `py-px` plus its border — grew past the 20px (`leading-5`)
+title line, making the badge rather than the title decide card height. The cap is pinned to `h-4`
+with `leading-none` so it always sits under the title line and cannot influence row height.
+`WorktreeCard.shortcut-badge.test.tsx` guards both as class contracts, since a unit test computes no
+real box.
+
 Desktop-client change only — no RPC, wire, or host behavior is touched, and the published order is
 renderer state.
 

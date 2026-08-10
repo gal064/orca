@@ -192,4 +192,43 @@ describe('WorktreeCard workspace shortcut badge', () => {
     renderCard(true)
     expect(shortcutCapLabels()).toHaveLength(0)
   })
+
+  // Layout-shift guards. happy-dom computes no real box, so pin the contract
+  // instead: hovering must not remove the chip's box, and the chip must never
+  // be the element that decides row height.
+  describe('does not shift card layout on hover', () => {
+    function badgeWrapper(): HTMLElement {
+      const cap = Array.from(container.querySelectorAll('span')).find(
+        (node) => node.textContent === '7'
+      )
+      // cap -> ShortcutKeyCombo root -> hover-toggled wrapper
+      const wrapper = cap?.parentElement?.parentElement
+      if (!wrapper) {
+        throw new Error('shortcut badge wrapper not found')
+      }
+      return wrapper
+    }
+
+    beforeEach(() => {
+      setVisibleWorktreeIds(['a', 'b', 'c', 'd', 'e', 'f', WORKTREE_ID])
+      renderCard()
+    })
+
+    it('hides with visibility, never display:none', () => {
+      const className = badgeWrapper().className
+      expect(className).toContain('group-hover/worktree-card:invisible')
+      // display:none collapses the box and jumps every row below it.
+      expect(className).not.toContain('group-hover/worktree-card:hidden')
+    })
+
+    it('pins the key cap height so the title line decides row height', () => {
+      const cap = Array.from(container.querySelectorAll('span')).find(
+        (node) => node.textContent === '7'
+      )
+      // 16px cap under the 20px (leading-5) title line, with no inherited
+      // line-height able to stretch it.
+      expect(cap?.className).toContain('h-4')
+      expect(cap?.className).toContain('leading-none')
+    })
+  })
 })

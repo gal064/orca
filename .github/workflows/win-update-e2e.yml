@@ -15,13 +15,14 @@ name: Windows Update-Survival E2E
 # own tree. The paths filter keeps it to harness/workflow edits so ordinary
 # commits don't spend 30 min of Windows runner time. Push runs have no inputs,
 # so every parameter falls back to a default below.
+# Fork-local: automatic triggers disabled — CI runs upstream, not on this fork.
 on:
-  push:
-    branches:
-      - Jinwoo-H/windows-update-survival
-    paths:
-      - 'tests/tools/win-update-e2e/**'
-      - '.github/workflows/win-update-e2e.yml'
+#   push:
+#     branches:
+#       - Jinwoo-H/windows-update-survival
+#     paths:
+#       - 'tests/tools/win-update-e2e/**'
+#       - '.github/workflows/win-update-e2e.yml'
   workflow_dispatch:
     inputs:
       from_tag:

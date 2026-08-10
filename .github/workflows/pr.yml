@@ -1,12 +1,14 @@
 name: PR Checks
 
+# Fork-local: automatic triggers disabled — CI runs upstream, not on this fork.
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
+  workflow_dispatch:
+#   pull_request:
+#     types:
+#       - opened
+#       - synchronize
+#       - reopened
+#       - ready_for_review
 
 concurrency:
   group: pr-checks-${{ github.event.pull_request.number }}

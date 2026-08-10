@@ -456,6 +456,57 @@ the rendered digit and all three suppression rules.
 
 ---
 
+## 9. Fork CI silenced — **Carry** (fork infrastructure, never upstream)
+
+| | |
+|---|---|
+| Commits | this commit (2026-08-09) |
+| Upstream issue | n/a — deliberately fork-only |
+| Upstream PR | **never send this upstream.** It would disable upstream's own CI |
+| Upstream status | n/a |
+
+`gal064/orca` was emailing run-failure notifications for CI that only matters upstream. The runs were
+**`schedule`** (cron) events on `main`, not anything the fork pushed — which is why they kept arriving
+while work happened on a branch:
+
+```
+failure   schedule   main   E2E
+failure   schedule   main   Terminal Perf
+failure   schedule   main   Computer-use e2e
+```
+
+Every auto-firing trigger is commented out across `.github/workflows/` — `schedule`, `push`,
+`pull_request`, `pull_request_target`, `merge_group`, `issues`, `release` — in the 16 files that had
+one. `workflow_call` and `workflow_dispatch` are left live, so nothing fires on its own but every
+workflow can still be run by hand or called.
+
+**Why `workflow_dispatch:` was *added* to four files** (`pr.yml`, `mobile.yml`,
+`issue-os-labeler.yaml`, `skill-update-roundtrip.yml`): those had no manual trigger, and a workflow
+whose `on:` map ends up empty is an **invalid workflow file**, which GitHub reports as its own failure
+notification — the exact thing being removed. Each file must keep at least one live trigger.
+
+**This is the largest merge-conflict surface in the fork.** It touches 16 files the branch otherwise
+never modifies, all of which upstream edits regularly. Expect conflicts here on most upstream merges.
+Resolution rule: **take upstream's side for the workflow body, then re-comment the triggers** — never
+resolve by keeping the fork's whole file, which would discard upstream's CI changes wholesale.
+
+Regenerate after any merge that touches workflows, then verify:
+
+```bash
+node tmp/disable-fork-workflow-triggers.mjs   # re-comment triggers (idempotent per file)
+node tmp/verify-fork-workflow-triggers.mjs    # every file parses, has jobs, and never auto-fires
+```
+
+Both scripts live in `tmp/` (untracked) — recreate them from this section's description if missing, or
+redo the edits by hand; the invariant is what matters, not the tooling.
+
+**Alternative if this delta ever becomes annoying:** disable Actions on the fork instead
+(`gh api -X PUT repos/gal064/orca/actions/permissions -F enabled=false` — note `-F`, not `-f`, or the
+API rejects the boolean), which achieves the same silence with zero repo delta and reverts by setting
+`enabled=true`. That was rejected here in favor of keeping the change visible in-tree.
+
+---
+
 ## Review checklist for the next upstream merge
 
 1. `git fetch upstream --tags --prune`, then check the merge base — upstream stable tags are release
@@ -506,4 +557,7 @@ the rendered digit and all three suppression rules.
 9b. Check whether upstream added digit badges to sidebar workspace cards (§8), and whether it kept
    `setVisibleWorktreeIds` as the single published order. If upstream introduces a second ordering for
    the badges, do not adopt it — run `use-workspace-shortcut-index.test.tsx` first.
+9c. Re-comment any workflow triggers the merge restored (§9), then run the verify script — a merge that
+   reinstates a `schedule:` or `pull_request:` block silently turns fork CI email back on. Resolve
+   workflow conflicts by taking upstream's body and re-commenting the triggers.
 9. Update the base tag and audit date at the top of this file.

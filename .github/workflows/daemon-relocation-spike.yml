@@ -8,13 +8,14 @@ name: Daemon Relocation Spike
 # Runs from the feature branch via push (workflow_dispatch only works on the
 # default branch); main is never touched.
 
+# Fork-local: automatic triggers disabled — CI runs upstream, not on this fork.
 on:
-  push:
-    branches:
-      - Jinwoo-H/windows-update-survival
-    paths:
-      - 'tests/tools/daemon-relocation-spike/**'
-      - '.github/workflows/daemon-relocation-spike.yml'
+#   push:
+#     branches:
+#       - Jinwoo-H/windows-update-survival
+#     paths:
+#       - 'tests/tools/daemon-relocation-spike/**'
+#       - '.github/workflows/daemon-relocation-spike.yml'
   workflow_dispatch: {}
 
 permissions:

@@ -1,14 +1,15 @@
 name: README Downloads Badge
 
+# Fork-local: automatic triggers disabled — CI runs upstream, not on this fork.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '17 */6 * * *'
-  release:
-    types:
-      - published
-      - edited
-      - deleted
+#   schedule:
+#     - cron: '17 */6 * * *'
+#   release:
+#     types:
+#       - published
+#       - edited
+#       - deleted
 
 permissions:
   contents: write

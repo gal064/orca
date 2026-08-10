@@ -1,5 +1,6 @@
 name: Terminal Perf
 
+# Fork-local: automatic triggers disabled — CI runs upstream, not on this fork.
 on:
   workflow_dispatch:
     inputs:
@@ -43,10 +44,10 @@ on:
         description: Comma-separated hidden real-PTY pressure pane counts
         required: false
         type: string
-  schedule:
-    # Why: keep the expensive scale run off PRs, but exercise it daily so
-    # terminal throughput regressions are caught before users report typing lag.
-    - cron: '30 8 * * *'
+#   schedule:
+#     # Why: keep the expensive scale run off PRs, but exercise it daily so
+#     # terminal throughput regressions are caught before users report typing lag.
+#     - cron: '30 8 * * *'
 
 jobs:
   terminal-perf:

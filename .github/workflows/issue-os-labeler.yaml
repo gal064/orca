@@ -1,11 +1,13 @@
 name: Label Issues by OS
 
+# Fork-local: automatic triggers disabled — CI runs upstream, not on this fork.
 on:
-  issues:
-    types:
-      - opened
-      - edited
-      - reopened
+  workflow_dispatch:
+#   issues:
+#     types:
+#       - opened
+#       - edited
+#       - reopened
 
 permissions:
   issues: write

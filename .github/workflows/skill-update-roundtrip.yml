@@ -1,18 +1,20 @@
 name: Skill update round trip
 
+# Fork-local: automatic triggers disabled — CI runs upstream, not on this fork.
 on:
-  pull_request:
-    paths:
-      - 'skills/**'
-      - 'resources/skills/**'
-      - 'config/scripts/verify-skill-update-roundtrip.mjs'
-      - 'src/main/skills/skill-freshness-eligibility.ts'
-      - 'src/shared/skill-freshness.ts'
-      - '.github/workflows/skill-update-roundtrip.yml'
-  merge_group:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+#   pull_request:
+#     paths:
+#       - 'skills/**'
+#       - 'resources/skills/**'
+#       - 'config/scripts/verify-skill-update-roundtrip.mjs'
+#       - 'src/main/skills/skill-freshness-eligibility.ts'
+#       - 'src/shared/skill-freshness.ts'
+#       - '.github/workflows/skill-update-roundtrip.yml'
+#   merge_group:
+#   push:
+#     branches:
+#       - main
 
 jobs:
   roundtrip:

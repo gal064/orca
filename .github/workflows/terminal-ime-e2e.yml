@@ -1,9 +1,10 @@
 name: Terminal IME E2E
 
+# Fork-local: automatic triggers disabled — CI runs upstream, not on this fork.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '30 9 * * *'
+#   schedule:
+#     - cron: '30 9 * * *'
 
 permissions:
   contents: read

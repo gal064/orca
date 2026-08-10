@@ -3,10 +3,11 @@ name: Mobile iOS Release
 # Why a separate workflow from Android: iOS releases go through App Store
 # review, which can take days. Decoupling the triggers lets an Android release
 # ship immediately without waiting on iOS, and vice versa.
+# Fork-local: automatic triggers disabled — CI runs upstream, not on this fork.
 on:
-  push:
-    tags:
-      - 'mobile-ios-v*'
+#   push:
+#     tags:
+#       - 'mobile-ios-v*'
   workflow_dispatch:
     inputs:
       bump_patch_version:

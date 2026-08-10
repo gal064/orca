@@ -1631,9 +1631,10 @@ const WorktreeCard = React.memo(function WorktreeCard({
           {shortcutBadgeIndex !== null && workspaceShortcutModifiers.length > 0 && (
             <Tooltip>
               <TooltipTrigger asChild>
-                {/* Why invisible and not hidden: the delete/primary cluster wants this slot on hover,
-                    but display:none drops the chip's box and every row below it jumps. */}
-                <span className="shrink-0 group-hover/worktree-card:invisible group-focus-within/worktree-card:invisible">
+                {/* Why it stays put on hover: the chip sits before the delete/primary cluster rather
+                    than under it, so nothing needs the slot back. Never hide it with `hidden` —
+                    display:none drops its box and jumps every row below. */}
+                <span className="shrink-0">
                   <ShortcutKeyCombo
                     keys={[...workspaceShortcutModifiers, String(shortcutBadgeIndex + 1)]}
                     className="inline-flex gap-0.5"

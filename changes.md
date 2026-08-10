@@ -436,19 +436,26 @@ second ordering in the card — from the store, a prop, or a row index — is th
 reintroduce the class of bug the file was written to prevent.
 
 Deliberate limits: no badge past the ninth row (no chord reaches it), none when the action is unbound
-(STYLEGUIDE: never show a chip for a shortcut that does nothing), none in affiliate lists (their rows
-are not the numbered order), and the chip hides on card hover so the delete/primary cluster keeps the
-slot. Modifiers come from the live binding minus its digit, so a remap and Linux/Windows `Ctrl+`
-render honestly.
+(STYLEGUIDE: never show a chip for a shortcut that does nothing), and none in affiliate lists (their
+rows are not the numbered order). Modifiers come from the live binding minus its digit, so a remap and
+Linux/Windows `Ctrl+` render honestly.
 
-**Two layout rules the chip must keep — both were bugs on the first cut.** The hover-hide used
-`hidden` (`display: none`), which drops the chip's box and visibly jumps every row below it; it must
-hide with `invisible` so the box survives. And `text-[9px]` sets *font-size only*, so the cap
-inherited the row's line-height and — with `py-px` plus its border — grew past the 20px (`leading-5`)
-title line, making the badge rather than the title decide card height. The cap is pinned to `h-4`
-with `leading-none` so it always sits under the title line and cannot influence row height.
-`WorktreeCard.shortcut-badge.test.tsx` guards both as class contracts, since a unit test computes no
-real box.
+**The chip must never be toggled on hover, and must never drive row height.** Both were bugs in the
+first cut, in that order:
+
+1. It hid on hover with `hidden` (`display: none`) to yield the slot to the delete/primary cluster.
+   That drops the chip's box, so every row below it jumped on hover.
+2. Hiding with `invisible` fixed the jump but still blanked a chip whose whole purpose is to be read.
+   The cluster never actually needed the slot — the chip sits *before* it in the title row, and the
+   title (`min-w-0 flex-1`) absorbs the width — so the toggle is gone entirely and the chip is simply
+   always visible.
+3. Separately, `text-[9px]` sets *font-size only*, so the cap inherited the row's line-height and —
+   with `py-px` plus its border — grew past the 20px (`leading-5`) title line. The badge, not the
+   title, was deciding card height, inflating all nine rows. The cap is pinned to `h-4` with
+   `leading-none` so it always sits under the title line.
+
+`WorktreeCard.shortcut-badge.test.tsx` guards all of it as class contracts (no hover toggle in either
+form; cap keeps its fixed height), since a unit test computes no real box.
 
 Desktop-client change only — no RPC, wire, or host behavior is touched, and the published order is
 renderer state.

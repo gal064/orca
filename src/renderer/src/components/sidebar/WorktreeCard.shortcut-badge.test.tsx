@@ -214,11 +214,13 @@ describe('WorktreeCard workspace shortcut badge', () => {
       renderCard()
     })
 
-    it('hides with visibility, never display:none', () => {
+    it('stays visible on hover instead of being toggled away', () => {
       const className = badgeWrapper().className
-      expect(className).toContain('group-hover/worktree-card:invisible')
-      // display:none collapses the box and jumps every row below it.
+      // display:none collapses the box and jumps every row below it; visibility
+      // toggling merely blanks a chip the user wants to read. Neither belongs.
       expect(className).not.toContain('group-hover/worktree-card:hidden')
+      expect(className).not.toContain('group-hover/worktree-card:invisible')
+      expect(className).not.toContain('group-focus-within/worktree-card:hidden')
     })
 
     it('pins the key cap height so the title line decides row height', () => {

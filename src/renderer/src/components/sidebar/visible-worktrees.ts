@@ -349,13 +349,38 @@ function addVisibleLineageAncestors(
  */
 let _publishedVisibleIds: string[] | null = null
 
+const publishedVisibleIdsListeners = new Set<() => void>()
+
 /**
  * Called by WorktreeList after computing visible worktrees so the Cmd+1–9
  * handler can read the exact same ordering the user sees on screen. Pass null
  * on unmount.
  */
 export function setVisibleWorktreeIds(ids: string[] | null): void {
+  if (_publishedVisibleIds === ids) {
+    return
+  }
   _publishedVisibleIds = ids
+  for (const listener of publishedVisibleIdsListeners) {
+    listener()
+  }
+}
+
+/**
+ * Subscribe to the published order so the sidebar's Cmd+1–9 badges re-render
+ * from the same array the shortcut resolves against — the numbering cannot
+ * drift from the shortcut target because there is only one source.
+ */
+export function subscribePublishedVisibleWorktreeIds(listener: () => void): () => void {
+  publishedVisibleIdsListeners.add(listener)
+  return () => {
+    publishedVisibleIdsListeners.delete(listener)
+  }
+}
+
+/** Snapshot for `useSyncExternalStore`; null while WorktreeList is unmounted. */
+export function getPublishedVisibleWorktreeIds(): string[] | null {
+  return _publishedVisibleIds
 }
 
 /**

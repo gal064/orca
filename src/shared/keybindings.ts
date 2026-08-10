@@ -1128,6 +1128,9 @@ const DIGIT_INDEX_ACTION_ID_SET = new Set<KeybindingActionId>(DIGIT_INDEX_ACTION
 // The representative key for a digit-index chord is a single 1-9 number key.
 const DIGIT_INDEX_KEY_PATTERN = /^[1-9]$/
 
+/** How many positions a digit-index chord can address (1-9). */
+export const DIGIT_INDEX_SHORTCUT_COUNT = 9
+
 export function isDigitIndexActionId(actionId: KeybindingActionId): boolean {
   return DIGIT_INDEX_ACTION_ID_SET.has(actionId)
 }
@@ -2127,7 +2130,7 @@ function keybindingConflictIdentities(
   if (!parsed || parsed.doubleTapModifier || !DIGIT_INDEX_KEY_PATTERN.test(parsed.key)) {
     return [exact]
   }
-  return Array.from({ length: 9 }, (_, index) =>
+  return Array.from({ length: DIGIT_INDEX_SHORTCUT_COUNT }, (_, index) =>
     keybindingConflictIdentityForParsed({ ...parsed, key: String(index + 1) }, platform)
   )
 }

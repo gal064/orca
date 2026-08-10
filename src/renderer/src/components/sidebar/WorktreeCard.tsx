@@ -69,6 +69,9 @@ import { installWindowVisibilityInterval, isWindowVisible } from '@/lib/window-v
 import { isMacAppDataPath } from '@/lib/passive-macos-app-data-access'
 import { runWorktreeDelete } from './delete-worktree-flow'
 import { WorktreeTitleInlineRename } from './WorktreeTitleInlineRename'
+import { useWorkspaceShortcutIndex } from './use-workspace-shortcut-index'
+import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
+import { useShortcutKeyComboDetails } from '@/hooks/useShortcutLabel'
 import { TruncatedSidebarLabel } from './truncated-sidebar-label'
 import {
   canShowWorkspaceDeleteQuickAction,
@@ -263,6 +266,11 @@ const WorktreeCard = React.memo(function WorktreeCard({
   const projectGroups = useAppStore((s) => s.projectGroups)
   const newCardStyle = settings?.experimentalNewWorktreeCardStyle === true
   const compactCards = !newCardStyle && settings?.compactWorktreeCards === true
+  const workspaceShortcutIndex = useWorkspaceShortcutIndex(worktree.id)
+  // Why the binding's own modifiers minus its digit: a remap or non-Mac platform renders honestly,
+  // and an unbound action yields [] so no badge claims a chord that does nothing.
+  const workspaceShortcutModifiers =
+    useShortcutKeyComboDetails('workspace.selectByIndex')[0]?.keys.slice(0, -1) ?? []
   const handleEditIssue = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
@@ -1248,6 +1256,8 @@ const WorktreeCard = React.memo(function WorktreeCard({
     ? hasMetadataBadge || cacheStartedAt != null
     : hasDetailedMetaRowContent
   const showHeaderActions = showTitleRowPrimary || showDeleteQuickAction
+  // Why not in affiliate lists: those rows aren't the numbered sidebar order, so a chord badge would lie.
+  const shortcutBadgeIndex = affiliateListMode ? null : workspaceShortcutIndex
   // Why: normalize the title once so title/branch de-dupe and identity-only hover eligibility stay in sync.
   const trimmedVisibleCardTitle = visibleCardTitle.trim()
   const showBranchIdentityHover = newCardStyle
@@ -1617,6 +1627,28 @@ const WorktreeCard = React.memo(function WorktreeCard({
 
             {showTitleRowIndicators && titleRowIndicators}
           </div>
+
+          {shortcutBadgeIndex !== null && workspaceShortcutModifiers.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* Why hidden on card hover: the delete/primary cluster occupies this slot and would otherwise wrap. */}
+                <span className="shrink-0 group-hover/worktree-card:hidden group-focus-within/worktree-card:hidden">
+                  <ShortcutKeyCombo
+                    keys={[...workspaceShortcutModifiers, String(shortcutBadgeIndex + 1)]}
+                    className="inline-flex gap-0.5"
+                    keyCapClassName="min-w-4 border-border/60 bg-background/45 px-1 py-px text-[9px] text-muted-foreground/88 shadow-none"
+                    separatorClassName="text-[9px] text-muted-foreground/60"
+                  />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={8}>
+                {translate(
+                  'auto.components.sidebar.WorktreeCard.workspaceShortcutBadge',
+                  'Switch to this workspace'
+                )}
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           {showHeaderActions && (
             <div className="ml-auto flex shrink-0 items-center justify-center gap-1 pr-1.5">

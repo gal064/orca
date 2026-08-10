@@ -413,6 +413,49 @@ the marked Enter path.
 
 ---
 
+## 8. Cmd/Ctrl+1–9 badges on sidebar workspace cards — **Carry** (fork feature)
+
+| | |
+|---|---|
+| Commits | this commit (2026-08-09) |
+| Upstream issue | none filed |
+| Upstream PR | none |
+| Upstream status | **absent** at `v1.4.177` — the Cmd+J palette numbers its recent rows (`PaletteRowShortcutBadge`), but no sidebar card shows its digit; `WorktreeCard.tsx` has no `ShortcutKeyCombo` usage |
+
+Each of the first nine sidebar workspace cards now shows its own `workspace.selectByIndex` chord (⌘7 /
+`Ctrl+7`) as trailing metadata in the title row, so the shortcut is discoverable from the list instead
+of only from Settings.
+
+**Why it reads the published order rather than recomputing one.** `visible-worktrees.ts` already
+exists to guarantee that Cmd+1–9 and the rendered card order cannot diverge: WorktreeList publishes
+the array it actually rendered via `setVisibleWorktreeIds`, and the digit handler in `useIpcEvents.ts`
+indexes `getVisibleWorktreeIds()`. The badge subscribes to that **same** module state
+(`subscribePublishedVisibleWorktreeIds` / `getPublishedVisibleWorktreeIds` +
+`useSyncExternalStore`), so a badge can never name a digit that activates a different card. Deriving a
+second ordering in the card — from the store, a prop, or a row index — is the one thing that would
+reintroduce the class of bug the file was written to prevent.
+
+Deliberate limits: no badge past the ninth row (no chord reaches it), none when the action is unbound
+(STYLEGUIDE: never show a chip for a shortcut that does nothing), none in affiliate lists (their rows
+are not the numbered order), and the chip hides on card hover so the delete/primary cluster keeps the
+slot. Modifiers come from the live binding minus its digit, so a remap and Linux/Windows `Ctrl+`
+render honestly.
+
+Desktop-client change only — no RPC, wire, or host behavior is touched, and the published order is
+renderer state.
+
+Main files: `src/renderer/src/components/sidebar/use-workspace-shortcut-index.ts`,
+`src/renderer/src/components/sidebar/visible-worktrees.ts` (subscription added),
+`src/renderer/src/components/sidebar/WorktreeCard.tsx`, and `DIGIT_INDEX_SHORTCUT_COUNT` in
+`src/shared/keybindings.ts` (replaces a hardcoded `9`).
+
+**Regression tests:** `use-workspace-shortcut-index.test.tsx` pins position reporting, live reorders,
+the 1–9 ceiling, the unmounted-sidebar case, and — the point of the feature — that the badge digit and
+`getVisibleWorktreeIds()` resolve to the same workspace. `WorktreeCard.shortcut-badge.test.tsx` pins
+the rendered digit and all three suppression rules.
+
+---
+
 ## Review checklist for the next upstream merge
 
 1. `git fetch upstream --tags --prune`, then check the merge base — upstream stable tags are release
@@ -460,4 +503,7 @@ the marked Enter path.
    status-less panes. If upstream widens that stripping, re-run the §1c retention test
    (`keeps a running agent status when the host republishes the pane without one`) before touching
    the fork guard.
+9b. Check whether upstream added digit badges to sidebar workspace cards (§8), and whether it kept
+   `setVisibleWorktreeIds` as the single published order. If upstream introduces a second ordering for
+   the badges, do not adopt it — run `use-workspace-shortcut-index.test.tsx` first.
 9. Update the base tag and audit date at the top of this file.

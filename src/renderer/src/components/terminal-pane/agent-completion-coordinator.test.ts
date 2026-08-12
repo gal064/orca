@@ -40,7 +40,7 @@ function createRejectableDeferred<T>(): {
 }
 
 const HOOK_DONE_QUIET_MS = 1_500
-const CODEX_ATTENTION_QUIET_MS = 1_500
+const CODEX_ATTENTION_QUIET_MS = 5_000
 
 describe('agent completion coordinator', () => {
   beforeEach(() => {

@@ -58,7 +58,7 @@ let mockStoreState: MockStoreState
 const HOOK_DONE_QUIET_MS = 1_500
 // Why: Codex attention notifications are debounced (issue #8387), so a genuine
 // permission pause only notifies once this quiet window elapses without resuming.
-const CODEX_ATTENTION_QUIET_MS = 1_500
+const CODEX_ATTENTION_QUIET_MS = 5_000
 
 vi.mock('@/store', () => ({
   useAppStore: {

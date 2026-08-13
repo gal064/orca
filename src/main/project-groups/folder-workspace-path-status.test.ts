@@ -239,3 +239,62 @@ describe('folder workspace path status', () => {
     expect(provider.stat).toHaveBeenCalledWith('/workspace/platform')
   })
 })
+
+/**
+ * A vertical tab starts at the user's home directory, which contains every repo on
+ * the machine. Inferring its host from that path resolved `ambiguous` (create throws)
+ * or `ssh` (terminals silently spawn on the wrong box), so terminal-mode groups
+ * short-circuit to their own host.
+ */
+describe('inferFolderWorkspacePathConnection with a terminal-mode group', () => {
+  const terminalModeGroup = makeGroup({
+    id: 'terminal-mode',
+    name: '__terminal-mode__',
+    parentPath: null
+  })
+  const homeRepos = [
+    makeRepo({ id: 'local', path: '/home/dev/local-repo', projectGroupId: null }),
+    makeRepo({
+      id: 'remote',
+      path: '/home/dev/remote-repo',
+      projectGroupId: null,
+      connectionId: 'box'
+    })
+  ]
+
+  it('resolves local even when local and SSH repos share the home directory', () => {
+    expect(
+      inferFolderWorkspacePathConnection({
+        folderPath: '/home/dev',
+        projectGroupId: 'terminal-mode',
+        connectionId: null,
+        projectGroups: [terminalModeGroup],
+        repos: homeRepos
+      })
+    ).toEqual({ kind: 'local' })
+  })
+
+  it('follows the group connection when the hidden group is SSH-hosted', () => {
+    expect(
+      inferFolderWorkspacePathConnection({
+        folderPath: '/home/dev',
+        projectGroupId: 'terminal-mode',
+        connectionId: null,
+        projectGroups: [{ ...terminalModeGroup, connectionId: 'box' }],
+        repos: homeRepos
+      })
+    ).toEqual({ kind: 'ssh', connectionId: 'box' })
+  })
+
+  it('still infers from the path for ordinary groups', () => {
+    expect(
+      inferFolderWorkspacePathConnection({
+        folderPath: '/home/dev',
+        projectGroupId: 'group-1',
+        connectionId: null,
+        projectGroups: [makeGroup({ parentPath: '/home/dev' })],
+        repos: homeRepos
+      })
+    ).toEqual({ kind: 'ambiguous' })
+  })
+})

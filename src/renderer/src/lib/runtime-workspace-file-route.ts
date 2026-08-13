@@ -5,6 +5,7 @@ import {
 } from '../../../shared/execution-host'
 import { findRuntimeWorkspaceFileOwner } from '../../../shared/runtime-workspace-file-owner'
 import { folderWorkspaceKey } from '../../../shared/workspace-scope'
+import { selectClassicFolderWorkspaces } from '@/store/classic-workspace-catalog'
 import type { AppState } from '@/store/types'
 import { getIndexedAllWorktrees } from '@/store/worktree-repo-index'
 import {
@@ -49,7 +50,9 @@ export function findWorkspaceFileRoute(
       ? [{ workspaceId: worktree.id, rootPath: worktree.path, executionHostId }]
       : []
   )
-  for (const workspace of state.folderWorkspaces) {
+  // Classic catalog only: a vertical tab roots at $HOME and would become the
+  // longest-match owner for every file the user opens outside a real workspace.
+  for (const workspace of selectClassicFolderWorkspaces(state)) {
     const workspaceId = folderWorkspaceKey(workspace.id)
     if (workspaceMatchesExecutionHost(state, workspaceId, executionHostId)) {
       roots.push({ workspaceId, rootPath: workspace.folderPath, executionHostId })

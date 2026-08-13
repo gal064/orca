@@ -977,8 +977,30 @@ import {
   getTerminalViewColorQueryReplyColors,
   registerTerminalViewAttributesApplier
 } from './terminal-view-attribute-store'
-import { killAllProcessesForWorktree, teardownRpcDeadline } from './worktree-teardown'
+import {
+  killAllProcessesForWorktree,
+  teardownRpcDeadline,
+  WORKTREE_PROCESS_SWEEP_TIMEOUT_MS
+} from './worktree-teardown'
 import { stopMissingWorktreeTerminals } from './missing-worktree-terminal-reconciliation'
+import {
+  getFolderWorkspaceIdsInProjectGroups,
+  sweepWorkspaceTerminals,
+  teardownFolderWorkspaceTerminals
+} from './folder-workspace-terminal-teardown'
+import { getProjectGroupSubtreeIds } from '../../shared/project-groups'
+
+// Why 4: matches the missing-worktree reconciliation sweep's fan-out.
+const PROJECT_GROUP_SWEEP_CONCURRENCY = 4
+const EMPTY_WORKSPACE_KEY_SET: ReadonlySet<string> = Object.freeze(new Set<string>())
+import { mapWithConcurrency } from '../../shared/map-with-concurrency'
+import {
+  assertProjectGroupNameNotReserved,
+  excludeTerminalModeFolderWorkspaces,
+  excludeTerminalModeGroups,
+  getTerminalModeGroupIds,
+  isTerminalModeGroup
+} from '../../shared/terminal-mode-group'
 import {
   MobileNotificationReplayBuffer,
   type ReplayableMobileNotification
@@ -5962,12 +5984,15 @@ export class OrcaRuntimeService {
     }
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession()
     await this.refreshMobileSessionPtyRecords()
-    return [...this.mobileSessionTabsByWorktree.values()].map((snapshot) =>
-      this.clientSessionTabSelections.project(
-        this.toMobileSessionTabsResult(snapshot),
-        clientNavigationId
+    const terminalModeKeys = this.getTerminalModeWorkspaceKeys()
+    return [...this.mobileSessionTabsByWorktree.values()]
+      .filter((snapshot) => !terminalModeKeys.has(snapshot.worktree))
+      .map((snapshot) =>
+        this.clientSessionTabSelections.project(
+          this.toMobileSessionTabsResult(snapshot),
+          clientNavigationId
+        )
       )
-    )
   }
 
   private hydrateHeadlessMobileSessionTabsFromWorkspaceSession(
@@ -15705,9 +15730,16 @@ export class OrcaRuntimeService {
 
     const terminals: RuntimeTerminalSummary[] = []
     const ptyIdsFromLeaves = new Set<string>()
+    // Why: this listing reaches the CLI, paired mobile and remote clients, and the
+    // worktree ids it emits are accepted selectors elsewhere. Vertical tabs are not
+    // theirs to see (docs/terminal-mode-spec.md §3.3 item 1b).
+    const terminalModeKeys = this.getTerminalModeWorkspaceKeys()
     if (graphEpoch !== null) {
       for (const leaf of this.leaves.values()) {
         if (targetWorktreeId && leaf.worktreeId !== targetWorktreeId) {
+          continue
+        }
+        if (terminalModeKeys.has(leaf.worktreeId)) {
           continue
         }
         if (
@@ -15734,6 +15766,9 @@ export class OrcaRuntimeService {
         continue
       }
       if (opts.requireFreshPtyLiveness && !refreshedPtyLiveness?.has(pty.ptyId)) {
+        continue
+      }
+      if (terminalModeKeys.has(pty.worktreeId)) {
         continue
       }
       if (targetWorktreeId && pty.worktreeId !== targetWorktreeId) {
@@ -17913,7 +17948,8 @@ export class OrcaRuntimeService {
     )
     for (const folderWorkspace of this.store?.getFolderWorkspaces?.() ?? []) {
       const projectGroup = projectGroupById.get(folderWorkspace.projectGroupId)
-      if (!projectGroup?.parentPath) {
+      // Terminal-mode vertical tabs are not workspaces the CLI or paired clients list.
+      if (!projectGroup?.parentPath || isTerminalModeGroup(projectGroup)) {
         continue
       }
       const worktree = folderWorkspaceToWorktree(folderWorkspace)
@@ -18543,11 +18579,19 @@ export class OrcaRuntimeService {
   }
 
   listProjectGroups(): ProjectGroup[] {
-    return this.store?.getProjectGroups?.() ?? []
+    // Filtered for the same reason as listFolderWorkspaces below.
+    return [...excludeTerminalModeGroups(this.store?.getProjectGroups?.() ?? [])]
   }
 
   listFolderWorkspaces(): FolderWorkspace[] {
-    return this.store?.getFolderWorkspaces?.() ?? []
+    const workspaces = this.store?.getFolderWorkspaces?.() ?? []
+    // Why filtered: this feeds `folderWorkspace.list` to paired/remote clients, and a
+    // client older than terminal mode has no exclusion of its own — it would render
+    // this host's vertical tabs as ordinary workspaces. Phase 4 (remote vtabs) must
+    // replace this with a capability-gated pass-through.
+    return [
+      ...excludeTerminalModeFolderWorkspaces(workspaces, this.store?.getProjectGroups?.() ?? [])
+    ]
   }
 
   async createProjectGroup(input: {
@@ -18560,6 +18604,7 @@ export class OrcaRuntimeService {
     if (!this.store?.createProjectGroup) {
       throw new Error('runtime_unavailable')
     }
+    assertProjectGroupNameNotReserved(input.name)
     const group = this.store.createProjectGroup({
       name: input.name,
       parentPath: input.parentPath ?? null,
@@ -18578,6 +18623,9 @@ export class OrcaRuntimeService {
     if (!this.store?.updateProjectGroup) {
       throw new Error('runtime_unavailable')
     }
+    if (updates.name !== undefined) {
+      assertProjectGroupNameNotReserved(updates.name)
+    }
     const updated = this.store.updateProjectGroup(groupId, updates)
     if (updated) {
       this.notifyReposChanged()
@@ -18589,6 +18637,7 @@ export class OrcaRuntimeService {
     if (!this.store?.deleteProjectGroup) {
       throw new Error('runtime_unavailable')
     }
+    await this.teardownProjectGroupTerminals(groupId)
     const deleted = this.store.deleteProjectGroup(groupId)
     if (deleted) {
       this.notifyReposChanged()
@@ -18679,6 +18728,7 @@ export class OrcaRuntimeService {
         | 'createdWithAgent'
         | 'pendingFirstAgentMessageRename'
         | 'firstAgentMessageRenameError'
+        | 'terminalModeAutoName'
         | 'lastActivityAt'
       >
     >
@@ -18716,10 +18766,88 @@ export class OrcaRuntimeService {
     return updated
   }
 
+  /**
+   * Workspace keys owned by terminal mode. The CLI, paired mobile clients and remote
+   * clients must never be handed a vertical tab: an older client has no exclusion of
+   * its own, and the key it receives is an accepted selector for rename/delete.
+   */
+  private getTerminalModeWorkspaceKeys(): ReadonlySet<string> {
+    const groupIds = getTerminalModeGroupIds(this.store?.getProjectGroups?.() ?? [])
+    if (groupIds.size === 0) {
+      return EMPTY_WORKSPACE_KEY_SET
+    }
+    const keys = new Set<string>()
+    for (const workspace of this.store?.getFolderWorkspaces?.() ?? []) {
+      if (groupIds.has(workspace.projectGroupId)) {
+        keys.add(folderWorkspaceKey(workspace.id))
+      }
+    }
+    return keys
+  }
+
+  /** Same sweep for the group-delete cascade, which drops every folder workspace beneath it. */
+  async teardownProjectGroupTerminals(projectGroupId: string): Promise<void> {
+    const subtreeIds = getProjectGroupSubtreeIds(
+      this.store?.getProjectGroups?.() ?? [],
+      projectGroupId
+    )
+    const folderWorkspaceIds = getFolderWorkspaceIdsInProjectGroups(
+      this.store?.getFolderWorkspaces?.() ?? [],
+      subtreeIds
+    )
+    // Why a shared budget: each sweep is independently bounded at 10s, so a big group
+    // on a wedged provider would otherwise blow past the caller's 15s RPC timeout and
+    // report a failure for a delete that actually succeeded.
+    const waves = Math.max(
+      1,
+      Math.ceil(folderWorkspaceIds.length / PROJECT_GROUP_SWEEP_CONCURRENCY)
+    )
+    const timeoutMs = Math.max(1_000, Math.floor(WORKTREE_PROCESS_SWEEP_TIMEOUT_MS / waves))
+    await mapWithConcurrency(
+      folderWorkspaceIds,
+      PROJECT_GROUP_SWEEP_CONCURRENCY,
+      async (folderWorkspaceId) =>
+        this.teardownFolderWorkspaceTerminals(folderWorkspaceId, { timeoutMs })
+    )
+  }
+
+  /** Kills the ptys a folder workspace owns; the store drop only prunes persisted state. */
+  async teardownFolderWorkspaceTerminals(
+    folderWorkspaceId: string,
+    options: { timeoutMs?: number } = {}
+  ): Promise<void> {
+    const workspace = this.store
+      ?.getFolderWorkspaces?.()
+      .find((entry) => entry.id === folderWorkspaceId)
+    await teardownFolderWorkspaceTerminals(folderWorkspaceId, {
+      runtime: this,
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      // Why the same resolver the spawn path uses: the sweep must reach whichever
+      // provider actually owns the ptys, and an ambiguous host never spawned any.
+      connectionId: workspace
+        ? this.resolveFolderWorkspaceConnectionIdForTeardown(workspace)
+        : null,
+      getLocalProvider: () => this.getLocalProvider(),
+      getSshProvider: (connectionId) => this.getSshProviderFn?.(connectionId),
+      onPtyStopped: this.onPtyStopped ?? undefined
+    })
+  }
+
+  private resolveFolderWorkspaceConnectionIdForTeardown(workspace: FolderWorkspace): string | null {
+    try {
+      return this.resolveFolderWorkspaceConnectionId(workspace)
+    } catch {
+      // Ambiguous host: the spawn path throws the same way, so there is nothing on
+      // a remote provider to sweep — fall back to the local graph sweep.
+      return null
+    }
+  }
+
   async deleteFolderWorkspace(folderWorkspaceId: string): Promise<{ deleted: boolean }> {
     if (!this.store?.removeFolderWorkspace) {
       throw new Error('runtime_unavailable')
     }
+    await this.teardownFolderWorkspaceTerminals(folderWorkspaceId)
     const deleted = this.store.removeFolderWorkspace(folderWorkspaceId)
     if (deleted) {
       this.notifyReposChanged()
@@ -24689,32 +24817,17 @@ export class OrcaRuntimeService {
               'Cannot delete the project root workspace. Remove the folder project instead.'
             )
           }
-          // This service runs inside the selected runtime, so runtime-stamped repos use its
-          // local PTY namespace; only a direct SSH connection is external from here.
-          const folderConnectionId = repo.connectionId?.trim() || null
-          const folderSshPtyProvider = folderConnectionId
-            ? this.getSshProviderFn?.(folderConnectionId)
-            : undefined
-          const folderPtyProvider = folderSshPtyProvider ?? this.getLocalProvider()
-          if (folderPtyProvider) {
-            // Why: folder workspace deletion has no Git removal phase where PTYs
-            // would otherwise be swept; tear them down before hiding the workspace.
-            await killAllProcessesForWorktree(removalTarget.id, {
-              runtime: this,
-              resolvedWorktreeId: removalTarget.id,
-              ...(folderConnectionId ? { resolvedConnectionId: folderConnectionId } : {}),
-              localProvider: folderPtyProvider,
-              onPtyStopped: this.onPtyStopped ?? undefined,
-              ...(folderConnectionId
-                ? {
-                    includeProviderInventory: Boolean(folderSshPtyProvider),
-                    includeLocalRegistry: false
-                  }
-                : {})
-            }).catch((err) => {
-              console.warn(`[worktree-teardown] failed for ${removalTarget.id}:`, err)
-            })
-          }
+          // Why: folder workspace deletion has no Git removal phase where PTYs would
+          // otherwise be swept; tear them down before hiding the workspace. This
+          // service runs inside the selected runtime, so runtime-stamped repos use
+          // its local PTY namespace; only a direct SSH connection is external here.
+          await sweepWorkspaceTerminals(removalTarget.id, {
+            runtime: this,
+            connectionId: repo.connectionId,
+            getLocalProvider: () => this.getLocalProvider(),
+            getSshProvider: (connectionId) => this.getSshProviderFn?.(connectionId),
+            onPtyStopped: this.onPtyStopped ?? undefined
+          })
           this.removeWorktreeMetadataAndHistory(store, removalTarget.id)
           this.preservedBranchCleanupByWorktreeId.delete(removalTarget.id)
           this.invalidateResolvedWorktreeCache()

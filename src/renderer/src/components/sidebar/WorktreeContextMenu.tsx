@@ -31,6 +31,7 @@ import {
   FolderTree
 } from 'lucide-react'
 import { useAppStore } from '@/store'
+import { useClassicProjectGroups } from '@/store/classic-workspace-catalog'
 import type { AppState } from '@/store/types'
 import { useAllWorktrees, useRepoById, useRepoMap, useWorktreeMap } from '@/store/selectors'
 import { cn } from '@/lib/utils'
@@ -329,7 +330,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
   const setWorktreesPinnedAndReveal = useAppStore((s) => s.setWorktreesPinnedAndReveal)
   const workspaceStatuses = useAppStore((s) => s.workspaceStatuses)
   const openModal = useAppStore((s) => s.openModal)
-  const projectGroups = useAppStore((s) => s.projectGroups)
+  const projectGroups = useClassicProjectGroups()
   const createProjectGroup = useAppStore((s) => s.createProjectGroup)
   const moveProjectToGroup = useAppStore((s) => s.moveProjectToGroup)
   const deleteFolderWorkspace = useAppStore((s) => s.deleteFolderWorkspace)

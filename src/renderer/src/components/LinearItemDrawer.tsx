@@ -43,6 +43,7 @@ import {
 import { openLinearIssueWorkspaceOrStart } from '@/lib/linear-issue-workspace-open'
 import { folderWorkspaceToWorktree } from '../../../shared/folder-workspace-worktree'
 import { useAppStore } from '@/store'
+import { useClassicFolderWorkspaces } from '@/store/classic-workspace-catalog'
 import { useAllWorktrees } from '@/store/selectors'
 import { getScreenSubmitShortcutLabel, isScreenSubmitShortcut } from '@/lib/screen-submit-shortcut'
 import { createBrowserUuid } from '@/lib/browser-uuid'
@@ -1251,7 +1252,8 @@ export default function LinearItemDrawer({
   const settings = useAppStore((s) => s.settings)
   const providerSettings = sourceContext ?? settings
   const allWorktrees = useAllWorktrees()
-  const folderWorkspaces = useAppStore((s) => s.folderWorkspaces)
+  // Classic catalog only: vertical tabs are never linked-item attachment targets.
+  const folderWorkspaces = useClassicFolderWorkspaces()
   const attachmentWorkspaces = useMemo(
     () => [...allWorktrees, ...folderWorkspaces.map(folderWorkspaceToWorktree)],
     [allWorktrees, folderWorkspaces]

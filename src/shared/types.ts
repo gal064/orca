@@ -350,6 +350,8 @@ export type FolderWorkspace = {
   createdWithAgent?: TuiAgent
   pendingFirstAgentMessageRename?: boolean
   firstAgentMessageRenameError?: string | null
+  /** Terminal mode: absent/true means the vtab title follows pwd; a manual rename pins it to false. */
+  terminalModeAutoName?: boolean
   lastActivityAt: number
   createdAt: number
   updatedAt: number

@@ -31,6 +31,7 @@ import {
 } from '@/lib/desktop-window-chrome'
 import { resolveLeftTitlebarChromeLayout } from '@/lib/titlebar-left-chrome'
 import { shouldShowWorktreeCreationSurface } from '@/lib/worktree-creation-surface'
+import { isTerminalMode } from '@/lib/terminal-mode'
 import { buildAppFontFamily } from '@/lib/app-font-family'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
@@ -1680,7 +1681,8 @@ function App(): React.JSX.Element {
         [
           'workspace.openBoard',
           () => {
-            if (activeView === 'settings') {
+            // The kanban board is classic-only (docs/terminal-mode-spec.md §2).
+            if (activeView === 'settings' || isTerminalMode(useAppStore.getState().settings)) {
               return false
             }
             return claim('workspace.openBoard', () => {
@@ -1693,7 +1695,11 @@ function App(): React.JSX.Element {
           'view.tasks',
           () => {
             const store = useAppStore.getState()
-            if (activeView === 'settings' || !store.repos.some((repo) => isGitRepoKind(repo))) {
+            if (
+              activeView === 'settings' ||
+              isTerminalMode(store.settings) ||
+              !store.repos.some((repo) => isGitRepoKind(repo))
+            ) {
               return false
             }
             return claim('view.tasks', () => store.openTaskPage())

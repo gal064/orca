@@ -1873,7 +1873,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       if (workspaceItem) {
         get().closeUnifiedTab(workspaceItem.id, {
           recordInteraction: opts?.recordInteraction,
-          terminalRetirementHandled: true
+          terminalRetirementHandled: true,
+          // Why forwarded: only a user close is intent to close the whole workspace.
+          ...(opts?.reason ? { reason: opts.reason } : {})
         })
       }
     }

@@ -9,6 +9,7 @@ import type {
   HostedReviewProvider
 } from '../shared/hosted-review'
 import type { NativeFileDropPayload } from '../shared/native-file-drop'
+import type { TerminalModeLocalContext } from '../shared/terminal-mode-group'
 import type { BrowserFindSource } from '../shared/browser-find-source'
 import type {
   DashboardRevealAgentArgs,
@@ -1395,11 +1396,16 @@ export type PreloadApi = {
           | 'createdWithAgent'
           | 'pendingFirstAgentMessageRename'
           | 'firstAgentMessageRenameError'
+          | 'terminalModeAutoName'
           | 'lastActivityAt'
         >
       >
     }) => Promise<FolderWorkspace | null>
     delete: (args: { folderWorkspaceId: string }) => Promise<boolean>
+  }
+  terminalMode: {
+    /** Hidden local project group backing terminal-mode vertical tabs, plus the default start dir. */
+    ensureLocalContext: () => Promise<TerminalModeLocalContext>
   }
   sparsePresets: {
     list: (args: { repoId: string }) => Promise<SparsePreset[]>

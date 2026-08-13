@@ -755,6 +755,10 @@ const api = {
     delete: (args) => ipcRenderer.invoke('folderWorkspaces:delete', args)
   } satisfies PreloadApi['folderWorkspaces'],
 
+  terminalMode: {
+    ensureLocalContext: () => ipcRenderer.invoke('terminalMode:ensureLocalContext')
+  } satisfies PreloadApi['terminalMode'],
+
   sparsePresets: {
     list: (args) => ipcRenderer.invoke('sparsePresets:list', args),
 

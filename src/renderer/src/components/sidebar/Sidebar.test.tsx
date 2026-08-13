@@ -80,6 +80,10 @@ vi.mock('./useSidebarProjectDrop', () => ({
   })
 }))
 
+vi.mock('@/components/vertical-tabs/TerminalModeSidebarHost', () => ({
+  default: () => <div data-testid="terminal-mode-sidebar-host" />
+}))
+
 vi.mock('@/components/vertical-tabs', () => ({
   default: () => <div data-testid="vertical-tabs-sidebar" />
 }))
@@ -160,6 +164,7 @@ describe('Sidebar', () => {
     expect(view.getByTestId('sidebar-toolbar')).toBeTruthy()
     expect(view.getByTestId('workspace-kanban-drawer')).toBeTruthy()
     expect(view.queryByTestId('vertical-tabs-sidebar')).toBeNull()
+    expect(view.queryByTestId('terminal-mode-sidebar-host')).toBeNull()
 
     const surface = view.container.querySelector('[data-native-file-drop-target="project"]')
     expect(surface).not.toBeNull()
@@ -172,6 +177,9 @@ describe('Sidebar', () => {
     const view = render(sidebarElement())
 
     expect(await view.findByTestId('vertical-tabs-sidebar')).toBeTruthy()
+    // Mounted outside the sidebarOpen branch: the close confirmation and the
+    // close-last-htab reconciler must survive a collapsed sidebar.
+    expect(view.getByTestId('terminal-mode-sidebar-host')).toBeTruthy()
     expect(view.queryByTestId('sidebar-nav')).toBeNull()
     expect(view.queryByTestId('sidebar-header')).toBeNull()
     expect(view.queryByTestId('worktree-list')).toBeNull()

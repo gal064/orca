@@ -6,6 +6,7 @@ import {
   activateAndRevealFolderWorkspace,
   activateAndRevealWorktree
 } from '@/lib/worktree-activation'
+import { selectClassicFolderWorkspaces } from '@/store/classic-workspace-catalog'
 import { folderWorkspaceToWorktree } from '../../../shared/folder-workspace-worktree'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import {
@@ -24,7 +25,11 @@ export function openLinearIssueWorkspaceOrStart(
 ): 'opened' | 'started' | 'failed' {
   const state = useAppStore.getState()
   const attached = findLinearIssueWorkspaceAttachment(
-    [...state.allWorktrees(), ...state.folderWorkspaces.map(folderWorkspaceToWorktree)],
+    // Classic catalog only: vertical tabs are never linked-item attachment targets.
+    [
+      ...state.allWorktrees(),
+      ...selectClassicFolderWorkspaces(state).map(folderWorkspaceToWorktree)
+    ],
     issue
   )
   if (!attached) {

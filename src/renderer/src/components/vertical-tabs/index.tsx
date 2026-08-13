@@ -1,16 +1,32 @@
-import React from 'react'
+import React, { useCallback } from 'react'
 import { Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
+import VerticalTabRow from './VerticalTabRow'
+import { useActiveVerticalTabId, useVerticalTabs } from './use-vertical-tabs'
 
-/** Terminal-mode left sidebar. Phase 0 scaffold: the tab list and the "+" action
- *  arrive with the vertical-tabs store slice (docs/terminal-mode-design.md Phase 1). */
+/**
+ * Terminal-mode left sidebar: the vertical tab strip (docs/terminal-mode-design.md
+ * Phase 1). Mounted only while the sidebar is open — anything that must survive a
+ * collapsed sidebar lives in TerminalModeSidebarHost instead.
+ */
 function VerticalTabsSidebar(): React.JSX.Element {
   // Why: this memo boundary needs its own language subscription — the persisted
   // locale lands after boot, and nothing else re-renders this subtree.
   useTranslation()
+  const tabs = useVerticalTabs()
+  const activeTabId = useActiveVerticalTabId()
+  const createVerticalTab = useAppStore((s) => s.createVerticalTab)
+  const activateVerticalTab = useAppStore((s) => s.activateVerticalTab)
+  const renameVerticalTab = useAppStore((s) => s.renameVerticalTab)
+  const requestVerticalTabClose = useAppStore((s) => s.requestVerticalTabClose)
+
+  const handleCreate = useCallback(() => {
+    void createVerticalTab()
+  }, [createVerticalTab])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="vertical-tabs-sidebar">
@@ -20,42 +36,54 @@ function VerticalTabsSidebar(): React.JSX.Element {
         </span>
         <Tooltip>
           <TooltipTrigger asChild>
-            {/* Why: wrap in a span so the trigger still fires while the button is disabled. */}
-            <span className="inline-flex">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="text-muted-foreground"
-                // Disabled rather than a no-op click: nothing can be created until Phase 1.
-                disabled
-                // Why: the label carries the disabled reason too — a disabled
-                // button's tooltip never reaches keyboard or screen-reader users.
-                aria-label={translate(
-                  'auto.components.verticalTabs.VerticalTabsSidebar.newTab',
-                  'New terminal tab (under construction)'
-                )}
-                data-testid="vertical-tabs-new-tab"
-              >
-                <Plus className="size-3.5" strokeWidth={2.25} />
-              </Button>
-            </span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground"
+              aria-label={translate(
+                'auto.components.verticalTabs.VerticalTabsSidebar.newTab',
+                'New terminal tab'
+              )}
+              data-testid="vertical-tabs-new-tab"
+              onClick={handleCreate}
+            >
+              <Plus className="size-3.5" strokeWidth={2.25} />
+            </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={6}>
             {translate(
               'auto.components.verticalTabs.VerticalTabsSidebar.newTab',
-              'New terminal tab (under construction)'
+              'New terminal tab'
             )}
           </TooltipContent>
         </Tooltip>
       </div>
 
       <div
-        className="worktree-sidebar-scrollbar min-h-0 flex-1 overflow-y-auto px-2 py-1"
+        className="worktree-sidebar-scrollbar flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-1"
         data-testid="vertical-tabs-list"
       >
-        <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-          {translate('auto.components.verticalTabs.VerticalTabsSidebar.empty', 'No terminal tabs')}
-        </p>
+        {tabs.length === 0 ? (
+          <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+            {translate(
+              'auto.components.verticalTabs.VerticalTabsSidebar.empty',
+              'No terminal tabs'
+            )}
+          </p>
+        ) : (
+          tabs.map((tab) => (
+            <VerticalTabRow
+              key={tab.id}
+              id={tab.id}
+              name={tab.name}
+              folderPath={tab.folderPath}
+              active={tab.id === activeTabId}
+              onActivate={activateVerticalTab}
+              onRename={renameVerticalTab}
+              onRequestClose={requestVerticalTabClose}
+            />
+          ))
+        )}
       </div>
     </div>
   )

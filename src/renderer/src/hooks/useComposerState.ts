@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@/store'
+import { useClassicProjectGroups } from '@/store/classic-workspace-catalog'
 import { getDefaultRepoHookSettings } from '../../../shared/constants'
 import { getAgentLaunchPlatformForRepo } from '@/lib/agent-launch-platform'
 import { getAgentCatalog } from '@/lib/agent-catalog'
@@ -656,7 +657,8 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
 
   const repos = useAppStore((s) => s.repos)
   const projects = useAppStore((s) => s.projects)
-  const projectGroups = useAppStore((s) => s.projectGroups)
+  // Classic catalog only: a vertical tab's hidden group is never a create target.
+  const projectGroups = useClassicProjectGroups()
   const projectHostSetups = useAppStore((s) => s.projectHostSetups)
   const activeRepoId = useAppStore((s) => s.activeRepoId)
   const settings = useAppStore((s) => s.settings)

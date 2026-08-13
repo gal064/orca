@@ -290,6 +290,10 @@ import { HostSectionHeaderMenu } from './HostSectionHeaderMenu'
 import { ProjectHeaderActions } from './ProjectHeaderActions'
 import { translate } from '@/i18n/i18n'
 import { folderWorkspaceKey, getActiveSidebarWorkspaceId } from '../../../../shared/workspace-scope'
+import {
+  useClassicFolderWorkspaces,
+  useClassicProjectGroups
+} from '@/store/classic-workspace-catalog'
 import { getHostDisplayLabelOverrides } from '../../../../shared/host-setting-overrides'
 import {
   isConfirmedStaleFolderPathStatus,
@@ -5560,8 +5564,10 @@ const WorktreeList = React.memo(function WorktreeList({
     }),
     [projectHostSetupProjection]
   )
-  const projectGroups = useAppStore((s) => s.projectGroups ?? EMPTY_PROJECT_GROUPS)
-  const folderWorkspaces = useAppStore((s) => s.folderWorkspaces)
+  // Classic catalog only: every consumer in this file — rows, drag buckets,
+  // move-to-group menus, path-status prefetch — must be blind to terminal-mode tabs.
+  const projectGroups = useClassicProjectGroups()
+  const folderWorkspaces = useClassicFolderWorkspaces()
   const effectiveCollapsedGroups = useMemo(() => {
     if (!agentSendTargetWorktreeId) {
       return collapsedGroups

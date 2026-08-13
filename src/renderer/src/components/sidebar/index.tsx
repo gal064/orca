@@ -25,6 +25,9 @@ const OrcaYamlTrustDialog = lazyWithRetry(() => import('./OrcaYamlTrustDialog'))
 const ForgetSshWorkspaceDialog = lazyWithRetry(() => import('./ForgetSshWorkspaceDialog'))
 const AgentDashboardSidebarHost = lazyWithRetry(() => import('./AgentDashboardSidebarHost'))
 const VerticalTabsSidebar = lazyWithRetry(() => import('@/components/vertical-tabs'))
+const TerminalModeSidebarHost = lazyWithRetry(
+  () => import('@/components/vertical-tabs/TerminalModeSidebarHost')
+)
 
 const MIN_WIDTH = 220
 const MAX_WIDTH = 500
@@ -200,6 +203,13 @@ function Sidebar({
         {activeModal === 'confirm-orca-yaml-hooks' ? <OrcaYamlTrustDialog /> : null}
         {activeModal === 'forget-ssh-workspace' ? <ForgetSshWorkspaceDialog /> : null}
       </React.Suspense>
+      {/* Why outside the sidebarOpen branch: the close confirmation and the
+      close-last-htab reconciler must keep working while the sidebar is collapsed. */}
+      {terminalMode ? (
+        <React.Suspense fallback={null}>
+          <TerminalModeSidebarHost />
+        </React.Suspense>
+      ) : null}
       {/* Worktree kanban is classic-only (docs/terminal-mode-spec.md §2, out of scope). */}
       {classicSidebarVisible ? (
         <WorkspaceKanbanDrawer

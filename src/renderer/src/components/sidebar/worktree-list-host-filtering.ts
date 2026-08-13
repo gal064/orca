@@ -1,5 +1,6 @@
 import {
   ALL_EXECUTION_HOSTS_SCOPE,
+  getProjectGroupExecutionHostId,
   normalizeExecutionHostId,
   parseExecutionHostId,
   toSshExecutionHostId,
@@ -60,11 +61,7 @@ export function getProjectGroupExecutionHostIdForRows(
   group: Pick<ProjectGroup, 'connectionId' | 'executionHostId'>,
   defaultHostId: ExecutionHostId
 ): ExecutionHostId {
-  const executionHostId = normalizeExecutionHostId(group.executionHostId)
-  if (executionHostId) {
-    return executionHostId
-  }
-  return group.connectionId ? toSshExecutionHostId(group.connectionId) : defaultHostId
+  return getProjectGroupExecutionHostId(group, defaultHostId)
 }
 
 export function getFolderWorkspaceExecutionHostIdForRows({
@@ -105,11 +102,7 @@ export function getRuntimeEnvironmentIdForFolderPathStatusHost(
 function getProjectGroupExecutionHostIdForFolderPathStatus(
   group: Pick<ProjectGroup, 'connectionId' | 'executionHostId'>
 ): ExecutionHostId {
-  const executionHostId = normalizeExecutionHostId(group.executionHostId)
-  if (executionHostId) {
-    return executionHostId
-  }
-  return group.connectionId ? toSshExecutionHostId(group.connectionId) : 'local'
+  return getProjectGroupExecutionHostId(group, 'local')
 }
 
 export function getFolderPathStatusRouteOptionsForRows({

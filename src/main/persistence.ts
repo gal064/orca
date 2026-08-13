@@ -240,6 +240,10 @@ import {
 } from '../shared/source-control-ai-actions'
 import { normalizeDisabledTuiAgents } from '../shared/tui-agent-selection'
 import {
+  assertProjectGroupNameNotReserved,
+  getTerminalModeGroupIds
+} from '../shared/terminal-mode-group'
+import {
   DEFAULT_TUI_AGENT_ARGS,
   DEFAULT_TUI_AGENT_ENV,
   hasUnsupportedTuiAgentArgs,
@@ -2701,8 +2705,11 @@ function backfillFolderScopeConnectionIds(state: PersistedState): {
   const groups = state.projectGroups ?? []
   const repos = state.repos ?? []
   let changed = false
+  // Why: a terminal-mode group has no folder root and its host is explicit, so the
+  // path heuristic below must never re-home it or its vertical tabs.
+  const terminalModeGroupIds = getTerminalModeGroupIds(groups)
   const projectGroups = groups.map((group) => {
-    if (group.connectionId || !group.parentPath) {
+    if (group.connectionId || !group.parentPath || terminalModeGroupIds.has(group.id)) {
       return group
     }
     const connectionId = inferFolderScopeConnectionIdForMigration({
@@ -2719,7 +2726,7 @@ function backfillFolderScopeConnectionIds(state: PersistedState): {
   })
   const groupsById = new Map(projectGroups.map((group) => [group.id, group]))
   const folderWorkspaces = (state.folderWorkspaces ?? []).map((workspace) => {
-    if (workspace.connectionId) {
+    if (workspace.connectionId || terminalModeGroupIds.has(workspace.projectGroupId)) {
       return workspace
     }
     const groupConnectionId = groupsById.get(workspace.projectGroupId)?.connectionId ?? null
@@ -4347,7 +4354,14 @@ export class Store {
     connectionId?: string | null
     parentGroupId?: string | null
     createdFrom: ProjectGroup['createdFrom']
+    /** Only the terminal-mode group itself may carry the reserved name. */
+    allowReservedName?: boolean
   }): ProjectGroup {
+    // Why here and not only at the IPC/RPC edges: nested-repo import and the
+    // folder-scan migration mint groups from directory names and call this directly.
+    if (!input.allowReservedName) {
+      assertProjectGroupNameNotReserved(input.name)
+    }
     let maxOrder = -1
     // Why: persisted group lists can be large enough to exceed spread limits.
     for (const existingGroup of this.state.projectGroups ?? []) {
@@ -4366,6 +4380,9 @@ export class Store {
     groupId: string,
     updates: Partial<Pick<ProjectGroup, 'name' | 'isCollapsed' | 'tabOrder' | 'color'>>
   ): ProjectGroup | null {
+    if (updates.name !== undefined) {
+      assertProjectGroupNameNotReserved(updates.name)
+    }
     const group = (this.state.projectGroups ?? []).find((entry) => entry.id === groupId)
     if (!group) {
       return null
@@ -4501,6 +4518,7 @@ export class Store {
         | 'createdWithAgent'
         | 'pendingFirstAgentMessageRename'
         | 'firstAgentMessageRenameError'
+        | 'terminalModeAutoName'
         | 'lastActivityAt'
       >
     >
@@ -4571,6 +4589,9 @@ export class Store {
     }
     if (updates.firstAgentMessageRenameError !== undefined) {
       workspace.firstAgentMessageRenameError = updates.firstAgentMessageRenameError
+    }
+    if (updates.terminalModeAutoName !== undefined) {
+      workspace.terminalModeAutoName = updates.terminalModeAutoName
     }
     if (updates.lastActivityAt !== undefined && Number.isFinite(updates.lastActivityAt)) {
       workspace.lastActivityAt = updates.lastActivityAt

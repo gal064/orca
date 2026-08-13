@@ -5,6 +5,7 @@ import type {
   FolderWorkspacePathStatusRequest
 } from '../../shared/folder-workspace-path-status'
 import { getProjectGroupSubtreeIds } from '../../shared/project-groups'
+import { isTerminalModeGroup } from '../../shared/terminal-mode-group'
 import type { FolderWorkspace, ProjectGroup, Repo } from '../../shared/types'
 import type { IFilesystemProvider } from '../providers/types'
 
@@ -66,6 +67,16 @@ export function inferFolderWorkspacePathConnection(args: {
   projectGroups: readonly ProjectGroup[]
   repos: readonly Repo[]
 }): FolderWorkspacePathConnectionResolution {
+  // Why terminal-mode groups short-circuit: a vertical tab's host is its group's
+  // host, and its start directory is the user's home — inferring from that path
+  // would capture every repo on the machine and resolve `ambiguous` or `ssh`.
+  const terminalModeGroup = args.projectGroupId
+    ? args.projectGroups.find((group) => group.id === args.projectGroupId)
+    : undefined
+  if (isTerminalModeGroup(terminalModeGroup)) {
+    const connectionId = args.connectionId ?? terminalModeGroup?.connectionId ?? null
+    return connectionId ? { kind: 'ssh', connectionId } : { kind: 'local' }
+  }
   const candidateRepos = getFolderScopeCandidateRepos(args)
   let hasLocalRepo = false
   const connectionIds = new Set<string>()

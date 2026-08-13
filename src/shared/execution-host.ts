@@ -139,6 +139,17 @@ export function normalizeExecutionHostOrder(
   return normalized ?? []
 }
 
+export function getProjectGroupExecutionHostId(
+  group: { connectionId?: string | null; executionHostId?: string | null },
+  defaultHostId: ExecutionHostId
+): ExecutionHostId {
+  const executionHostId = normalizeExecutionHostId(group.executionHostId)
+  if (executionHostId) {
+    return executionHostId
+  }
+  return group.connectionId ? toSshExecutionHostId(group.connectionId) : defaultHostId
+}
+
 export function getRepoExecutionHostId(
   repo: Pick<Repo, 'connectionId' | 'executionHostId'>
 ): ExecutionHostId {

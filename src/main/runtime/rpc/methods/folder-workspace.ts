@@ -58,6 +58,7 @@ const FolderWorkspaceUpdate = z.object({
       createdWithAgent: z.string().refine(isTuiAgent).optional(),
       pendingFirstAgentMessageRename: z.boolean().optional(),
       firstAgentMessageRenameError: z.string().nullable().optional(),
+      terminalModeAutoName: z.boolean().optional(),
       lastActivityAt: OptionalFiniteNumber
     })
     .superRefine(assertLinkedTaskSourceContextMatch)

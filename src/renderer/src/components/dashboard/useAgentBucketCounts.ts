@@ -26,6 +26,7 @@ export function useAgentBucketCounts(): AgentBucketCounts {
     ptyIdsByTabId,
     runtimePaneTitlesByTabId,
     folderWorkspaces,
+    projectGroups,
     acknowledgedAgentsByPaneKey,
     agentStatusEpoch
   } = useAppStore(
@@ -41,6 +42,8 @@ export function useAgentBucketCounts(): AgentBucketCounts {
       ptyIdsByTabId: s.ptyIdsByTabId,
       runtimePaneTitlesByTabId: s.runtimePaneTitlesByTabId,
       folderWorkspaces: s.folderWorkspaces,
+      // Why: the workspace collector needs it to skip terminal-mode vtabs.
+      projectGroups: s.projectGroups,
       acknowledgedAgentsByPaneKey: s.acknowledgedAgentsByPaneKey,
       agentStatusEpoch: s.agentStatusEpoch
     }))
@@ -60,6 +63,7 @@ export function useAgentBucketCounts(): AgentBucketCounts {
         ptyIdsByTabId,
         runtimePaneTitlesByTabId,
         folderWorkspaces,
+        projectGroups,
         acknowledgedAgentsByPaneKey,
         // Same: counts never render a card's conversation name, so the
         // generated-title gate is moot and the sidebar stays off settings.
@@ -91,6 +95,7 @@ export function useAgentBucketCounts(): AgentBucketCounts {
     ptyIdsByTabId,
     runtimePaneTitlesByTabId,
     folderWorkspaces,
+    projectGroups,
     acknowledgedAgentsByPaneKey,
     agentStatusEpoch
   ])

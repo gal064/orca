@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- Why: split-tab group state updates layout, focus, and tab membership atomically in one slice to avoid split-brain. */
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
+import type { TerminalTabCloseReason } from './terminal-tab-retirement'
 import type {
   Tab,
   TabContentType,
@@ -123,7 +124,12 @@ export type TabsSlice = {
   activateTab: (tabId: string, opts?: { preservePreview?: boolean; worktreeId?: string }) => void
   closeUnifiedTab: (
     tabId: string,
-    opts?: { recordInteraction?: boolean; terminalRetirementHandled?: boolean }
+    opts?: {
+      recordInteraction?: boolean
+      terminalRetirementHandled?: boolean
+      /** Defaults to 'user'; non-user closes must not be read as intent to close a workspace. */
+      reason?: TerminalTabCloseReason
+    }
   ) => { closedTabId: string; wasLastTab: boolean; worktreeId: string } | null
   reorderUnifiedTabs: (
     groupId: string,
@@ -1113,6 +1119,12 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
       return null
     }
 
+    // Assigned inside the set() below; read after it to decide workspace-level close.
+    let workspaceBecameEmpty = false
+    // Captured before that set(): it nulls the active workspace when the last tab goes,
+    // so afterwards there is no way to tell the closed workspace was the focused one.
+    const closedActiveWorkspace = state.activeWorktreeId === worktreeId
+
     if (tab.contentType === 'terminal' && !opts?.terminalRetirementHandled) {
       const dedupedGroupOrder = dedupeTabOrder(group.tabOrder)
       const wasLastTab = dedupeTabOrder(dedupedGroupOrder.filter((id) => id !== tabId)).length === 0
@@ -1171,12 +1183,13 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         nextLayoutByWorktree = collapsedState.layoutByWorktree
         nextActiveGroupIdByWorktree = collapsedState.activeGroupIdByWorktree
       }
-      const shouldDeactivateWorktree =
-        current.activeWorktreeId === worktreeId &&
+      workspaceBecameEmpty =
         nextTabs.length === 0 &&
         (current.tabsByWorktree[worktreeId] ?? []).length === 0 &&
         (current.browserTabsByWorktree[worktreeId] ?? []).length === 0 &&
         !current.openFiles.some((file) => file.worktreeId === worktreeId)
+      const shouldDeactivateWorktree =
+        current.activeWorktreeId === worktreeId && workspaceBecameEmpty
       return {
         unifiedTabsByWorktree: { ...current.unifiedTabsByWorktree, [worktreeId]: nextTabs },
         groupsByWorktree: {
@@ -1241,6 +1254,15 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
 
     if (opts?.recordInteraction !== false) {
       get().recordFeatureInteraction?.('terminal-tabs')
+    }
+    // Why here and not from an empty tab record: reconciliation writes the same empty
+    // record when it prunes terminals whose runtime rows went stale. Why workspace
+    // scope and not `wasLastTab`: that is the *group*'s tab order, so a split vtab
+    // would be destroyed when only one of its groups emptied. Why 'user' only: the
+    // cleanup, pty-exit and paired-mobile close paths are not intent to delete a
+    // workspace. Terminal mode is what acts on this; classic ignores it.
+    if (workspaceBecameEmpty && (opts?.reason ?? 'user') === 'user') {
+      get().closeVerticalTabIfEmptied?.(worktreeId, { wasActive: closedActiveWorkspace })
     }
     return { closedTabId: tabId, wasLastTab, worktreeId }
   },

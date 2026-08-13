@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@/store'
+import { selectClassicFolderWorkspaces } from '@/store/classic-workspace-catalog'
 import { isExplicitAgentStatusFresh } from '@/lib/agent-status'
 import type { DashboardAgentRow } from './useDashboardData'
 import type { RetainedAgentEntry } from '@/store/slices/agent-status'
@@ -141,7 +142,8 @@ export function useRetainedAgentsSync(): void {
     const { currentAgents, existingWorktreeIds, tabIndex } = buildRetainedAgentsSyncSnapshot({
       repos: state.repos,
       worktreesByRepo: state.worktreesByRepo,
-      folderWorkspaces: state.folderWorkspaces,
+      // Classic catalog only: vertical-tab panes are not retained-agent cards.
+      folderWorkspaces: [...selectClassicFolderWorkspaces(state)],
       tabsByWorktree: state.tabsByWorktree,
       agentStatusByPaneKey: state.agentStatusByPaneKey,
       now: Date.now()

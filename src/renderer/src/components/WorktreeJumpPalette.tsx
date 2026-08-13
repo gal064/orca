@@ -22,6 +22,7 @@ import {
   SquareTerminal
 } from 'lucide-react'
 import { useAppStore } from '@/store'
+import { useClassicProjectGroups } from '@/store/classic-workspace-catalog'
 import { getRepoMapFromState, useAllWorktrees } from '@/store/selectors'
 import {
   selectPaletteIndexStatusSnapshot,
@@ -552,7 +553,8 @@ function WorktreeJumpPaletteContent({
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
   const allWorktrees = useAllWorktrees()
   const repos = useAppStore((s) => s.repos)
-  const projectGroups = useAppStore((s) => s.projectGroups)
+  // Classic catalog only: vertical tabs are not projects the palette can jump to.
+  const projectGroups = useClassicProjectGroups()
   const projects = useAppStore((s) => s.projects)
   const projectHostSetups = useAppStore((s) => s.projectHostSetups)
   const detectedWorktreesByRepo = useAppStore((s) => s.detectedWorktreesByRepo)

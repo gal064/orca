@@ -1,4 +1,5 @@
 import type { AppState } from '@/store/types'
+import { selectTerminalModeWorkspaceKeys } from '@/store/classic-workspace-catalog'
 import { resolveRuntimePaneTitleLeafId } from '@/lib/runtime-pane-title-leaf-id'
 import type { AgentStatusState } from '../../../../shared/agent-status-types'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
@@ -19,6 +20,10 @@ export type OriginalPaneState = Pick<
   | 'sleepingAgentSessionsByPaneKey'
   | 'tabsByWorktree'
   | 'terminalLayoutsByTabId'
+  // Why required: without the catalog the terminal-mode filter below silently
+  // matches nothing, and AI Vault offers panes that live in vertical tabs.
+  | 'projectGroups'
+  | 'folderWorkspaces'
 >
 
 function agentMatches(session: AiVaultSession, agent: string | undefined): boolean {
@@ -120,14 +125,19 @@ function getTabOwnerWorktreeId(
   tabId: string,
   worktreeIdHint?: string
 ): string | null {
+  // Why: tabsByWorktree is keyed by workspace and includes terminal-mode vertical
+  // tabs, which classic UI must never offer as a jump target (agents in terminal
+  // mode are Phase 5 — docs/terminal-mode-design.md).
+  const terminalModeKeys = selectTerminalModeWorkspaceKeys(state)
   if (
     worktreeIdHint &&
+    !terminalModeKeys.has(worktreeIdHint) &&
     (state.tabsByWorktree[worktreeIdHint] ?? []).some((tab) => tab.id === tabId)
   ) {
     return worktreeIdHint
   }
   for (const [worktreeId, tabs] of Object.entries(state.tabsByWorktree)) {
-    if (tabs.some((tab) => tab.id === tabId)) {
+    if (!terminalModeKeys.has(worktreeId) && tabs.some((tab) => tab.id === tabId)) {
       return worktreeId
     }
   }

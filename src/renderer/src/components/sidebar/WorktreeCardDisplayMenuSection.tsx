@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react'
 import { useAppStore } from '@/store'
+import { useClassicProjectGroups } from '@/store/classic-workspace-catalog'
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
@@ -32,7 +33,7 @@ export function WorktreeCardDisplayMenuSection({
   const setWorktreeCardMode = useAppStore((s) => s.setWorktreeCardMode)
   const agentActivityDisplayMode = useAppStore((s) => s.agentActivityDisplayMode)
   const setAgentActivityDisplayMode = useAppStore((s) => s.setAgentActivityDisplayMode)
-  const projectGroups = useAppStore((s) => s.projectGroups)
+  const projectGroups = useClassicProjectGroups()
   const newCardStyle = settings?.experimentalNewWorktreeCardStyle === true
   const cardLayout = settings?.compactWorktreeCards ? 'compact' : 'detailed'
   const cardLayoutLabel =

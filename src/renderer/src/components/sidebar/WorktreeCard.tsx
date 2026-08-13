@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- Why: the worktree card centralizes sidebar card state (selection, drag, agent status, git info, context menu) in one cohesive component so sidebar rendering doesn't fan out across files. */
 import React, { useEffect, useCallback, useState } from 'react'
 import { useAppStore } from '@/store'
+import { useClassicProjectGroups } from '@/store/classic-workspace-catalog'
 import { getHostedReviewCacheKey } from '@/store/slices/hosted-review'
 import { issueCacheKey as getIssueCacheKey } from '@/store/slices/github'
 import { getGitHubPRCacheKey } from '@/store/slices/github-cache-key'
@@ -263,7 +264,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
   const cardProps = useAppStore((s) => s.worktreeCardProperties)
   const agentActivityDisplayMode =
     useAppStore((s) => s.agentActivityDisplayMode) ?? DEFAULT_AGENT_ACTIVITY_DISPLAY_MODE
-  const projectGroups = useAppStore((s) => s.projectGroups)
+  const projectGroups = useClassicProjectGroups()
   const newCardStyle = settings?.experimentalNewWorktreeCardStyle === true
   const compactCards = !newCardStyle && settings?.compactWorktreeCards === true
   const workspaceShortcutIndex = useWorkspaceShortcutIndex(worktree.id)

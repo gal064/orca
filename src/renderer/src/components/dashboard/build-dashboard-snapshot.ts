@@ -73,6 +73,10 @@ export type DashboardSnapshotState = Pick<
   | 'runtimePaneTitlesByTabId'
   | 'acknowledgedAgentsByPaneKey'
   | 'settings'
+  // Required so the classic catalog can never be silently absent (see
+  // store/classic-workspace-catalog.ts).
+  | 'projectGroups'
+  | 'folderWorkspaces'
 > &
   DashboardCardContextState &
   Partial<DashboardCardTerminalInputState & DashboardLaunchDetectionState>

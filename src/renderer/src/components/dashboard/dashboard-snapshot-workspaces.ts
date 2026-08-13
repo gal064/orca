@@ -9,6 +9,7 @@ import type { RepoIcon } from '../../../../shared/repo-icon'
 import { getWorktreeExecutionHostId, type ExecutionHostId } from '../../../../shared/execution-host'
 import { folderWorkspaceToWorktree } from '../../../../shared/folder-workspace-worktree'
 import { isFolderRepo } from '../../../../shared/repo-kind'
+import { selectClassicFolderWorkspaces } from '@/store/classic-workspace-catalog'
 import { parseAppSshPtyId } from '../../../../shared/ssh-pty-id'
 
 export type ActiveDashboardWorkspace = {
@@ -21,8 +22,12 @@ export type ActiveDashboardWorkspace = {
   remoteHostKind: Extract<DashboardCardHostKind, 'ssh' | 'remote'> | null
 }
 
-type DashboardWorkspaceState = Pick<AppState, 'repos' | 'worktreesByRepo'> &
-  Partial<Pick<AppState, 'folderWorkspaces' | 'projectGroups'>>
+// Why required: the classic catalog must never be silently absent — a caller that
+// narrows the store and forgets it would render vertical tabs as dashboard cards.
+type DashboardWorkspaceState = Pick<
+  AppState,
+  'repos' | 'worktreesByRepo' | 'folderWorkspaces' | 'projectGroups'
+>
 
 function remoteHostKind(
   connectionId: string | null | undefined,
@@ -64,7 +69,8 @@ export function collectActiveDashboardWorkspaces(
   const projectGroupsById = new Map(
     (state.projectGroups ?? []).map((projectGroup) => [projectGroup.id, projectGroup])
   )
-  for (const folderWorkspace of state.folderWorkspaces ?? []) {
+  // Classic catalog only: vertical tabs are not dashboard/kanban cards.
+  for (const folderWorkspace of selectClassicFolderWorkspaces(state)) {
     const worktree = folderWorkspaceToWorktree(folderWorkspace)
     if (folderWorkspace.isArchived || seenWorkspaceIds.has(worktree.id)) {
       continue

@@ -158,6 +158,7 @@ type FolderWorkspaceUpdates = Partial<
     | 'createdWithAgent'
     | 'pendingFirstAgentMessageRename'
     | 'firstAgentMessageRenameError'
+    | 'terminalModeAutoName'
     | 'lastActivityAt'
   >
 >
@@ -2739,6 +2740,10 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       if (!deleted) {
         return false
       }
+      const removedGroupIds = getProjectGroupSubtreeIds(get().projectGroups, groupId)
+      const removedWorkspaceKeys = get()
+        .folderWorkspaces.filter((workspace) => removedGroupIds.has(workspace.projectGroupId))
+        .map((workspace) => folderWorkspaceKey(workspace.id))
       set((s) => {
         const deletedGroupIds = getProjectGroupSubtreeIds(s.projectGroups, groupId)
         return {
@@ -2754,6 +2759,11 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
           folderWorkspacePathStatuses: {}
         }
       })
+      // Why: matches the single-workspace delete path; without it the cascaded
+      // workspaces leave their tab/pty maps behind forever.
+      if (removedWorkspaceKeys.length > 0) {
+        get().purgeWorktreeTerminalState(removedWorkspaceKeys)
+      }
       return true
     } catch (err) {
       console.error('Failed to delete project group:', err)

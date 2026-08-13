@@ -28,7 +28,10 @@ export function useAiVaultOriginalPaneActions(): {
       retainedAgentsByPaneKey: s.retainedAgentsByPaneKey,
       sleepingAgentSessionsByPaneKey: s.sleepingAgentSessionsByPaneKey,
       tabsByWorktree: s.tabsByWorktree,
-      terminalLayoutsByTabId: s.terminalLayoutsByTabId
+      terminalLayoutsByTabId: s.terminalLayoutsByTabId,
+      // Required by OriginalPaneState so terminal-mode panes are filtered out.
+      projectGroups: s.projectGroups,
+      folderWorkspaces: s.folderWorkspaces
     }))
   )
   // Why: loading, filtered, or collapsed views may render no session rows.

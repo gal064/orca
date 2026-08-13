@@ -13,6 +13,8 @@ const {
   systemPreferencesGetMediaAccessStatusMock,
   registerRepoHandlersMock,
   setRepoRemoteClientNotifierMock,
+  setFolderWorkspaceTerminalTeardownMock,
+  registerTerminalModeHandlersMock,
   registerWorktreeHandlersMock,
   registerPtyHandlersMock,
   hydrateLocalPtyRegistryAtBootMock,
@@ -35,6 +37,8 @@ const {
   systemPreferencesGetMediaAccessStatusMock: vi.fn(),
   registerRepoHandlersMock: vi.fn(),
   setRepoRemoteClientNotifierMock: vi.fn(),
+  setFolderWorkspaceTerminalTeardownMock: vi.fn(),
+  registerTerminalModeHandlersMock: vi.fn(),
   registerWorktreeHandlersMock: vi.fn(),
   registerPtyHandlersMock: vi.fn(),
   hydrateLocalPtyRegistryAtBootMock: vi.fn(),
@@ -69,7 +73,12 @@ vi.mock('electron', () => ({
 
 vi.mock('../ipc/repos', () => ({
   registerRepoHandlers: registerRepoHandlersMock,
-  setRepoRemoteClientNotifier: setRepoRemoteClientNotifierMock
+  setRepoRemoteClientNotifier: setRepoRemoteClientNotifierMock,
+  setFolderWorkspaceTerminalTeardown: setFolderWorkspaceTerminalTeardownMock
+}))
+
+vi.mock('../ipc/terminal-mode-group', () => ({
+  registerTerminalModeHandlers: registerTerminalModeHandlersMock
 }))
 
 vi.mock('../ipc/worktrees', () => ({
@@ -217,6 +226,8 @@ describe('attachMainWindowServices', () => {
     systemPreferencesGetMediaAccessStatusMock.mockReset()
     registerRepoHandlersMock.mockReset()
     setRepoRemoteClientNotifierMock.mockReset()
+    setFolderWorkspaceTerminalTeardownMock.mockReset()
+    registerTerminalModeHandlersMock.mockReset()
     registerWorktreeHandlersMock.mockReset()
     registerPtyHandlersMock.mockReset()
     hydrateLocalPtyRegistryAtBootMock.mockReset()
@@ -237,6 +248,17 @@ describe('attachMainWindowServices', () => {
     attachMainWindowServices(createMainWindow() as never, createStore(), runtime as never)
 
     expect(setRepoRemoteClientNotifierMock).toHaveBeenCalledWith(runtime)
+  })
+
+  // Without this wiring, deleting a folder workspace leaves its ptys running.
+  it('gives the repo IPC handlers the runtime pty sweep and registers terminal-mode IPC', () => {
+    const runtime = createRuntime()
+    const store = createStore()
+
+    attachMainWindowServices(createMainWindow() as never, store, runtime as never)
+
+    expect(setFolderWorkspaceTerminalTeardownMock).toHaveBeenCalledWith(runtime)
+    expect(registerTerminalModeHandlersMock).toHaveBeenCalledWith(store)
   })
 
   it('reloads the app renderer through main and marks expected renderer teardown', async () => {

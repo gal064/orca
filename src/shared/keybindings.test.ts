@@ -737,7 +737,7 @@ describe('keybindings', () => {
     ).toBe(true)
   })
 
-  it('keeps workspace delete unassigned until users customize it', () => {
+  it('binds workspace delete to Mod+Shift+W and still yields to a user override', () => {
     const binding = {
       key: 'Backspace',
       code: 'Backspace',
@@ -746,14 +746,33 @@ describe('keybindings', () => {
       alt: false,
       shift: true
     }
+    const defaultChord = {
+      key: 'w',
+      code: 'KeyW',
+      control: true,
+      meta: false,
+      alt: false,
+      shift: true
+    }
 
-    expect(getEffectiveKeybindingsForAction('workspace.delete', 'linux')).toEqual([])
+    // Terminal mode closes the focused vertical tab with this chord (docs/terminal-mode-design.md, resolved question 4).
+    expect(getEffectiveKeybindingsForAction('workspace.delete', 'linux')).toEqual(['Mod+Shift+W'])
+    expect(getEffectiveKeybindingsForAction('workspace.delete', 'darwin')).toEqual(['Mod+Shift+W'])
+    // Windows never gets the destructive default: terminal mode is unsupported there.
+    expect(getEffectiveKeybindingsForAction('workspace.delete', 'win32')).toEqual([])
+    expect(keybindingMatchesAction('workspace.delete', defaultChord, 'linux')).toBe(true)
     expect(keybindingMatchesAction('workspace.delete', binding, 'linux')).toBe(false)
     expect(
       keybindingMatchesAction('workspace.delete', binding, 'linux', {
         'workspace.delete': ['Mod+Shift+Backspace']
       })
     ).toBe(true)
+    // An override replaces the default outright, so the shipped chord stops matching.
+    expect(
+      keybindingMatchesAction('workspace.delete', defaultChord, 'linux', {
+        'workspace.delete': ['Mod+Shift+Backspace']
+      })
+    ).toBe(false)
   })
 
   it('keeps workspace board unassigned until users customize it', () => {

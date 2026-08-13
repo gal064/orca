@@ -12239,3 +12239,66 @@ describe('Store native-chat tab viewMode persistence', () => {
     expect(legacyTab?.viewMode).toBeUndefined()
   })
 })
+
+/**
+ * Load-bearing migration guard: a machine whose repos under $HOME are SSH-hosted would
+ * otherwise have every vertical tab re-homed to that SSH connection on the next launch.
+ */
+describe('backfillFolderScopeConnectionIds and terminal mode', () => {
+  it('never re-homes the hidden group or its vertical tabs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orca-terminal-mode-migration-'))
+    const dataFile = join(dir, 'orca-data.json')
+    writeFileSync(
+      dataFile,
+      JSON.stringify({
+        repos: [
+          { id: 'ssh-repo', path: '/home/dev/remote', displayName: 'remote', connectionId: 'box' }
+        ],
+        projectGroups: [
+          {
+            id: 'hidden',
+            name: '__terminal-mode__',
+            parentPath: null,
+            connectionId: null,
+            parentGroupId: null,
+            createdFrom: 'manual',
+            tabOrder: 0,
+            isCollapsed: false,
+            color: null,
+            createdAt: 0,
+            updatedAt: 0
+          }
+        ],
+        folderWorkspaces: [
+          {
+            id: 'vtab',
+            projectGroupId: 'hidden',
+            name: 'dev',
+            folderPath: '/home/dev',
+            connectionId: null,
+            linkedTask: null,
+            comment: '',
+            isArchived: false,
+            isUnread: false,
+            isPinned: false,
+            sortOrder: 0,
+            lastActivityAt: 0,
+            createdAt: 0,
+            updatedAt: 0
+          }
+        ]
+      }),
+      'utf-8'
+    )
+
+    vi.resetModules()
+    const { Store } = await import('./persistence')
+    const store = new Store({ dataFile })
+
+    expect(store.getProjectGroups().find((g) => g.id === 'hidden')?.connectionId ?? null).toBeNull()
+    expect(
+      store.getFolderWorkspaces().find((w) => w.id === 'vtab')?.connectionId ?? null
+    ).toBeNull()
+    rmSync(dir, { recursive: true, force: true })
+  })
+})

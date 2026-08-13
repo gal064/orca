@@ -19,6 +19,10 @@ import {
   filterProjectGroupsForVisibleHosts,
   getVisibleSidebarHostIdSet
 } from './worktree-list-host-filtering'
+import {
+  selectClassicFolderWorkspaces,
+  selectClassicProjectGroups
+} from '@/store/classic-workspace-catalog'
 
 const EMPTY_REPO_ID_SET: ReadonlySet<string> = Object.freeze(new Set<string>())
 const EMPTY_IMPORTED_BY_REPO = Object.freeze(new Map()) as never
@@ -45,7 +49,8 @@ export function computeRenderedSidebarWorktreeOrder(
     state.visibleWorkspaceHostIds,
     state.workspaceHostScope
   )
-  const projectGroups = state.projectGroups ?? []
+  // Classic catalog only — the Cmd+1-9 order must match the rendered rows exactly.
+  const projectGroups = selectClassicProjectGroups(state)
   const { prCache } = selectWorktreeListReviewCacheInputs(
     state,
     state.groupBy,
@@ -73,7 +78,7 @@ export function computeRenderedSidebarWorktreeOrder(
     EMPTY_PENDING_CREATIONS,
     { projects: projection.projects, projectHostSetups: projection.setups },
     filterFolderWorkspacesForVisibleHosts(
-      state.folderWorkspaces,
+      selectClassicFolderWorkspaces(state),
       projectGroups,
       visibleHostIdSet,
       defaultHostId

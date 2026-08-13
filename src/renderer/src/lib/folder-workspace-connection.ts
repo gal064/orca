@@ -1,6 +1,7 @@
 import type { FolderWorkspace, ProjectGroup, Repo } from '../../../shared/types'
 import { isPathInsideOrEqual } from '../../../shared/cross-platform-path'
 import { getProjectGroupSubtreeIds } from '../../../shared/project-groups'
+import { isTerminalModeGroup } from '../../../shared/terminal-mode-group'
 import { parseExecutionHostId } from '../../../shared/execution-host'
 
 export type FolderWorkspaceConnectionState = {
@@ -71,10 +72,15 @@ export function getFolderWorkspaceConnectionId(
   if (explicitHost) {
     return explicitHost.kind === 'ssh' ? explicitHost.targetId : null
   }
-  const scopeConnectionId =
-    workspace.connectionId ??
-    state.projectGroups.find((entry) => entry.id === workspace.projectGroupId)?.connectionId ??
-    null
+  const projectGroup = state.projectGroups.find((entry) => entry.id === workspace.projectGroupId)
+  const scopeConnectionId = workspace.connectionId ?? projectGroup?.connectionId ?? null
+  // Why terminal-mode short-circuits: a vertical tab's host is its hidden group's, and
+  // its start directory is the user's home — the repo heuristic below would match every
+  // repo on the machine and could spawn its terminals on an SSH host. Mirrors the
+  // main-side guard in project-groups/folder-workspace-path-status.ts.
+  if (isTerminalModeGroup(projectGroup)) {
+    return scopeConnectionId
+  }
   const candidateRepos = getFolderWorkspaceCandidateRepos(state, folderWorkspaceId)
   let hasLocalRepo = false
   const connectionIds = new Set<string>()

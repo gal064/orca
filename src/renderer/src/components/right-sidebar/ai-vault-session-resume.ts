@@ -11,6 +11,7 @@ import {
 import type { AppState } from '@/store/types'
 import { getIndexedWorktreeMap } from '@/store/worktree-repo-index'
 import { translate } from '@/i18n/i18n'
+import { selectClassicFolderWorkspaces } from '@/store/classic-workspace-catalog'
 import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import {
   canJumpToAiVaultSessionWorktree,
@@ -140,7 +141,8 @@ export function isKnownAiVaultResumeWorkspaceTarget(
 
   const workspaceKey = parseWorkspaceKey(workspaceId)
   if (workspaceKey?.type === 'folder') {
-    return state.folderWorkspaces.some(
+    // Classic catalog only: a terminal-mode vertical tab is not a resume target here.
+    return selectClassicFolderWorkspaces(state).some(
       (workspace) => workspace.id === workspaceKey.folderWorkspaceId
     )
   }

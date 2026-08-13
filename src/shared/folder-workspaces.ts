@@ -3,6 +3,7 @@ import { isTuiAgent } from './tui-agent-config'
 import { normalizeStoredTaskSourceContext } from './task-source-context'
 import { normalizeWorkspaceLinkedItem } from './workspace-linked-item'
 import { isWorkspaceLinkedItemSourceContextMatch } from './workspace-linked-item-source-context'
+import { isTerminalModeGroup } from './terminal-mode-group'
 
 export function normalizeFolderWorkspaceName(
   name: string | null | undefined,
@@ -21,7 +22,10 @@ export function normalizeFolderWorkspaces(
   }
   const folderGroups = new Map<string, ProjectGroup>()
   for (const group of projectGroups) {
-    if (group.parentPath) {
+    // Why the terminal-mode clause: those groups deliberately have no folder root —
+    // their workspaces always carry an explicit folderPath, so the parentPath
+    // fallback below is never needed for them.
+    if (group.parentPath || isTerminalModeGroup(group)) {
       folderGroups.set(group.id, group)
     }
   }
@@ -93,6 +97,9 @@ export function normalizeFolderWorkspaces(
         : raw.firstAgentMessageRenameError === null
           ? { firstAgentMessageRenameError: null }
           : {}),
+      ...(typeof raw.terminalModeAutoName === 'boolean'
+        ? { terminalModeAutoName: raw.terminalModeAutoName }
+        : {}),
       lastActivityAt:
         typeof raw.lastActivityAt === 'number' && Number.isFinite(raw.lastActivityAt)
           ? raw.lastActivityAt

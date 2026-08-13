@@ -291,8 +291,14 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
       'remove',
       'trash'
     ],
-    // Why: ship now without a default chord; user overrides still win when a future default is assigned.
-    defaultBindings: platformBindings([]),
+    // Terminal mode closes the focused vertical tab with this chord (docs/terminal-mode-design.md,
+    // resolved question 4). Not on Windows, where terminal mode is unsupported, so the destructive
+    // default never ships to a platform that cannot use the feature.
+    defaultBindings: {
+      darwin: ['Mod+Shift+W'],
+      linux: ['Mod+Shift+W'],
+      win32: []
+    },
     allowInTerminal: true
   },
   {

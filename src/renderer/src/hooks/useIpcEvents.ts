@@ -9,6 +9,12 @@ import { applyUIZoom } from '@/lib/ui-zoom'
 import { activateAndRevealWorktree, activateAndRevealWorkspace } from '@/lib/worktree-activation'
 import { buildLinearIssueLinkedWorkItem } from '@/lib/linear-linked-work-item'
 import { runWorktreeDelete } from '@/components/sidebar/delete-worktree-flow'
+import {
+  handleTerminalModeWorkspaceCreate,
+  handleTerminalModeWorkspaceDelete,
+  handleTerminalModeWorkspaceIndex
+} from '@/lib/terminal-mode-shortcuts'
+import { isTerminalMode } from '@/lib/terminal-mode'
 import { runSleepWorktree } from '@/components/sidebar/sleep-worktree-flow'
 import { createBackgroundSleepingAgentWakeDispatcher } from '@/lib/wake-sleeping-agents-in-background'
 import { OPEN_WORKSPACE_BOARD_EVENT } from '@/components/sidebar/useWorkspaceBoardPanel'
@@ -1304,6 +1310,9 @@ export function useIpcEvents(): void {
     unsubs.push(
       window.api.ui.onOpenNewWorkspace(() => {
         const store = useAppStore.getState()
+        if (handleTerminalModeWorkspaceCreate(store)) {
+          return
+        }
         openNewWorkspaceFromShortcut(store)
       })
     )
@@ -1319,7 +1328,10 @@ export function useIpcEvents(): void {
           ) {
             return
           }
-          runWorktreeDelete(store.activeWorktreeId)
+          if (handleTerminalModeWorkspaceDelete(store)) {
+            return
+          }
+          runWorktreeDelete(store.activeWorktreeId, { forceConfirm: true })
         })
       )
     }
@@ -1328,7 +1340,8 @@ export function useIpcEvents(): void {
       unsubs.push(
         window.api.ui.onOpenWorkspaceBoard(() => {
           const store = useAppStore.getState()
-          if (store.activeView === 'settings') {
+          // The kanban board is classic-only (docs/terminal-mode-spec.md §2).
+          if (store.activeView === 'settings' || isTerminalMode(store.settings)) {
             return
           }
           store.setSidebarOpen(true)
@@ -1340,7 +1353,11 @@ export function useIpcEvents(): void {
     unsubs.push(
       window.api.ui.onOpenTasks(() => {
         const store = useAppStore.getState()
-        if (store.activeView === 'settings' || !store.repos.some((repo) => isGitRepoKind(repo))) {
+        if (
+          store.activeView === 'settings' ||
+          isTerminalMode(store.settings) ||
+          !store.repos.some((repo) => isGitRepoKind(repo))
+        ) {
           return
         }
         store.openTaskPage()
@@ -1357,6 +1374,9 @@ export function useIpcEvents(): void {
           return
         }
         if (store.activeView !== 'terminal') {
+          return
+        }
+        if (handleTerminalModeWorkspaceIndex(store, index)) {
           return
         }
         const visibleIds = getVisibleWorktreeIds()

@@ -39,6 +39,7 @@ import {
 import { toast } from 'sonner'
 
 import { useAppStore } from '@/store'
+import { useClassicFolderWorkspaces } from '@/store/classic-workspace-catalog'
 import { useAllWorktrees, useRepoMap } from '@/store/selectors'
 import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { getLocalPreflightContext, localPreflightContextKey } from '@/lib/local-preflight-context'
@@ -3188,7 +3189,8 @@ export default function TaskPage(): React.JSX.Element {
   const searchLinearIssues = useAppStore((s) => s.searchLinearIssues)
   const listLinearIssues = useAppStore((s) => s.listLinearIssues)
   const linearListInvalidationToken = useAppStore((s) => s.linearListInvalidationToken)
-  const folderWorkspaces = useAppStore((s) => s.folderWorkspaces)
+  // Classic catalog only: vertical tabs are never linked-item attachment targets.
+  const folderWorkspaces = useClassicFolderWorkspaces()
   const invalidateLinearIssueLists = useAppStore((s) => s.invalidateLinearIssueLists)
   const getCachedLinearIssues = useAppStore((s) => s.getCachedLinearIssues)
   const fetchLinearIssue = useAppStore((s) => s.fetchLinearIssue)

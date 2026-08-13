@@ -17,7 +17,12 @@ import {
   dismissTccPromptNotice,
   releasePendingTccPromptNotice
 } from '../macos-tcc-prompt-notice'
-import { registerRepoHandlers, setRepoRemoteClientNotifier } from '../ipc/repos'
+import {
+  registerRepoHandlers,
+  setFolderWorkspaceTerminalTeardown,
+  setRepoRemoteClientNotifier
+} from '../ipc/repos'
+import { registerTerminalModeHandlers } from '../ipc/terminal-mode-group'
 import { registerWorktreeHandlers } from '../ipc/worktrees'
 import { registerWorkspaceCleanupHandlers } from '../ipc/workspace-cleanup'
 import {
@@ -110,6 +115,9 @@ export function attachMainWindowServices(
   registerRepoHandlers(mainWindow, store)
   // Why: repo IPC mutations must also invalidate paired clients' catalogs (#11994).
   setRepoRemoteClientNotifier(runtime)
+  // Why: deleting a folder workspace has no other path that kills its ptys.
+  setFolderWorkspaceTerminalTeardown(runtime)
+  registerTerminalModeHandlers(store)
   registerWorktreeHandlers(mainWindow, store, runtime, {
     onWorktreeLifecycle: options?.onWorktreeLifecycle
   })

@@ -28,6 +28,7 @@ import type {
 } from '../../shared/types'
 import type { FolderWorkspacePathStatusRequest } from '../../shared/folder-workspace-path-status'
 import { isFolderRepo } from '../../shared/repo-kind'
+import { assertProjectGroupNameNotReserved } from '../../shared/terminal-mode-group'
 import { DEFAULT_REPO_BADGE_COLOR } from '../../shared/constants'
 import { normalizeRepoBadgeColor } from '../../shared/repo-badge-color'
 import { sanitizeRepoIcon } from '../../shared/repo-icon'
@@ -760,6 +761,20 @@ export function setRepoRemoteClientNotifier(notifier: RepoRemoteClientNotifier):
   repoRemoteClientNotifier = notifier
 }
 
+type FolderWorkspaceTerminalTeardown = Pick<
+  OrcaRuntimeService,
+  'teardownFolderWorkspaceTerminals' | 'teardownProjectGroupTerminals'
+>
+
+// Why: registerRepoHandlers predates the runtime, so the pty sweep is injected like the notifier above.
+let folderWorkspaceTerminalTeardown: FolderWorkspaceTerminalTeardown | null = null
+
+export function setFolderWorkspaceTerminalTeardown(
+  teardown: FolderWorkspaceTerminalTeardown
+): void {
+  folderWorkspaceTerminalTeardown = teardown
+}
+
 // Why: module-scoped so the abort handle survives macOS window re-creation, when registerRepoHandlers re-runs.
 let activeClone: ActiveCloneMetadata | null = null
 let activeRemoteClone: ActiveRemoteCloneMetadata | null = null
@@ -942,6 +957,7 @@ const FolderWorkspaceUpdateArgs = z.object({
       createdWithAgent: z.string().refine(isTuiAgent).optional(),
       pendingFirstAgentMessageRename: z.boolean().optional(),
       firstAgentMessageRenameError: z.string().nullable().optional(),
+      terminalModeAutoName: z.boolean().optional(),
       lastActivityAt: z.number().finite().optional()
     })
     .superRefine(assertFolderWorkspaceLinkedSourceContextMatch)
@@ -1553,12 +1569,14 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
     }
   )
 
-  ipcMain.handle('folderWorkspaces:delete', (_event, rawArgs: unknown): boolean => {
+  ipcMain.handle('folderWorkspaces:delete', async (_event, rawArgs: unknown): Promise<boolean> => {
     const args = parseProjectGroupIpcArgs(
       FolderWorkspaceSelectorArgs,
       rawArgs,
       'invalid_folder_workspace_delete_args'
     )
+    // Why before the store drop: the sweep resolves the workspace's host from the row it is about to delete.
+    await folderWorkspaceTerminalTeardown?.teardownFolderWorkspaceTerminals(args.folderWorkspaceId)
     const deleted = store.removeFolderWorkspace(args.folderWorkspaceId)
     if (deleted) {
       notifyReposChanged(mainWindow)
@@ -1572,6 +1590,7 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
       rawArgs,
       'invalid_project_group_create_args'
     )
+    assertProjectGroupNameNotReserved(args.name)
     const group = store.createProjectGroup({
       name: args.name,
       parentPath: args.parentPath ?? null,
@@ -1589,6 +1608,9 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
       rawArgs,
       'invalid_project_group_update_args'
     )
+    if (args.updates.name !== undefined) {
+      assertProjectGroupNameNotReserved(args.updates.name)
+    }
     const updated = store.updateProjectGroup(args.groupId, args.updates)
     if (updated) {
       notifyReposChanged(mainWindow)
@@ -1596,12 +1618,15 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
     return updated
   })
 
-  ipcMain.handle('projectGroups:delete', (_event, rawArgs: unknown): boolean => {
+  ipcMain.handle('projectGroups:delete', async (_event, rawArgs: unknown): Promise<boolean> => {
     const args = parseProjectGroupIpcArgs(
       ProjectGroupSelectorArgs,
       rawArgs,
       'invalid_project_group_delete_args'
     )
+    // Why: the delete cascades into every folder workspace beneath the group, and
+    // that cascade leaks their ptys the same way a single delete used to.
+    await folderWorkspaceTerminalTeardown?.teardownProjectGroupTerminals(args.groupId)
     const deleted = store.deleteProjectGroup(args.groupId)
     if (deleted) {
       notifyReposChanged(mainWindow)

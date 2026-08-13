@@ -3,6 +3,7 @@ import { resolve, relative, dirname, basename, isAbsolute, sep } from 'node:path
 import { realpathSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import type { Store } from '../persistence'
+import { isTerminalModeGroup } from '../../shared/terminal-mode-group'
 import { isRepoRoot, listRepoWorktrees } from '../repo-worktrees'
 import { computeWorkspaceRoot, getWorktreePathSettings } from './worktree-logic'
 import { isPathInsideOrEqual } from '../../shared/cross-platform-path'
@@ -81,6 +82,12 @@ function isRemoteOnlyFolderScope(
 ): boolean {
   if (connectionId) {
     return true
+  }
+  // Why: a vertical tab's host is its hidden group's, and its start directory is the
+  // user's home — the repo heuristic below would see every repo on the machine and
+  // classify a local tab as remote-only, denying it local filesystem access.
+  if (isTerminalModeGroup(projectGroups.find((group) => group.id === projectGroupId))) {
+    return false
   }
   const candidates = getFolderScopeCandidateRepos(folderPath, projectGroupId, projectGroups, repos)
   return candidates.length > 0 && candidates.every((repo) => Boolean(repo.connectionId))

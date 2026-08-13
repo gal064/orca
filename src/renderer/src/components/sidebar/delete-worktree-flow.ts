@@ -212,7 +212,10 @@ export function runWorktreeDeleteWithToast(
  * The missing-record guard is defense-in-depth: refuse to act if the record vanished
  * between render and click (concurrent delete or state reset).
  */
-export function runWorktreeDelete(worktreeId: string): void {
+export function runWorktreeDelete(
+  worktreeId: string,
+  options: { forceConfirm?: boolean } = {}
+): void {
   const state = useAppStore.getState()
   const target = getWorktreeMapFromState(state).get(worktreeId) ?? null
   if (!target) {
@@ -257,7 +260,9 @@ export function runWorktreeDelete(worktreeId: string): void {
   const hasLineageChildren =
     getWorkspaceDeleteLineage(target, getAllWorktreesFromState(state), state.worktreeLineageById)
       .descendants.length > 0
-  const skipConfirm = state.settings?.skipDeleteWorktreeConfirm ?? false
+  // Why forceConfirm: skipDeleteWorktreeConfirm was opted into for the sidebar's
+  // delete action, not for a global chord the user never bound themselves.
+  const skipConfirm = !options.forceConfirm && (state.settings?.skipDeleteWorktreeConfirm ?? false)
   if (skipConfirm && !hasLineageChildren) {
     void runWorktreeDeleteWithToast(worktreeId, target.displayName)
     return

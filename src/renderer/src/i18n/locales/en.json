@@ -379,6 +379,11 @@
               }
             }
           }
+        },
+        "verticalTabs": {
+          "createFailed": "Failed to create terminal tab",
+          "renameFailed": "Failed to rename terminal tab",
+          "unsupportedHost": "Terminal tabs are only available on the desktop app."
         }
       }
     },
@@ -15113,8 +15118,17 @@
       "verticalTabs": {
         "VerticalTabsSidebar": {
           "title": "Terminals",
-          "newTab": "New terminal tab (under construction)",
+          "newTab": "New terminal tab",
           "empty": "No terminal tabs"
+        },
+        "VerticalTabCloseConfirmDialog": {
+          "title": "Close terminal tab?",
+          "description": "Closing this tab kills every process running in it.",
+          "cancel": "Cancel",
+          "action": "Close tab"
+        },
+        "VerticalTabRow": {
+          "close": "Close terminal tab"
         }
       }
     },

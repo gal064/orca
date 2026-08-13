@@ -54,6 +54,7 @@ import { folderWorkspaceToWorktree } from '../../../shared/folder-workspace-work
 import { buildContainedLinkedContextBlock } from '@/lib/linked-work-item-context'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { useAppStore } from '@/store'
+import { useClassicFolderWorkspaces } from '@/store/classic-workspace-catalog'
 import { useAllWorktrees } from '@/store/selectors'
 import {
   buildLinearIssueBranchName,
@@ -528,7 +529,8 @@ export default function LinearIssueWorkspace({
   const settings = useAppStore((s) => s.settings)
   const providerSettings = sourceContext ?? settings
   const allWorktrees = useAllWorktrees()
-  const folderWorkspaces = useAppStore((s) => s.folderWorkspaces)
+  // Classic catalog only: vertical tabs are never linked-item attachment targets.
+  const folderWorkspaces = useClassicFolderWorkspaces()
   const attachmentWorkspaces = useMemo(
     () => [...allWorktrees, ...folderWorkspaces.map(folderWorkspaceToWorktree)],
     [allWorktrees, folderWorkspaces]

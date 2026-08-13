@@ -1338,8 +1338,6 @@
         "perWorkspaceEnvHint": "レシピからオンデマンド環境をプロビジョニングする",
         "branchName": "ブランチ名",
         "branchNamePlaceholder": "feature/my-branch",
-        "reuseCheckout": "Reuse existing checkout (no worktree)",
-        "reuseCheckoutHint": "Open the workspace in the project's existing checkout instead of creating a new worktree. Shares the working tree and current branch.",
         "connectTimedOut": "Connection timed out. It may still be connecting in the background.",
         "connectingHost": "Connecting…",
         "connectHost": "Connect",
@@ -2989,7 +2987,13 @@
             "d62d63b807": "ファイルの作成",
             "25dc1cd653": "ファイルを開く",
             "7cdf8ee0c8": "URLを開く",
-            "b27864279e": "agent を起動"
+            "b27864279e": "agent を起動",
+            "0e5b7a3f16": "開いているタブ、ファイル、URL、agent を検索…",
+            "8f0a1c4d92": "タブに切り替える",
+            "2c38630a01": "ワークスペースは存在しません",
+            "4f0d9a71c2": "タブは存在しません",
+            "d7d496a451": "ブラウザページは存在しません",
+            "7726ce9970": "モバイルエミュレータのタブは存在しません"
           },
           "TabBarQuickCommandsButton": {
             "a2c7a33831": "コマンド",
@@ -3023,6 +3027,7 @@
                 "classifier": {
                   "42e6262ae9": "利用可能な操作はありません。",
                   "097a982ee0": "ファイルをロード中...",
+                  "c41f8d20b7": "開いているタブ、ファイル、URL、agent を検索…",
                   "90eb94dc48": "http:// または https:// URL を入力します。",
                   "5553b283ce": "URL またはファイル パスを入力します。",
                   "queryTooLarge": "検索テキストが大きすぎます。",
@@ -11171,7 +11176,9 @@
             "openSupportedWorkspace": "Open a workspace before resuming a session.",
             "localSessionSshWorkspaceUnsupported": "このセッションの履歴はこのマシンに保存されているため、SSH ワークスペースでは再開できません。代わりにローカルワークスペースを開いてください。",
             "sessionHostMismatchUnsupported": "このセッションは別のホストに属しています。再開するには同じホスト上のワークスペースを開いてください。",
-            "prepareSessionResumeFailed": "Could not prepare this session for resume."
+            "prepareSessionResumeFailed": "Could not prepare this session for resume.",
+            "sessionDeleted": "セッションを削除しました",
+            "sessionDeleteFailed": "セッションを削除できませんでした"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Scanning sessions",
@@ -11303,7 +11310,17 @@
             "jumpToWorktree": "ワークツリーにジャンプ",
             "recoverableBadge": "未保存",
             "subagentCountSingular": "1 件のサブエージェント",
-            "subagentCountPlural": "{{value0}} 件のサブエージェント"
+            "subagentCountPlural": "{{value0}} 件のサブエージェント",
+            "delete": "削除",
+            "deleteReasonNonLocalHost": "このデバイス上のセッションのみ削除できます。",
+            "deleteReasonSyntheticPath": "このセッションは Orca では削除できません。",
+            "deleteReasonUnsupportedAgent": "{{value0}} のセッションは Orca では削除できません。",
+            "deleteReasonSessionLive": "このセッションはまだ実行中です — 削除する前に完了を待ってください。"
+          },
+          "AiVaultSessionDeleteDialog": {
+            "title": "このセッションを削除しますか?",
+            "description": "「{{value0}}」を削除します。削除すると、{{value1}} 自体のコマンドラインからも再開できなくなります。",
+            "confirm": "削除"
           },
           "FileExplorerNameFilter": {
             "26fb73c6e3": "ファイルを検索",

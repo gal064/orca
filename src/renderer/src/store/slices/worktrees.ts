@@ -4030,6 +4030,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     const reuseCheckout = options?.reuseCheckout === true
     const linkedWorkItem = options?.linkedWorkItem
     const linkedTaskSourceContext = options?.linkedTaskSourceContext
+    const startupDraft = options?.startupDraft
     try {
       for (let attempt = 0; attempt < CLIENT_WORKTREE_CREATE_MAX_ATTEMPTS; attempt += 1) {
         const candidateName = getClientWorktreeCreateCandidate(name, attempt)
@@ -4138,6 +4139,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
                     ...(reuseCheckout ? { reuseCheckout: true } : {}),
                     ...(linkedWorkItem !== undefined ? { linkedWorkItem } : {}),
                     ...(linkedTaskSourceContext !== undefined ? { linkedTaskSourceContext } : {}),
+                    ...(startupDraft ? { startupDraft } : {}),
                     ...(automationProvenanceRequest ? { automationProvenanceRequest } : {}),
                     ...(startup
                       ? {

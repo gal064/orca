@@ -4,9 +4,42 @@ What this branch (`feat/reuse-checkout-workspace`) carries on top of upstream
 [`stablyai/orca`](https://github.com/stablyai/orca), and what to watch upstream so each change can be
 dropped once it is no longer needed.
 
-- **Upstream base merged:** `v1.4.177`
-- **Latest upstream tag seen:** `v1.4.177`
-- **Last audited:** 2026-08-09
+- **Upstream base merged:** `v1.4.180`
+- **Latest upstream tag seen:** `v1.4.180` (stable); `v1.4.182-rc.1` exists on main
+- **Last audited:** 2026-08-13
+
+**`v1.4.180` audit result: §2's runtime-identity follow-up landed upstream — that fork code was
+dropped.** Basis: all **82** non-merge commit subjects in `v1.4.177..v1.4.180` read, and a per-symbol
+changed-line count over the range for **31** fork-critical symbols. Twenty-seven are **0 changed
+lines**, including every symbol that gates a whole section (`reuseCheckout`, `autoSubmit`,
+`pending-handle`, `downloadRemoteFile`, `verifyPackagedDaemonEntryBoots`, `setVisibleWorktreeIds`).
+The four non-zero symbols were each read in full: `shiftKey` (23 — all IME/xterm/PR-stack, **none in
+`WorktreeCard.tsx`**, so §4 is untouched), `ingestRemote` (1 — a *test* line only, so §3a still has
+no serve-host caller), `findPtyForMobileTerminalTab` (1 — a comment), and `lastOscTitleEpochMs` (4 —
+#12466 and #13508, see §1).
+
+**Landed upstream: §2's runtime-identity follow-up (#12474).** Upstream made runtime identity
+suffix-preserving at its source — `runtimeWorktreeIdsEqual` and `runtimeWorktreeIdentityKey` now use
+`splitWorktreeId` instead of the suffix-stripping `splitWorktreeIdForFilesystem`, so folder/reuse
+siblings sharing one directory stop comparing equal at ~35 call sites, and
+`findResolvedWorktreeIdForPath` gained a `targetWorktreeId` tie-break. The fork's
+`findExactOrUniqueRuntimeWorktree` guarded the same symptom at 2 call sites and is now redundant;
+**it has been removed** and both call sites returned to upstream's plain
+`resolvedWorktrees.find(runtimeWorktreeIdsEqual)`.
+
+Settled by test rather than by reading the diff, because the two fixes are differently shaped:
+
+| state | `keeps a reuse-checkout PTY on its exact workspace instance…` |
+|---|---|
+| fork helper only (pre-merge) | passes |
+| upstream #12474 only | **passes** |
+| neither fix present | **fails** |
+
+The third row is what makes the second meaningful — the test has teeth, so its passing against
+upstream's mechanism alone is evidence of subsumption, not of a vacuous assertion. Upstream's new
+`folder-workspace-pty-identity.test.ts` (228 lines) now covers this area too; all 1088 tests in
+`orca-runtime.test.ts` + that suite pass with the fork helper gone. The fork's own regression test is
+**retained as a tripwire** — if it starts failing, upstream regressed #12474.
 
 **`v1.4.177` audit result: nothing landed upstream — no fork code dropped.** Basis: all 48 non-merge
 commit subjects in `v1.4.176..v1.4.177` read, and a per-symbol line count over the range for **24**
@@ -14,6 +47,42 @@ fork-critical symbols — every one **0 changed lines**, including the four that
 (`reuseCheckout`, `shiftKey`, `autoSubmit`, `verifyPackagedDaemonEntryBoots`). Six commits whose
 symptoms sit adjacent to carried sections were opened and read (#12976, #12990, #13139, #13135,
 #12959, #12458); none fixes a carried symptom — see the notes per section.
+
+**Merge hazard found at `v1.4.180` — a *release-line revert* silently dropped two upstream features,
+with no conflict to notice.** Stable tags are release branches, so the line we sit on can carry a
+revert the newer line never had. Merging forward then reads that revert as "our side deleted it" and
+keeps the deletion, while the incoming tag ships the feature. Two fired at once, and both would have
+shipped as silent regressions:
+
+- **`94c9050ff9` Revert "feat(ai-vault): delete a provider session from the AI Vault list"** — the
+  `v1.4.177` line reverted it; `v1.4.180` keeps it *and hardens it* (#13106 WSL containment, #13108
+  block deleting live sessions). Only 6 of its 37 files conflicted; the other 31 — including
+  `AiVaultSessionRow.tsx`, which holds the actual delete UI — auto-merged to the deletion in silence.
+  The tell was **orphaned localization keys**: `sync:localization-catalog` failed with five `extra:`
+  `AiVaultSessionRow.delete*` entries, i.e. translations for a component that no longer referenced
+  them. Restored all 37 files (and `src/main/ai-vault/session-scanner-droid-kimi-sources.ts`, which
+  `v1.4.180` deletes, was removed) to the `v1.4.180` state.
+- **`d2e8bbe109` Revert "fix(mobile): bound home host auto-connect fanout (#11642)"** — same shape,
+  12 mobile transport files, **zero** conflicts. `home-host-auto-connect.ts` did not even exist in the
+  merged tree. Restored from `v1.4.180`.
+
+Both reverts are absent from `upstream/main` and from every later tag (`v1.4.182-rc.1` carries both
+features), which is what settles the direction: the newer line is authoritative, so take the tag.
+
+**Detect this at every merge — a clean merge does not mean nothing was lost:**
+
+```bash
+# Commits on our line that the incoming tag does not have. Any Revert here is a silent-drop candidate.
+git log --no-merges --cherry-pick --right-only --format='%h %s' <tag>...HEAD | grep -i revert
+# For each candidate, diff its files against the tag; none should differ unless the branch owns them.
+git show --name-only --format='' <revert-sha> | while read -r f; do
+  git cat-file -e "<tag>:$f" 2>/dev/null &&
+    { diff -q <(git show "<tag>:$f") "$f" >/dev/null || echo "DIFFERS: $f"; }
+done
+```
+
+At `v1.4.180` only 4 upstream commits were on our line and not the tag: these 2 reverts, the release
+commit, and #13139 (present in the tag under a different SHA — a cherry-pick, not a loss).
 
 **Merge hazard found at `v1.4.177` — a *fork-move* silently dropped an upstream fix.** §5 extracted
 `downloadRemoteFile` out of `FileExplorerRow.tsx` into `src/renderer/src/lib/remote-file-download.ts`.
@@ -67,7 +136,7 @@ gh pr list --repo stablyai/orca --author gal064 --state all \
 | Commits | `d7dcc539f1`, `17979b5094`, `ba4e83323b`, `1054560674`, `dd171ffc66`, `72dd050a64`, `cc91750548` |
 | Upstream issue | none filed |
 | Upstream PR | [#12042](https://github.com/stablyai/orca/pull/12042) — order + titles (§1a/§1b), opened 2026-08-01, still **OPEN** at `v1.4.176` · [#12044](https://github.com/stablyai/orca/pull/12044) — agent status (§1c/§1c′), **closed unmerged** 2026-08-04 after upstream shipped its own §1c′/§1d fix |
-| Upstream status | **unchanged at `v1.4.177`** — all 13 symbols below are again **0 changed lines** across `v1.4.176..v1.4.177`, and #12042 is still **OPEN**. Two commits land in fork-critical files without touching this section: #12990 adds `reconcileSubscriberDrivenProviderAttach` to `orca-runtime.ts`'s controller-inventory sweep (re-triggers a *provider stream attach* for remote view subscribers — nothing about tab order, titles, or status attribution), and #12976 reclassifies `unknown`/`absent` in `daemon-session-owner-resolution.ts` (session→provider *routing*, a different layer from workspace-id attribution). Previous audit, unchanged at `v1.4.176`: no movement since the `v1.4.175` partial fix. §1c′/§1d remain upstream's (fork code stays removed). Still absent: `collectHeadlessTopLevelTabOrder` rebuilds `tabOrder` from the tabs-array order (§1a); no placeholder-title guard in `buildMirroredTerminalTabs` (§1b); no `pending-handle` status-retention guard (§1c — the string `pending-handle` does not appear in upstream's `web-session-tabs-sync.ts` at all); live-PTY-title precedence in `worktree.ps` untouched (§1e). Range evidence over `v1.4.175..v1.4.176`: `collectHeadlessTopLevelTabOrder`, `buildHeadlessMobileSessionTabGroups`, `mergeMobileSessionTabGroups`, `buildMirroredTerminalTabs`, `buildMirroredAgentStatusPatch`, `isClientAuthoritativeAgentStatusPane`, `buildPtyMobileAgentStatus`, `resolveHookLiveAgentRow`, `getHookAgentRowForPane`, `lastOscTitleEpochMs`, `findPtyForMobileTerminalTab`, `mobileTerminalTabMatchesPty`, `allowWorktreeOnlyMatch` — **all 0 changed lines**. Both suites remain absent upstream. |
+| Upstream status | **still unfixed at `v1.4.180`** — §1a/§1b/§1c/§1e all remain absent. `collectHeadlessTopLevelTabOrder`, `buildHeadlessMobileSessionTabGroups`, `mergeMobileSessionTabGroups`, `buildMirroredTerminalTabs`, `buildMirroredAgentStatusPatch`, `isClientAuthoritativeAgentStatusPane`, `buildPtyMobileAgentStatus`, `resolveHookLiveAgentRow`, `getHookAgentRowForPane` and `unreportedPaneKeys` are **0 changed lines** across `v1.4.177..v1.4.180`, and `pending-handle` still does not appear in upstream's `web-session-tabs-sync.ts`. All three fork suites (`headless-tab-order-stability`, `headless-agent-unread`, `mirrored-attention-staleness`) are still absent upstream. Two commits move `lastOscTitleEpochMs` (4 lines) without touching a carried symptom: **#12466** stops a stray identity-only Cursor title being recorded at all (`identityOnlyTitle` nulls the title/status) — that is a *provider-title hijack*, not §1b's `Terminal` placeholder on an unstreamed pane; **#13508** reworks host-side rich-vs-title status precedence (adds `lastAgentStatusStartedAtEpochMs`, `lastAgentStatusRichInvalidatedAtEpochMs`, an agent-status heartbeat, and a `preserveQuestionUnderShellTitle` normalizer). #13508 is the most likely future conflict site for §1e and is a live tripwire for §1c′/§1d — all 86 tests across the five §1/§3 suites pass against it. #12042 is still **OPEN**. Previous audit at `v1.4.177`: all 13 symbols were **0 changed lines**, Two commits land in fork-critical files without touching this section: #12990 adds `reconcileSubscriberDrivenProviderAttach` to `orca-runtime.ts`'s controller-inventory sweep (re-triggers a *provider stream attach* for remote view subscribers — nothing about tab order, titles, or status attribution), and #12976 reclassifies `unknown`/`absent` in `daemon-session-owner-resolution.ts` (session→provider *routing*, a different layer from workspace-id attribution). Previous audit, unchanged at `v1.4.176`: no movement since the `v1.4.175` partial fix. §1c′/§1d remain upstream's (fork code stays removed). Still absent: `collectHeadlessTopLevelTabOrder` rebuilds `tabOrder` from the tabs-array order (§1a); no placeholder-title guard in `buildMirroredTerminalTabs` (§1b); no `pending-handle` status-retention guard (§1c — the string `pending-handle` does not appear in upstream's `web-session-tabs-sync.ts` at all); live-PTY-title precedence in `worktree.ps` untouched (§1e). Range evidence over `v1.4.175..v1.4.176`: `collectHeadlessTopLevelTabOrder`, `buildHeadlessMobileSessionTabGroups`, `mergeMobileSessionTabGroups`, `buildMirroredTerminalTabs`, `buildMirroredAgentStatusPatch`, `isClientAuthoritativeAgentStatusPane`, `buildPtyMobileAgentStatus`, `resolveHookLiveAgentRow`, `getHookAgentRowForPane`, `lastOscTitleEpochMs`, `findPtyForMobileTerminalTab`, `mobileTerminalTabMatchesPty`, `allowWorktreeOnlyMatch` — **all 0 changed lines**. Both suites remain absent upstream. |
 
 **Landed upstream at `v1.4.175` (fork code dropped).** Upstream reworked `getHookAgentRowForPane`
 to return a `live: HookLiveAgentRow | null` — the newest fresh, non-`providerSessionOnly`,
@@ -170,7 +239,7 @@ precedence in `worktree.ps` at each merge.
 | Commits | `0e6a3daff6`, `8c611ebec5`, `9b6a10d073`, `53787632fa`, `14be9b2a60` (2026-07-13 → 07-28) |
 | Upstream issue | none |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.177` — `git grep -c reuseCheckout v1.4.177 -- src` returns nothing, `src/main/ipc/reuse-checkout-workspace.ts` still does not exist upstream, and `reuseCheckout` has 0 changed lines across `v1.4.176..v1.4.177`. The runtime-identity follow-up is also untouched: `findPtyForMobileTerminalTab`, `mobileTerminalTabMatchesPty`, and `allowWorktreeOnlyMatch` are all 0 changed lines. #12976 ("recover stale persisted owner bindings") is **not** this fix — it resolves session→provider owner routing in the daemon, not which workspace id a PTY is attributed to |
+| Upstream status | **feature still absent** at `v1.4.180` — `git grep -c reuseCheckout v1.4.180 -- src` returns nothing, `src/main/ipc/reuse-checkout-workspace.ts` still does not exist upstream, and `reuseCheckout` has 0 changed lines across `v1.4.177..v1.4.180`. **The runtime-identity follow-up, however, landed upstream as #12474 and its fork implementation was removed** — see the header and the note below. `mobileTerminalTabMatchesPty` and `allowWorktreeOnlyMatch` remain 0 changed lines; `findPtyForMobileTerminalTab` changed 1 line (a comment) |
 
 Workspaces that reuse an existing checkout instead of creating a new git worktree, including SSH
 repos and remote servers, the quick composer (defaulted on), detected-scan synthesis so a restart
@@ -184,12 +253,21 @@ Main files: `src/main/ipc/reuse-checkout-workspace.ts`, `src/main/ipc/worktrees.
 A **feature**, not a bug workaround — it is why the branch exists. Only goes away if upstream ships
 an equivalent. Nothing suggests that is in progress.
 
-**Runtime identity follow-up (2026-08-02).** Controller inventory refresh selected the first
-filesystem-equivalent workspace, so a PTY owned by `::workspace:<uuid>` could be rewritten to a
-same-path sibling. Exact mobile matching then returned `pending-handle`, causing terminal reloads;
-the macOS remote mirror could also treat the missing PTY as a wake failure and spawn a duplicate
-terminal. Fixed by preferring the exact runtime ID and using path-equivalent fallback only when one
-candidate exists, preserving SSH/path-normalization recovery without guessing between instances.
+**Runtime identity follow-up (2026-08-02) — landed upstream at `v1.4.180`; fork implementation
+removed.** Controller inventory refresh selected the first filesystem-equivalent workspace, so a PTY
+owned by `::workspace:<uuid>` could be rewritten to a same-path sibling. Exact mobile matching then
+returned `pending-handle`, causing terminal reloads; the macOS remote mirror could also treat the
+missing PTY as a wake failure and spawn a duplicate terminal. The fork fixed this at the two
+controller-inventory lookups via `findExactOrUniqueRuntimeWorktree` (exact id first, path-equivalent
+fallback only when exactly one candidate existed).
+
+Upstream #12474 fixes the same symptom one layer lower: `runtimeWorktreeIdsEqual` and
+`runtimeWorktreeIdentityKey` stopped stripping the `::workspace:<uuid>` suffix, so siblings never
+compare equal anywhere (~35 call sites), and `findResolvedWorktreeIdForPath` breaks a same-cwd tie
+toward the caller's target. With that in place the fork's fallback branch is unreachable for the case
+it guarded — two ids sharing a path are no longer "compatible" — so the helper was deleted and both
+call sites returned to upstream's plain `.find(runtimeWorktreeIdsEqual)`. Kept here to record why the
+guard existed, and because the fork's regression test still pins the behavior.
 
 `worktree.ps` also returned retained hook rows beyond the existing 30-minute freshness window,
 accumulating old agents in mobile's workspace overview. It now excludes expired rows.
@@ -206,7 +284,7 @@ session-tab refreshes and excludes stale hook rows from workspace summaries.
 | Commits | `cc91750548` (shared with §1c′/§1d — one commit fixed both) |
 | Upstream issue | none filed |
 | Upstream PR | [#12045](https://github.com/stablyai/orca/pull/12045) — opened 2026-08-01, was stacked on the now-closed [#12044](https://github.com/stablyai/orca/pull/12044), still **OPEN** at `v1.4.176` |
-| Upstream status | **not fixed** at `v1.4.177` — `observeAgentHookCompletionForNotification`, `collectChangedMirroredAgentStatuses`, and `ingestRemote` are all **0 changed lines** across `v1.4.176..v1.4.177`; the observer still has exactly one non-definition call site (`useIpcEvents.ts`), and `ingestRemote` still has no serve-host caller. #12045 remains **OPEN**. Two hook-adjacent commits do *not* add a serve notification path: #13139 refreshes the **WSL** hook relay on PTY reattach (new `wsl-hook-relay-reattach.ts`, WSL-only), and #13135 keeps the Node 18 relay companion loadable (`sync-database.ts` + CI smoke). Previous audit, at `v1.4.176`: `observeAgentHookCompletionForNotification` still had exactly one non-test call site, `useIpcEvents.ts` (local IPC); the 7 changed lines carrying that symbol across `v1.4.175..v1.4.176` are all in `useIpcEvents.test.ts` and `agent-hook-completion-notifications.test.ts`. The snapshot mirror still never dispatches a notification; `ingestRemote` has 0 changed lines and still only SSH and WSL callers, no serve-host path. §3c and §3d untouched (`headless-agent-unread.test.ts` and `mirrored-attention-staleness.test.ts` absent upstream). §3b's dependency remains upstream-owned since `v1.4.175` — see §1. |
+| Upstream status | **not fixed** at `v1.4.180` — `observeAgentHookCompletionForNotification`, `collectChangedMirroredAgentStatuses` and `applyWebSessionTabsStorePatch` are **0 changed lines** across `v1.4.177..v1.4.180`, and `ingestRemote`'s single changed line is in `server-ai-vault-liveness.test.ts` (a test), so it still has no serve-host caller. At the tag the observer still has exactly one non-test call site, `useIpcEvents.ts`. #12045 remains **OPEN**. #13361 ("live toggle of agent status hooks with WSL relay gating") is adjacent but WSL-only — it does not give serve hosts a notification path. Previous audit at `v1.4.177`: same three symbols 0 changed lines; the observer still has exactly one non-definition call site (`useIpcEvents.ts`), and `ingestRemote` still has no serve-host caller. #12045 remains **OPEN**. Two hook-adjacent commits do *not* add a serve notification path: #13139 refreshes the **WSL** hook relay on PTY reattach (new `wsl-hook-relay-reattach.ts`, WSL-only), and #13135 keeps the Node 18 relay companion loadable (`sync-database.ts` + CI smoke). Previous audit, at `v1.4.176`: `observeAgentHookCompletionForNotification` still had exactly one non-test call site, `useIpcEvents.ts` (local IPC); the 7 changed lines carrying that symbol across `v1.4.175..v1.4.176` are all in `useIpcEvents.test.ts` and `agent-hook-completion-notifications.test.ts`. The snapshot mirror still never dispatches a notification; `ingestRemote` has 0 changed lines and still only SSH and WSL callers, no serve-host path. §3c and §3d untouched (`headless-agent-unread.test.ts` and `mirrored-attention-staleness.test.ts` absent upstream). §3b's dependency remains upstream-owned since `v1.4.175` — see §1. |
 
 Agents on a remote `orca serve` host produced no desktop notification; local sessions always worked.
 Two independent causes, both needed:
@@ -294,7 +372,7 @@ notification observer feed). Neither guard sees the other's case; both are neede
 | Commits | `67048d7c06` (2026-08-02) |
 | Upstream issue | none |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.177` — `WorktreeCard.tsx` still has no `shiftKey` handling (0 occurrences at the tag, 0 changed lines in range) |
+| Upstream status | **absent** at `v1.4.180` — `WorktreeCard.tsx` still has no `shiftKey` handling (0 occurrences at the tag). The 23 `shiftKey` lines changed across `v1.4.177..v1.4.180` are all in IME (`ime-composition-keyboard-event`), xterm bypass policy, the PR stack map and the smart workspace-name field — none in the sidebar |
 
 Shift-clicking a workspace card toggles its pinned state without activating the workspace or
 changing the multi-selection. The shortcut uses the same pin/reveal mutation as the context menu,
@@ -312,7 +390,7 @@ Main files: `src/renderer/src/components/sidebar/WorktreeCard.tsx` and
 | Commits | `06569213d9` (2026-08-02) |
 | Upstream issue | none |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.177` — no `remote-file-download.ts`, and `EditorFileTabContextMenu.tsx` still has 0 occurrences of `download`. But upstream **did** change the function this section extracted — see the merge hazard below |
+| Upstream status | **absent** at `v1.4.180` — no `remote-file-download.ts`, and `EditorFileTabContextMenu.tsx` still has 0 occurrences of `download`. `downloadRemoteFile` and `getLocalDownloadName` are **0 changed lines** across `v1.4.177..v1.4.180`, and the §5 diff against the tag's `FileExplorerRow.tsx` copy shows only the documented `node`→`entry` rename plus the extra `downloadRuntimeFile` branch — **nothing new to port this merge**. The hazard below still stands for future merges |
 
 The editor tab context menu now shows **Download** beside the path-copy actions for concrete files
 opened from a remote server or SSH workspace, including Markdown preview tabs. It reuses the file
@@ -365,7 +443,7 @@ upstream change that needs porting.
 | Commits | this commit (2026-08-03) |
 | Upstream issue | none filed |
 | Upstream PR | none |
-| Upstream status | **10 s** at `v1.4.177` — `verifyPackagedDaemonEntryBoots` still spawns with `timeout: 10_000` (0 changed lines in range; the fork's `60_000` survived the merge) |
+| Upstream status | **still 10 s** at `v1.4.180` — `verifyPackagedDaemonEntryBoots` spawns with `timeout: 10_000` (0 changed lines in range). The fork's `60_000` survived this merge and the packaged gate passed on a cold pack |
 
 `afterPack`'s `verify-packaged-daemon-entry` gate boots the freshly packaged `daemon-entry.js` under
 a spawn timeout. On a cold pack this Mac takes ~13 s to load the just-written native modules (~0.5 s
@@ -388,7 +466,7 @@ Main file: `config/scripts/verify-packaged-daemon-entry.cjs`.
 | Commits | this commit (2026-08-07) |
 | Upstream issue | none filed |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.177` — voice settings have no `autoSubmit` field (`git grep -c autoSubmit v1.4.177 -- src` returns nothing, 0 changed lines in range) |
+| Upstream status | **absent** at `v1.4.180` — voice settings have no `autoSubmit` field (`git grep -c autoSubmit v1.4.180 -- src` returns nothing, 0 changed lines in range) |
 
 Voice settings now include an opt-in **Send Automatically** toggle. When enabled, dictation waits
 for the active speech session to finish, inserts the complete final transcript, then submits it in
@@ -420,7 +498,7 @@ the marked Enter path.
 | Commits | this commit (2026-08-09) |
 | Upstream issue | none filed |
 | Upstream PR | none |
-| Upstream status | **absent** at `v1.4.177` — the Cmd+J palette numbers its recent rows (`PaletteRowShortcutBadge`), but no sidebar card shows its digit; `WorktreeCard.tsx` has no `ShortcutKeyCombo` usage |
+| Upstream status | **absent** at `v1.4.180` — still no sidebar card digit; `WorktreeCard.tsx` has no `ShortcutKeyCombo` usage, and `setVisibleWorktreeIds` / `getVisibleWorktreeIds` / `DIGIT_INDEX_SHORTCUT_COUNT` are 0 changed lines. Upstream kept expanding the **Cmd+J palette** instead (#13076 recent chats/terminals with digit shortcuts, #13100/#13120 open-tab search, #13299 live attention badges) — a different surface with its own ordering, and the bulk of this merge's class-B conflicts. Do not adopt its ordering for the sidebar badge |
 
 Each of the first nine sidebar workspace cards now shows its own `workspace.selectByIndex` chord (⌘7 /
 `Ctrl+7`) as trailing metadata in the title row, so the shortcut is discoverable from the list instead
@@ -527,6 +605,16 @@ API rejects the boolean), which achieves the same silence with zero repo delta a
 
 1. `git fetch upstream --tags --prune`, then check the merge base — upstream stable tags are release
    branches cut off main, so consecutive tags are **not** ancestors of each other.
+1b. **Hunt release-line reverts before trusting a clean merge** (new at `v1.4.180`, and the highest-
+   value check on this list). Run the `--cherry-pick --right-only … | grep -i revert` probe in the
+   header hazard section. A revert that exists on our line but not the incoming tag makes the merge
+   keep a deletion the tag does not want, usually with **no conflict at all** — two upstream features
+   were silently dropped this way at `v1.4.180`. A failing `sync:localization-catalog` with `extra:`
+   keys is a good secondary tell that a UI component was dropped.
+1c. When taking class-B conflicts from the incoming side wholesale, first confirm no PR is lost:
+   every `#NNNN` reachable from the currently-merged tag must also appear in the incoming tag
+   (0 missing of 6,746 at `v1.4.180`). This check does **not** cover 1b — that one is about files
+   that never conflicted.
 0. Sweep the **whole** `<last-merged-tag>..<tag>` commit range, not just the PRs listed above: read
    every commit subject and count changed lines per fork-critical symbol. Another author's PR can
    fix the same symptom under an unrelated title — the `gh --author gal064` query only proves our
@@ -548,7 +636,13 @@ API rejects the boolean), which achieves the same silence with zero repo delta a
    `git grep -c observeAgentHookCompletionForNotification <tag> -- src | grep -v test` must stay at
    the single `useIpcEvents.ts` call site.
 5. Run the reuse-checkout mobile refresh and stale-agent projection regressions in
-   `orca-runtime.test.ts` (§2).
+   `orca-runtime.test.ts` (§2). `keeps a reuse-checkout PTY on its exact workspace instance across
+   session-tab refreshes` now guards **upstream's** #12474 mechanism, not fork code — if it starts
+   failing, upstream regressed suffix-preserving runtime identity and
+   `findExactOrUniqueRuntimeWorktree` may need reinstating from
+   `git show <pre-v1.4.180-merge>:src/main/runtime/orca-runtime.ts`. Also watch
+   `runtimeWorktreeIdsEqual` / `runtimeWorktreeIdentityKey` for a revert to
+   `splitWorktreeIdForFilesystem`, and keep upstream's `folder-workspace-pty-identity.test.ts`.
 6. Check whether upstream has added editor-tab downloads for remote files (§5); if so, drop the
    shared client-side wiring.
 6b. **Diff `downloadRemoteFile` against upstream's copy in `FileExplorerRow.tsx` (§5).** The fork moved
@@ -576,4 +670,13 @@ API rejects the boolean), which achieves the same silence with zero repo delta a
 9c. Re-comment any workflow triggers the merge restored (§9), then run the verify script — a merge that
    reinstates a `schedule:` or `pull_request:` block silently turns fork CI email back on. Resolve
    workflow conflicts by taking upstream's body and re-commenting the triggers.
+10. New at `v1.4.180` — watch **#13508** (`fix(terminal): prevent paired activity renderer
+   starvation`). It reworked host-side agent-status precedence in `orca-runtime.ts`, adding
+   `lastAgentStatusStartedAtEpochMs`, `lastAgentStatusRichInvalidatedAtEpochMs`, an agent-status
+   heartbeat, and a title-vs-rich normalizer. It is the most likely future conflict site for §1e and
+   the closest upstream code to §1c′/§1d; re-run the five §1/§3 suites after any merge that touches it.
+11. New at `v1.4.180` — the release tag shipped an **orphaned test**: `client.test.ts` referenced
+   `setPRCommentReaction`, which exists only on `upstream/main`, not in the tag (a cherry-pick
+   artifact of #13730). The test block was removed to keep `typecheck` green. If a later tag ships
+   the implementation in `src/main/github/client.ts`, take upstream's test file wholesale instead.
 9. Update the base tag and audit date at the top of this file.

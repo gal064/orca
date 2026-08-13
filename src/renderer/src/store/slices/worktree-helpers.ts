@@ -203,6 +203,8 @@ export type WorktreeSlice = {
       /** Create the workspace in the repo's existing checkout instead of a new
        *  git worktree (an additional instance over the shared working tree). */
       reuseCheckout?: boolean
+      /** Lets the owning runtime launch and prefill a task agent without first creating an idle shell. */
+      startupDraft?: string
     }
   ) => Promise<CreateWorktreeResult>
   /** Register an in-flight background creation and make it the active surface. */

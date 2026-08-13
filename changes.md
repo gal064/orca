@@ -1,8 +1,11 @@
 # Fork changes vs upstream
 
-What this branch (`feat/reuse-checkout-workspace`) carries on top of upstream
+What this fork's `main` carries on top of upstream
 [`stablyai/orca`](https://github.com/stablyai/orca), and what to watch upstream so each change can be
 dropped once it is no longer needed.
+
+> Renamed from `feat/reuse-checkout-workspace` on 2026-08-13 — the fork branch *is* the main line, so
+> it now lives on `main`. Commit SHAs below predate the rename and are unchanged by it.
 
 - **Upstream base merged:** `v1.4.180`
 - **Latest upstream tag seen:** `v1.4.180` (stable); `v1.4.182-rc.1` exists on main

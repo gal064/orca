@@ -3982,7 +3982,7 @@ describe('registerWorktreeHandlers', () => {
 
   // Why: reuse-checkout workspaces have no real git worktree, so an authoritative
   // scan omits them; without synthesizing them on the detected path the renderer's
-  // purge deletes them on restart (deterministic over SSH). See feat/reuse-checkout-workspace.
+  // purge deletes them on restart (deterministic over SSH). See §2 in changes.md.
   it('synthesizes reuse-checkout workspaces in the detected list so an authoritative scan cannot purge them', async () => {
     const reuseId = 'repo-1::/workspace/repo::workspace:inst-1'
     const reuseMeta = makeWorktreeMeta({

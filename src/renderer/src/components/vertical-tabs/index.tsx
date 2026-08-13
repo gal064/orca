@@ -7,6 +7,7 @@ import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import VerticalTabRow from './VerticalTabRow'
 import { useActiveVerticalTabId, useVerticalTabs } from './use-vertical-tabs'
+import { useActiveVerticalTabPwd } from './use-active-vertical-tab-pwd'
 
 /**
  * Terminal-mode left sidebar: the vertical tab strip (docs/terminal-mode-design.md
@@ -19,6 +20,9 @@ function VerticalTabsSidebar(): React.JSX.Element {
   useTranslation()
   const tabs = useVerticalTabs()
   const activeTabId = useActiveVerticalTabId()
+  // Working directory the panels follow (Phase 3); shown here so the strip
+  // states which terminal directory is in scope.
+  const activePwd = useActiveVerticalTabPwd()
   const createVerticalTab = useAppStore((s) => s.createVerticalTab)
   const activateVerticalTab = useAppStore((s) => s.activateVerticalTab)
   const renameVerticalTab = useAppStore((s) => s.renameVerticalTab)
@@ -58,6 +62,16 @@ function VerticalTabsSidebar(): React.JSX.Element {
           </TooltipContent>
         </Tooltip>
       </div>
+
+      {activePwd ? (
+        <div
+          className="truncate px-4 pb-1 text-[11px] text-muted-foreground select-none"
+          data-testid="vtab-active-pwd"
+          title={activePwd}
+        >
+          {activePwd}
+        </div>
+      ) : null}
 
       <div
         className="worktree-sidebar-scrollbar flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-1"

@@ -179,3 +179,77 @@ describe('closeVerticalTabIfEmptied', () => {
     expect(state.closeVerticalTab).toHaveBeenCalledWith('vtab', { wasActive: true })
   })
 })
+
+describe('createVerticalTab start directory', () => {
+  function makeStore(overrides: Record<string, unknown> = {}) {
+    const createFolderWorkspace = vi.fn(async () => ({ id: 'new-vtab' }))
+    const state: Record<string, unknown> = {
+      settings: { experimentalTerminalMode: true },
+      projectGroups: [hidden],
+      folderWorkspaces: [tab('vtab', 'hidden', 1)],
+      activeWorkspaceKey: 'folder:vtab',
+      activeTabIdByWorktree: { 'folder:vtab': 'tab-1' },
+      ptyIdsByTabId: { 'tab-1': ['pty-1'] },
+      terminalLayoutsByTabId: {},
+      cwdByPtyId: {},
+      createFolderWorkspace,
+      activateVerticalTab: vi.fn(),
+      ...overrides
+    }
+    const get = () => state as never
+    const set = () => {}
+    const slice = createVerticalTabsSlice(set as never, get as never, undefined as never)
+    return { slice, createFolderWorkspace }
+  }
+
+  const ensureLocalContext = async () => ({
+    projectGroup: hidden,
+    homeDir: '/home/dev'
+  })
+
+  it('inherits the focused terminal pwd (ghostty-style)', async () => {
+    const { slice, createFolderWorkspace } = makeStore({
+      cwdByPtyId: { 'pty-1': { cwd: '/srv/app', source: 'osc7' } }
+    })
+    vi.stubGlobal('window', { api: { terminalMode: { ensureLocalContext } } })
+    try {
+      await slice.createVerticalTab()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(createFolderWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ folderPath: '/srv/app', name: 'app' }),
+      expect.anything()
+    )
+  })
+
+  it('falls back to the host home directory when nothing is focused', async () => {
+    const { slice, createFolderWorkspace } = makeStore({ activeWorkspaceKey: null })
+    vi.stubGlobal('window', { api: { terminalMode: { ensureLocalContext } } })
+    try {
+      await slice.createVerticalTab()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(createFolderWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ folderPath: '/home/dev' }),
+      expect.anything()
+    )
+  })
+
+  it('prefers an explicit start directory over the focused pwd', async () => {
+    const { slice, createFolderWorkspace } = makeStore({
+      cwdByPtyId: { 'pty-1': { cwd: '/srv/app', source: 'osc7' } }
+    })
+    vi.stubGlobal('window', { api: { terminalMode: { ensureLocalContext } } })
+    try {
+      await slice.createVerticalTab({ startDir: '/explicit' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(createFolderWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ folderPath: '/explicit' }),
+      expect.anything()
+    )
+  })
+})

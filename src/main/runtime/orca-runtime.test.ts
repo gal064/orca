@@ -9025,18 +9025,18 @@ describe('OrcaRuntimeService', () => {
       expect(batches[0].seq).toBeLessThan(batches[1].seq)
     })
 
-    it('emits only agent-status facts for status-only chunks', () => {
+    it('emits only agent-status and cwd facts for status-only chunks', () => {
       const { runtime, batches } = createSideEffectRuntime()
       syncSinglePty(runtime)
 
-      // Plain output and a BEL-terminated non-title OSC stay fact-free.
+      // Plain output stays fact-free; a chunk-split OSC 7 reports cwd once complete.
       runtime.onPtyData('pty-1', 'plain output\r\n', 100)
       runtime.onPtyData('pty-1', '\x1b]7;file://host', 101)
       runtime.onPtyData('pty-1', '/tmp\x07', 102)
       runtime.onPtyData('pty-1', '\x1b]9999;{"state":"working","agentType":"codex"}\x07', 103)
 
-      expect(batches).toHaveLength(1)
-      expect(batches[0].facts).toEqual([
+      expect(batches.flatMap((batch) => batch.facts)).toEqual([
+        { kind: 'cwd', cwd: '/tmp' },
         {
           kind: 'agent-status',
           payload: expect.objectContaining({ state: 'working', agentType: 'codex' })
@@ -9979,6 +9979,48 @@ describe('OrcaRuntimeService', () => {
       const snapshot = await runtime.serializeMainTerminalBuffer('pty-1', { scrollbackRows: 10 })
       expect(snapshot?.source).toBe('headless')
       expect(snapshot?.lastTitle).toBe('Codex ready')
+    })
+
+    it('emits a cwd fact when OSC 7 reports a new directory', () => {
+      const { runtime, batches } = createSideEffectRuntime()
+      syncSinglePty(runtime)
+
+      runtime.onPtyData('pty-1', '\x1b]7;file://host/srv/app\x07', 100)
+      // A repeat of the same directory is not a change and must stay silent.
+      runtime.onPtyData('pty-1', '\x1b]7;file://host/srv/app\x07', 101)
+      runtime.onPtyData('pty-1', '\x1b]7;file://host/srv/app/sub%20dir\x07', 102)
+
+      expect(batches.flatMap((batch) => batch.facts)).toEqual([
+        { kind: 'cwd', cwd: '/srv/app' },
+        { kind: 'cwd', cwd: '/srv/app/sub dir' }
+      ])
+    })
+
+    it('replays the tracked cwd so a late subscriber catches up', () => {
+      const { runtime } = createSideEffectRuntime()
+      syncSinglePty(runtime)
+
+      runtime.onPtyData('pty-1', '\x1b]0;Codex working\x07\x1b]7;file://host/srv/app\x07', 100)
+
+      expect(runtime.getTerminalSideEffectSnapshot('pty-1')).toMatchObject({
+        replay: true,
+        facts: [
+          { kind: 'title', normalizedTitle: 'Codex working', rawTitle: 'Codex working' },
+          { kind: 'cwd', cwd: '/srv/app' }
+        ]
+      })
+    })
+
+    it('replays a cwd-only snapshot for a terminal that never set a title', () => {
+      const { runtime } = createSideEffectRuntime()
+      syncSinglePty(runtime)
+
+      runtime.onPtyData('pty-1', '\x1b]7;file://host/srv/app\x07', 100)
+
+      expect(runtime.getTerminalSideEffectSnapshot('pty-1')).toMatchObject({
+        replay: true,
+        facts: [{ kind: 'cwd', cwd: '/srv/app' }]
+      })
     })
 
     it('returns a title-only replay snapshot and never historical attention', () => {

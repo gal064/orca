@@ -43,6 +43,7 @@ import { createTaskCreationDraftsSlice } from './slices/task-creation-drafts'
 import { createRemoteServerUpdatesSlice } from './slices/remote-server-updates'
 import { createTerminalQuickCommandHostsSlice } from './slices/terminal-quick-command-hosts'
 import { createVerticalTabsSlice } from './slices/vertical-tabs'
+import { createTerminalCwdSlice } from './slices/terminal-cwd'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { createWebRuntimeSessionTerminal } from '@/runtime/web-runtime-session'
 import { registerHttpLinkStoreAccessor } from '@/lib/http-link-routing'
@@ -99,7 +100,8 @@ export const useAppStore = create<AppState>()((...a) => {
     ...createTaskCreationDraftsSlice(...a),
     ...createRemoteServerUpdatesSlice(...a),
     ...createTerminalQuickCommandHostsSlice(...a),
-    ...createVerticalTabsSlice(...a)
+    ...createVerticalTabsSlice(...a),
+    ...createTerminalCwdSlice(...a)
   }
 })
 

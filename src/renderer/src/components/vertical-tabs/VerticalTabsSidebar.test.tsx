@@ -56,7 +56,10 @@ afterEach(() => {
     folderWorkspaces: [],
     projectGroups: [],
     activeWorkspaceKey: null,
-    verticalTabPendingCloseId: null
+    verticalTabPendingCloseId: null,
+    activeTabIdByWorktree: {},
+    ptyIdsByTabId: {},
+    cwdByPtyId: {}
   })
 })
 
@@ -122,6 +125,23 @@ describe('VerticalTabsSidebar', () => {
 
     expect(requestVerticalTabClose).toHaveBeenCalledWith('first')
     expect(closeVerticalTab).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the focused terminal pwd, falling back to the tab start directory', () => {
+    useAppStore.setState({
+      projectGroups: [hidden],
+      folderWorkspaces: [vtab('first', 1)],
+      activeWorkspaceKey: 'folder:first',
+      activeTabIdByWorktree: { 'folder:first': 'tab-1' },
+      ptyIdsByTabId: { 'tab-1': ['pty-1'] }
+    })
+    const fallback = renderSidebar()
+    expect(fallback.getByTestId('vtab-active-pwd').textContent).toBe('/home/dev/first')
+    cleanup()
+
+    useAppStore.setState({ cwdByPtyId: { 'pty-1': { cwd: '/srv/app', source: 'osc7' } } })
+    const tracked = renderSidebar()
+    expect(tracked.getByTestId('vtab-active-pwd').textContent).toBe('/srv/app')
   })
 
   it('activates a vertical tab from the keyboard', () => {

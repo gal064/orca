@@ -71,6 +71,7 @@ import { listRemoteRuntimeSessionTabsDeduped } from '@/runtime/remote-runtime-se
 import { subscribeAcceptedWebSessionTerminalHandle } from '@/runtime/web-session-terminal-handle-events'
 import { runRemoteAgentSessionLaunch } from '@/runtime/remote-agent-session-launch'
 import { useAppStore } from '@/store'
+import { isTerminalMode } from '@/lib/terminal-mode'
 import { recordWebAgentSessionHandoff } from '@/runtime/web-agent-session-handoff'
 import { refreshWebRuntimeSessionTabsSnapshot } from '@/runtime/web-runtime-session'
 import {
@@ -1772,6 +1773,15 @@ export function createRemoteRuntimePtyTransport(
             })
           }
         },
+        // Why here: this is the only place that knows which PTY id the stream's
+        // terminal handle belongs to (terminal-mode pwd tracking reads by PTY id).
+        // Gated so classic mode writes nothing into a slice nothing reads.
+        onCwd: (cwd) => {
+          const state = useAppStore.getState()
+          if (subscribedPtyId && isCurrentSubscription() && isTerminalMode(state.settings)) {
+            state.setPtyCwd(subscribedPtyId, cwd, 'osc7')
+          }
+        },
         onOutputPauseCapability: () => {
           if (isCurrentSubscription()) {
             storedCallbacks.onOutputPauseChanged?.(
@@ -1817,6 +1827,11 @@ export function createRemoteRuntimePtyTransport(
             return
           }
           unregisterShutdownHandlers(subscribedPtyId)
+          // Why: remote PTYs close over RPC, so `pty:exit` never fires for them
+          // and nothing else would retire this terminal's tracked directory.
+          if (subscribedPtyId) {
+            useAppStore.getState().clearPtyCwd(subscribedPtyId)
+          }
           connected = false
           connecting = false
           handle = null

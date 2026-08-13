@@ -1,12 +1,15 @@
 import React, { useCallback } from 'react'
 import { useAppStore } from '@/store'
 import VerticalTabCloseConfirmDialog from './VerticalTabCloseConfirmDialog'
+import { useTerminalCwdTracking } from './use-terminal-cwd-tracking'
 
 /**
  * The close confirmation lives here rather than in the tab strip because
- * Mod+Shift+W must still work while the sidebar is collapsed.
+ * Mod+Shift+W must still work while the sidebar is collapsed — and so does pwd
+ * tracking, which feeds tab/terminal creation, not just the strip.
  */
 function TerminalModeSidebarHost(): React.JSX.Element {
+  useTerminalCwdTracking()
   const closeVerticalTab = useAppStore((s) => s.closeVerticalTab)
   const requestVerticalTabClose = useAppStore((s) => s.requestVerticalTabClose)
   const pendingCloseId = useAppStore((s) => s.verticalTabPendingCloseId)

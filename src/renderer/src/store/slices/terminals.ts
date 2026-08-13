@@ -1,6 +1,8 @@
 /* eslint-disable max-lines */
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
+import { getActivePwdForVtab } from './terminal-cwd'
+import { isTerminalMode } from '@/lib/terminal-mode'
 import type {
   Repo,
   SetupSplitDirection,
@@ -1553,7 +1555,19 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     if (isWebClientLocation() && worktreeId !== FLOATING_TERMINAL_WORKTREE_ID) {
       return
     }
-    const terminal = get().createTab(worktreeId, groupId)
+    // Terminal mode: this is the new-horizontal-tab affordance (Mod+T, the tab
+    // bar "+", Cmd+J), so it opens where the focused tab is. Kept here and not
+    // in createTab, whose other callers — agent launches, quick commands,
+    // background/setup terminals, pane detach — each own their own directory.
+    const inheritedCwd = isTerminalMode(state.settings)
+      ? getActivePwdForVtab(state, worktreeId)
+      : null
+    const terminal = get().createTab(
+      worktreeId,
+      groupId,
+      undefined,
+      inheritedCwd ? { startupCwd: inheritedCwd } : undefined
+    )
     get().setActiveTab(terminal.id)
     get().setActiveTabType('terminal')
     const latest = get()

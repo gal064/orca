@@ -38,6 +38,15 @@ export type TerminalSideEffectFact =
    *  these bytes, so without this fact their subscription registry goes stale
    *  and a later theme flip pushes CSI 997 at a shell that already withdrew. */
   | { kind: '2031-unsubscribe' }
+  /** OSC 7 shell-reported cwd for this PTY (terminal-mode pwd tracking). Safe to
+   *  add: the renderer's fact switch has no `default`, so an older client drops
+   *  the variant silently, and mobile never receives this channel at all
+   *  (`consumesTerminalSideEffects: clientKind !== 'mobile'`). One mixed-version
+   *  consequence, per remote-wire-compatibility.md Rule 3: a client that
+   *  predates the cwd-only skip in `bufferHandoffFactBatch` buffers these like
+   *  any other fact, so a `cd`-churning shell can flush its bounded
+   *  reveal-handoff buffer. Values only; no attention fact is fabricated. */
+  | { kind: 'cwd'; cwd: string }
 
 export type TerminalSideEffectBatch = {
   ptyId: string

@@ -15,6 +15,11 @@ import {
   isPowerShellExecutableName
 } from '../powershell-osc133-bootstrap'
 import { getPosixOmpShellWrapper } from '../pty/omp-shell-wrapper'
+import {
+  getBashOsc7EmitterBlock,
+  getBashOsc7PromptCommandRegistration,
+  getZshOsc7EmitterBlock
+} from '../shell-osc7-integration'
 import { buildStartupCommandSubmission } from '../../shared/startup-command-submission'
 import {
   getZshEnvTemplate,
@@ -159,7 +164,7 @@ __orca_osc133_preexec() {
   # bodies. Skip our own prompt-time helpers so they don't mark the shell as
   # "in command" before the prompt has even drawn.
   case "$BASH_COMMAND" in
-    *__orca_osc133_precmd*|*__orca_osc133_prompt_done*|*__orca_prompt_mark*) return ;;
+    *__orca_osc133_precmd*|*__orca_osc133_prompt_done*|*__orca_prompt_mark*|*__orca_osc7_emit*) return ;;
   esac
   printf "\\033]133;C\\007"
   __orca_in_command=1
@@ -201,7 +206,7 @@ if [[ "\${ORCA_SHELL_READY_MARKER:-0}" == "1" ]]; then
   }
   __orca_append_prompt_command "__orca_prompt_mark"
 fi
-__orca_append_prompt_command "__orca_osc133_prompt_done"
+${getBashOsc7EmitterBlock()}${getBashOsc7PromptCommandRegistration()}__orca_append_prompt_command "__orca_osc133_prompt_done"
 __orca_debug_trap_spec="$(trap -p DEBUG)"
 if [[ -n "$__orca_debug_trap_spec" ]]; then
   __orca_debug_trap_command="\${__orca_debug_trap_spec#trap -- }"
@@ -262,6 +267,7 @@ __orca_osc133_preexec() {
 # Why: prepend so Orca captures $? before user prompt hooks can overwrite it.
 precmd_functions=(__orca_osc133_precmd \${precmd_functions[@]})
 preexec_functions=(__orca_osc133_preexec \${preexec_functions[@]})
+${getZshOsc7EmitterBlock()}
 if [[ ! -o login ]]; then
 ${getZshFinalZdotdirRestoreBlock()}
 fi

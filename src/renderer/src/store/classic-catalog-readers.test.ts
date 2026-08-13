@@ -41,6 +41,7 @@ const ALLOWED: Record<string, string> = {
   'store/slices/worktrees.ts': 'workspace activation resolves any workspace by id',
   'store/slices/tabs.ts': 'per-workspace tab state, keyed by workspace',
   'store/slices/terminals.ts': 'per-workspace terminal state, keyed by workspace',
+  'store/slices/terminal-cwd.ts': 'resolves one workspace start directory by id — vtabs only',
   'store/slices/browser.ts': 'garbage-collects browser state by workspace key',
   'store/slices/editor.ts': 'garbage-collects editor state by workspace key',
   'store/slices/worktree-nav-history.ts': 'prunes navigation history by workspace key',

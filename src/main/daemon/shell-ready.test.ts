@@ -490,8 +490,9 @@ describePosix('daemon shell-ready launch config', () => {
     expect(bashRc).toContain('printf "\\033]133;D;%s\\007"')
     expect(bashRc).toContain('printf "\\033]133;C\\007"')
     // precmd is prepended (captures $? first), epilogue appended last, so a framework needing last position stays between them.
+    // Orca's own OSC 7 entry sits just inside the epilogue — still after every user hook.
     expect(bashRc).toContain(
-      'PROMPT_COMMAND="__orca_osc133_precmd${PROMPT_COMMAND:+;${PROMPT_COMMAND}};__orca_osc133_epilogue"'
+      'PROMPT_COMMAND="__orca_osc133_precmd${PROMPT_COMMAND:+;${PROMPT_COMMAND}};${__orca_osc7_prompt_entry:-}__orca_osc133_epilogue"'
     )
     // DEBUG is armed after PROMPT_COMMAND setup so rcfile commands aren't seen as foreground; lastIndexOf skips the epilogue's re-arm.
     expect(bashRc.lastIndexOf("trap '__orca_osc133_preexec' DEBUG")).toBeGreaterThan(

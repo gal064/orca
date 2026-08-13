@@ -148,6 +148,7 @@ import { createTaskCreationDraftsSlice } from './task-creation-drafts'
 import { createRemoteServerUpdatesSlice } from './remote-server-updates'
 import { createTerminalQuickCommandHostsSlice } from './terminal-quick-command-hosts'
 import { createVerticalTabsSlice } from './vertical-tabs'
+import { createTerminalCwdSlice } from './terminal-cwd'
 
 function createTestStore() {
   return create<AppState>()((...a) => ({
@@ -193,7 +194,8 @@ function createTestStore() {
     ...createTaskCreationDraftsSlice(...a),
     ...createRemoteServerUpdatesSlice(...a),
     ...createTerminalQuickCommandHostsSlice(...a),
-    ...createVerticalTabsSlice(...a)
+    ...createVerticalTabsSlice(...a),
+    ...createTerminalCwdSlice(...a)
   }))
 }
 

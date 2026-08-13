@@ -1192,7 +1192,7 @@ const api = {
       return () => ipcRenderer.removeListener('pty:sideEffect', listener)
     },
 
-    /** Title-only replay snapshot on (re)attach — attention facts (bells/completions) never replay. */
+    /** Replay snapshot on (re)attach (title + cwd) — attention facts (bells/completions) never replay. */
     getSideEffectSnapshot: (id: string): Promise<TerminalSideEffectBatch | null> =>
       ipcRenderer.invoke('pty:sideEffectSnapshot', { id }),
 

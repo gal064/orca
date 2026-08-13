@@ -3,6 +3,11 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { getPosixOmpShellWrapper } from '../main/pty/omp-shell-wrapper'
 import {
+  getBashOsc7EmitterBlock,
+  getBashOsc7PromptCommandRegistration,
+  getZshOsc7EmitterBlock
+} from '../main/shell-osc7-integration'
+import {
   getZshFinalZdotdirRestoreBlock,
   getZshShellReadyMarkerRegistrationBlock,
   getZshStartupFileSourceBlock
@@ -114,6 +119,7 @@ if [[ ! -o login ]]; then
   [[ -n "\${ORCA_REMOTE_CLI_BIN_DIR:-}" ]] && case ":$PATH:" in *:"\${ORCA_REMOTE_CLI_BIN_DIR}":*) ;; *) export PATH="\${ORCA_REMOTE_CLI_BIN_DIR}:$PATH" ;; esac
   ${getPosixOmpShellWrapper()}
 fi
+${getZshOsc7EmitterBlock()}
 if [[ ! -o login ]]; then
 ${getZshFinalZdotdirRestoreBlock('"${ORCA_USER_ZDOTDIR:-${ORCA_ORIG_ZDOTDIR:-$HOME}}"')}
 fi
@@ -174,7 +180,7 @@ __orca_osc133_preexec() {
   __orca_run_user_debug_trap
   [[ -z "\${__orca_in_prompt_command:-}" ]] || return
   case "$BASH_COMMAND" in
-    *__orca_osc133_precmd*|*__orca_osc133_prompt_done*) return ;;
+    *__orca_osc133_precmd*|*__orca_osc133_prompt_done*|*__orca_osc7_emit*) return ;;
   esac
   printf "\\033]133;C\\007"
   __orca_in_command=1
@@ -220,7 +226,7 @@ if [[ "\${ORCA_SHELL_READY_MARKER:-0}" == "1" ]]; then
   }
   __orca_append_prompt_command "__orca_prompt_mark"
 fi
-__orca_append_prompt_command "__orca_osc133_prompt_done"
+${getBashOsc7EmitterBlock()}${getBashOsc7PromptCommandRegistration()}__orca_append_prompt_command "__orca_osc133_prompt_done"
 __orca_debug_trap_spec="$(trap -p DEBUG)"
 if [[ -n "$__orca_debug_trap_spec" ]]; then
   __orca_debug_trap_command="\${__orca_debug_trap_spec#trap -- }"

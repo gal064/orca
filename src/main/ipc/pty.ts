@@ -5667,7 +5667,7 @@ export function registerPtyHandlers(
     }
   )
 
-  // Why: main owns side effects, so this replay restores title state only — never historical bells/completions (no-attention-replay rule, terminal-side-effect-authority.md).
+  // Why: main owns side effects, so this replay restores title/cwd state only — never historical bells/completions (no-attention-replay rule, terminal-side-effect-authority.md).
   ipcMain.handle('pty:sideEffectSnapshot', (_event, args: { id: string }) => {
     if (!runtime || typeof args?.id !== 'string' || args.id.length === 0) {
       return null

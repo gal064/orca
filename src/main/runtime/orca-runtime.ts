@@ -10385,8 +10385,8 @@ export class OrcaRuntimeService {
     return {}
   }
 
-  /** Title-only replay batch for renderer (re)attach — the no-attention-replay
-   *  rule: snapshots restore title state, never historical bells/completions. */
+  /** Replay batch for renderer (re)attach — the no-attention-replay rule:
+   *  snapshots restore title and cwd state, never historical bells/completions. */
   getTerminalSideEffectSnapshot(ptyId: string): TerminalSideEffectBatch | null {
     const tracker = this.ptyTitleTrackersByPtyId.get(ptyId)?.tracker
     const recordTitle = this.ptysById.get(ptyId)?.lastOscTitle
@@ -10398,20 +10398,28 @@ export class OrcaRuntimeService {
       recordTitle && (normalizedTitle === null || !isCursorNativeAgentTitle(recordTitle))
         ? recordTitle
         : null
-    if (normalizedTitle === null && !rawTitle) {
+    const facts: TerminalSideEffectFact[] = []
+    if (normalizedTitle !== null || rawTitle) {
+      facts.push({
+        kind: 'title',
+        normalizedTitle: normalizedTitle ?? normalizeTerminalTitle(rawTitle!),
+        rawTitle: rawTitle ?? normalizedTitle!
+      })
+    }
+    // Why in the replay snapshot: a pane binding after the shell's last OSC 7
+    // would otherwise sit on its startup cwd until the next prompt.
+    const cwd = this.terminalCwdByPtyId.get(ptyId)
+    if (cwd) {
+      facts.push({ kind: 'cwd', cwd })
+    }
+    if (facts.length === 0) {
       return null
     }
     return {
       ptyId,
       seq: this.ptyOutputSequenceById.get(ptyId) ?? 0,
       replay: true,
-      facts: [
-        {
-          kind: 'title',
-          normalizedTitle: normalizedTitle ?? normalizeTerminalTitle(rawTitle!),
-          rawTitle: rawTitle ?? normalizedTitle!
-        }
-      ],
+      facts,
       ...this.resolveTerminalSideEffectAttribution(ptyId)
     }
   }
@@ -10821,6 +10829,14 @@ export class OrcaRuntimeService {
       : null
   }
 
+  /** Single writer for a PTY's tracked cwd: stores it and tells the renderer.
+   *  Every OSC 7 scan and every provider snapshot that carries a cwd goes
+   *  through here, so pwd tracking cannot miss a source. */
+  private setTrackedPtyCwd(ptyId: string, cwd: string): void {
+    this.terminalCwdByPtyId.set(ptyId, cwd)
+    this.recordTerminalSideEffectFact(ptyId, { kind: 'cwd', cwd })
+  }
+
   private recordOsc7MetadataForPty(
     ptyId: string,
     data: string
@@ -10830,7 +10846,7 @@ export class OrcaRuntimeService {
     const cwdChanged =
       cwd !== null && cwd.trim().length > 0 && this.terminalCwdByPtyId.get(ptyId) !== cwd
     if (cwdChanged) {
-      this.terminalCwdByPtyId.set(ptyId, cwd)
+      this.setTrackedPtyCwd(ptyId, cwd)
     }
     if (osc7) {
       if (osc7.hostname) {
@@ -11820,7 +11836,7 @@ export class OrcaRuntimeService {
         if (snapshot.cwd !== undefined) {
           state.emulator.setCwd(snapshot.cwd)
           if (!this.terminalCwdByPtyId.has(ptyId) && snapshot.cwd?.trim()) {
-            this.terminalCwdByPtyId.set(ptyId, snapshot.cwd)
+            this.setTrackedPtyCwd(ptyId, snapshot.cwd)
           }
         }
         if (snapshot.oscLinks !== undefined) {

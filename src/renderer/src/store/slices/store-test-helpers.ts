@@ -51,6 +51,7 @@ import { createTaskCreationDraftsSlice } from './task-creation-drafts'
 import { createRemoteServerUpdatesSlice } from './remote-server-updates'
 import { createTerminalQuickCommandHostsSlice } from './terminal-quick-command-hosts'
 import { createVerticalTabsSlice } from './vertical-tabs'
+import { createTerminalCwdSlice } from './terminal-cwd'
 import { translate } from '@/i18n/i18n'
 
 export const TEST_REPO = {
@@ -105,7 +106,8 @@ export function createTestStore() {
     ...createTaskCreationDraftsSlice(...a),
     ...createRemoteServerUpdatesSlice(...a),
     ...createTerminalQuickCommandHostsSlice(...a),
-    ...createVerticalTabsSlice(...a)
+    ...createVerticalTabsSlice(...a),
+    ...createTerminalCwdSlice(...a)
   }))
 }
 

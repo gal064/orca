@@ -9,8 +9,10 @@
  * callbacks), so every fact has exactly one policy consumer regardless of
  * whether the tab is mounted, hidden, or parked. Facts for PTYs without a
  * registered consumer are dropped — mirroring today's eager-buffer behavior
- * where pre-mount output produces no attention side effects. The one exception
- * is a PTY whose consumer just unregistered: see the handoff buffer below.
+ * where pre-mount output produces no attention side effects. Two exceptions:
+ * a PTY whose consumer just unregistered (see the handoff buffer below), and
+ * `cwd` facts, which are PTY state rather than attention policy and go to the
+ * module-level observers regardless of who is mounted.
  */
 import type { GlobalSettings } from '../../../../shared/types'
 import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
@@ -149,14 +151,20 @@ function applyLiveFact(entry: ConsumerEntry, fact: TerminalSideEffectFact, seq: 
       return
     case '2031-unsubscribe':
       entry.callbacks.onMode2031Unsubscribe?.()
+      break
+    case 'cwd':
+      // Owned by the module-level cwd observers: a directory is PTY state, not
+      // this pane's attention policy.
+      break
   }
 }
 
 function applyBatchToConsumer(entry: ConsumerEntry, batch: TerminalSideEffectBatch): void {
   if (batch.replay) {
-    // Why: the no-attention-replay rule — (re)attach snapshots restore title
-    // state only; historical bells/completions must never fire again. A replay
-    // older (by output sequence) than the last live title fact is stale.
+    // Why: the no-attention-replay rule — for this consumer a (re)attach
+    // snapshot restores title state only (its cwd went to the observers);
+    // historical bells/completions must never fire again. A replay older (by
+    // output sequence) than the last live title fact is stale.
     if (entry.lastLiveTitleSeq !== null && batch.seq <= entry.lastLiveTitleSeq) {
       return
     }
@@ -237,6 +245,12 @@ function bufferHandoffFactBatch(batch: TerminalSideEffectBatch): void {
   if (batch.replay) {
     return
   }
+  // Why: cwd facts already reached their module-level observers, and a shell
+  // walking directories would otherwise evict the bells/completions this bounded
+  // buffer exists to preserve.
+  if (batch.facts.every((fact) => fact.kind === 'cwd')) {
+    return
+  }
   if (buffer.batches.length >= MAX_HANDOFF_FACT_BATCHES) {
     buffer.batches.shift()
   }
@@ -257,7 +271,50 @@ function drainHandoffFactBuffer(ptyId: string, entry: ConsumerEntry): void {
   }
 }
 
+// Why outside the per-PTY consumer registry: a cwd is PTY state, not pane
+// attention policy — a parked or never-mounted terminal's directory still has
+// to reach the store, and facts for PTYs with no consumer are dropped here.
+const cwdFactObservers = new Set<(ptyId: string, cwd: string) => void>()
+
+/** Terminal mode registers while it tracks pwds; the returned call unregisters. */
+export function registerTerminalCwdFactObserver(
+  observer: (ptyId: string, cwd: string) => void
+): () => void {
+  cwdFactObservers.add(observer)
+  ensureSideEffectChannelSubscription()
+  return () => {
+    cwdFactObservers.delete(observer)
+  }
+}
+
+/** Output sequence of the last cwd fact applied per PTY. The replay snapshot is
+ *  an async round-trip, so a `cd` observed while it was in flight must not be
+ *  overwritten by the older directory the snapshot carries. Titles have their
+ *  own guard, but it only advances on title facts — a shell with a static title
+ *  never engages it. */
+const lastCwdFactSeqByPtyId = new Map<string, number>()
+
+function notifyCwdFactObservers(batch: TerminalSideEffectBatch): void {
+  if (cwdFactObservers.size === 0) {
+    return
+  }
+  for (const fact of batch.facts) {
+    if (fact.kind !== 'cwd') {
+      continue
+    }
+    const lastSeq = lastCwdFactSeqByPtyId.get(batch.ptyId)
+    if (lastSeq !== undefined && batch.seq < lastSeq) {
+      continue
+    }
+    lastCwdFactSeqByPtyId.set(batch.ptyId, batch.seq)
+    for (const observer of cwdFactObservers) {
+      observer(batch.ptyId, fact.cwd)
+    }
+  }
+}
+
 export function dispatchTerminalSideEffectBatch(batch: TerminalSideEffectBatch): void {
+  notifyCwdFactObservers(batch)
   const entry = consumersByPtyId.get(batch.ptyId)
   if (!entry) {
     bufferHandoffFactBatch(batch)
@@ -314,6 +371,9 @@ export function registerTerminalSideEffectFactConsumer(
           // Why: apply only while this registration is still the live
           // consumer; a slow snapshot must not fire into a replaced one.
           if (batch && consumersByPtyId.get(options.ptyId) === entry) {
+            // Why separately: the snapshot never reaches dispatch, and its cwd
+            // is how a re-attached pane recovers the shell's directory.
+            notifyCwdFactObservers(batch)
             applyBatchToConsumer(entry, { ...batch, replay: true })
           }
         })
@@ -338,6 +398,8 @@ export function _dispatchTerminalSideEffectBatchForTest(batch: TerminalSideEffec
 /** Test seam: reset module state between tests. */
 export function _resetTerminalSideEffectFactConsumersForTest(): void {
   consumersByPtyId.clear()
+  cwdFactObservers.clear()
+  lastCwdFactSeqByPtyId.clear()
   for (const ptyId of Array.from(handoffFactBuffersByPtyId.keys())) {
     deleteHandoffFactBuffer(ptyId)
   }

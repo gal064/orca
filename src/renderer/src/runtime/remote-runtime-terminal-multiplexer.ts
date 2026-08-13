@@ -61,6 +61,8 @@ type TerminalMultiplexEvent =
 export type RemoteRuntimeMultiplexedTerminalCallbacks = {
   onData: (data: string, meta?: { seq?: number; rawLength?: number; transformed?: boolean }) => void
   onSnapshot: (data: string, meta?: { pendingEscapeTailAnsi?: string }) => void
+  /** Host-reported cwd from a `Metadata` frame (shell OSC 7, scanned host-side). */
+  onCwd?: (cwd: string) => void
   onSubscribed?: () => void
   onOutputPauseCapability?: () => void
   onEnd?: () => void
@@ -739,6 +741,22 @@ class RemoteRuntimeTerminalMultiplexer {
     stream.watchdog.recordInbound()
     if (frame.opcode === TerminalStreamOpcode.WriteUnavailable) {
       stream.callbacks.onWriteUnavailable?.()
+      return
+    }
+    if (frame.opcode === TerminalStreamOpcode.Metadata) {
+      // Why this branch exists: a host older than the `cwd` side-effect fact
+      // still sends cwd here (Metadata shipped in v1.4.120), so this is the
+      // compatibility path — a current host delivers the same value twice, once
+      // here and once as a fact, which is idempotent. Decode-only: nothing new
+      // is sent, so no negotiation is needed (remote-wire-compatibility.md Rule
+      // 1). Unlike Output it carries no transport credit and must not be
+      // acknowledged; it also bypasses the pending-output queue, so a frame can
+      // arrive out of order with the chunk it was batched with — harmless,
+      // since the shell re-asserts its cwd at the next prompt.
+      const meta = decodeTerminalStreamJson<{ cwd?: unknown }>(frame.payload)
+      if (typeof meta?.cwd === 'string' && meta.cwd.length > 0) {
+        stream.callbacks.onCwd?.(meta.cwd)
+      }
       return
     }
     if (

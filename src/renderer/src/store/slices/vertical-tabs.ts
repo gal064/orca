@@ -6,6 +6,7 @@ import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import { getRuntimePathBasename } from '../../../../shared/cross-platform-path'
 import { getTerminalModeGroupIds } from '../../../../shared/terminal-mode-group'
 import { folderWorkspaceKey, parseWorkspaceKey } from '../../../../shared/workspace-scope'
+import { getActivePwdForVtab } from './terminal-cwd'
 import { translate } from '@/i18n/i18n'
 import { isTerminalMode } from '@/lib/terminal-mode'
 
@@ -126,7 +127,13 @@ export const createVerticalTabsSlice: StateCreator<AppState, [], [], VerticalTab
           ? state
           : { projectGroups: [...state.projectGroups, context.projectGroup] }
       )
-      const startDir = options?.startDir?.trim() || context.homeDir
+      // Ghostty-style inheritance: a new tab opens where the focused terminal
+      // is, and only falls back to the host home when nothing is focused.
+      const focusedState = get()
+      const focusedPwd = focusedState.activeWorkspaceKey
+        ? getActivePwdForVtab(focusedState, focusedState.activeWorkspaceKey)
+        : null
+      const startDir = options?.startDir?.trim() || focusedPwd?.trim() || context.homeDir
       const workspace = await get().createFolderWorkspace(
         {
           projectGroupId: context.projectGroup.id,

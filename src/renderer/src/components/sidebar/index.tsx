@@ -16,6 +16,7 @@ import { useWorkspaceBoardPanel } from './useWorkspaceBoardPanel'
 import { resolveLeftSidebarStyleVariables } from '@/lib/left-sidebar-appearance'
 import { useSystemPrefersDark } from '@/components/terminal-pane/use-system-prefers-dark'
 import { lazyWithRetry } from '@/lib/lazy-with-retry'
+import { isTerminalMode } from '@/lib/terminal-mode'
 
 const WorktreeMetaDialog = lazyWithRetry(() => import('./WorktreeMetaDialog'))
 const RemoveFolderDialog = lazyWithRetry(() => import('./RemoveFolderDialog'))
@@ -23,6 +24,7 @@ const WorktreeVisibilityDialog = lazyWithRetry(() => import('./WorktreeVisibilit
 const OrcaYamlTrustDialog = lazyWithRetry(() => import('./OrcaYamlTrustDialog'))
 const ForgetSshWorkspaceDialog = lazyWithRetry(() => import('./ForgetSshWorkspaceDialog'))
 const AgentDashboardSidebarHost = lazyWithRetry(() => import('./AgentDashboardSidebarHost'))
+const VerticalTabsSidebar = lazyWithRetry(() => import('@/components/vertical-tabs'))
 
 const MIN_WIDTH = 220
 const MAX_WIDTH = 500
@@ -52,6 +54,8 @@ function Sidebar({
   const activeModal = useAppStore((s) => s.activeModal)
   const statusBarVisible = useAppStore((s) => s.statusBarVisible)
   const systemPrefersDark = useSystemPrefersDark()
+  const terminalMode = isTerminalMode(settings)
+  const classicSidebarVisible = sidebarOpen && !terminalMode
   const leftSidebarStyle = useMemo(
     () => resolveLeftSidebarStyleVariables(settings, systemPrefersDark),
     [settings, systemPrefersDark]
@@ -87,10 +91,10 @@ function Sidebar({
   }, [repoCount, startupWorktreeRefreshCompleted, fetchAllWorktrees])
 
   useEffect(() => {
-    if (!sidebarOpen && workspaceBoardRenderedOpen) {
+    if (!classicSidebarVisible && workspaceBoardRenderedOpen) {
       closeWorkspaceBoard()
     }
-  }, [closeWorkspaceBoard, sidebarOpen, workspaceBoardRenderedOpen])
+  }, [classicSidebarVisible, closeWorkspaceBoard, workspaceBoardRenderedOpen])
 
   const { containerRef, onResizeStart, isResizing } = useSidebarResize<HTMLDivElement>({
     isOpen: sidebarOpen,
@@ -106,12 +110,22 @@ function Sidebar({
     <TooltipProvider delayDuration={400}>
       <div
         ref={containerRef}
-        data-native-file-drop-target={sidebarOpen ? nativeDropTarget : undefined}
+        data-native-file-drop-target={classicSidebarVisible ? nativeDropTarget : undefined}
         className="relative min-h-0 flex-shrink-0 bg-worktree-sidebar flex flex-col overflow-hidden scrollbar-sleek-parent"
         style={leftSidebarStyle}
-        {...dropHandlers}
+        // Classic-only, but unlike the marker above it stays attached while the
+        // sidebar is collapsed — that is upstream behavior, left untouched.
+        {...(terminalMode ? {} : dropHandlers)}
       >
-        {sidebarOpen && (
+        {sidebarOpen && terminalMode ? (
+          <React.Suspense fallback={null}>
+            <VerticalTabsSidebar />
+          </React.Suspense>
+        ) : null}
+
+        {/* Why: a sibling condition instead of a ternary around the classic block —
+        it leaves that block's body unchanged for upstream merges (docs/terminal-mode-spec.md §3.3). */}
+        {classicSidebarVisible && (
           <>
             {/* Fixed controls */}
             <SidebarNav />
@@ -139,7 +153,9 @@ function Sidebar({
           </>
         )}
 
-        {sidebarOpen && affordance.visible ? (
+        {/* Terminal mode has no projects, so the add-project drop affordance stays classic-only
+        (also covers a drag in flight when the mode is switched). */}
+        {classicSidebarVisible && affordance.visible ? (
           <div
             className={cn(
               'pointer-events-none absolute inset-2 z-20 flex flex-col items-center justify-center gap-1.5 rounded-md border bg-worktree-sidebar-accent/95 px-4 text-center text-worktree-sidebar-accent-foreground shadow-xs',
@@ -184,7 +200,8 @@ function Sidebar({
         {activeModal === 'confirm-orca-yaml-hooks' ? <OrcaYamlTrustDialog /> : null}
         {activeModal === 'forget-ssh-workspace' ? <ForgetSshWorkspaceDialog /> : null}
       </React.Suspense>
-      {sidebarOpen ? (
+      {/* Worktree kanban is classic-only (docs/terminal-mode-spec.md §2, out of scope). */}
+      {classicSidebarVisible ? (
         <WorkspaceKanbanDrawer
           leftSidebarStyle={leftSidebarStyle}
           open={workspaceBoardRenderedOpen}

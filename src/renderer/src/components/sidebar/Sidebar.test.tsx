@@ -3,13 +3,14 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { tmpdir } from 'node:os'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDefaultSettings } from '../../../../shared/constants'
 import type { GlobalSettings } from '../../../../shared/types'
 
 const mocks = vi.hoisted(() => ({
   state: {} as Record<string, unknown>,
+  onDragOver: vi.fn(),
   // Stable callback identities so companion-board Effects only re-run on real state changes.
   closeWorkspaceBoard: vi.fn(),
   panel: {
@@ -73,10 +74,14 @@ vi.mock('./WorkspaceKanbanDrawer', () => ({
 
 vi.mock('./useSidebarProjectDrop', () => ({
   useSidebarProjectDrop: () => ({
-    nativeDropTarget: undefined,
-    dropHandlers: {},
+    nativeDropTarget: 'project',
+    dropHandlers: { onDragOver: mocks.onDragOver },
     affordance: { visible: false }
   })
+}))
+
+vi.mock('@/components/vertical-tabs', () => ({
+  default: () => <div data-testid="vertical-tabs-sidebar" />
 }))
 
 vi.mock('./useWorkspaceBoardPanel', () => ({
@@ -124,6 +129,7 @@ function sidebarElement(): ReactNode {
 
 beforeEach(() => {
   mocks.closeWorkspaceBoard.mockClear()
+  mocks.onDragOver.mockClear()
   mocks.panel = {
     workspaceBoardOpen: false,
     workspaceBoardRenderedOpen: true,
@@ -143,6 +149,39 @@ describe('Sidebar', () => {
     expect(prompt.parentElement).toBe(toolbar.parentElement)
     expect(prompt.parentElement?.classList.contains('relative')).toBe(true)
     expect(prompt.parentElement?.classList.contains('shrink-0')).toBe(true)
+  })
+
+  it('keeps the classic sidebar and its project drop target when terminal mode is off', () => {
+    setSidebarState(getDefaultSettings(tmpdir()))
+    const view = render(sidebarElement())
+
+    expect(view.getByTestId('sidebar-nav')).toBeTruthy()
+    expect(view.getByTestId('worktree-list')).toBeTruthy()
+    expect(view.getByTestId('sidebar-toolbar')).toBeTruthy()
+    expect(view.getByTestId('workspace-kanban-drawer')).toBeTruthy()
+    expect(view.queryByTestId('vertical-tabs-sidebar')).toBeNull()
+
+    const surface = view.container.querySelector('[data-native-file-drop-target="project"]')
+    expect(surface).not.toBeNull()
+    fireEvent.dragOver(surface as Element)
+    expect(mocks.onDragOver).toHaveBeenCalled()
+  })
+
+  it('swaps the classic sidebar for vertical tabs when terminal mode is on', async () => {
+    setSidebarState({ ...getDefaultSettings(tmpdir()), experimentalTerminalMode: true })
+    const view = render(sidebarElement())
+
+    expect(await view.findByTestId('vertical-tabs-sidebar')).toBeTruthy()
+    expect(view.queryByTestId('sidebar-nav')).toBeNull()
+    expect(view.queryByTestId('sidebar-header')).toBeNull()
+    expect(view.queryByTestId('worktree-list')).toBeNull()
+    expect(view.queryByTestId('sidebar-toolbar')).toBeNull()
+    expect(view.queryByTestId('workspace-kanban-drawer')).toBeNull()
+
+    // Project drop is classic-only: no drop marker, no drag handlers.
+    expect(view.container.querySelector('[data-native-file-drop-target]')).toBeNull()
+    fireEvent.dragOver(view.container.firstElementChild as Element)
+    expect(mocks.onDragOver).not.toHaveBeenCalled()
   })
 
   it('applies left sidebar appearance variables to the workspace sidebar surface', () => {

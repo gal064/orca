@@ -6040,6 +6040,11 @@
             "modeAriaLabel": "Agent Dashboard open mode",
             "modeInWindow": "In-window",
             "modePopout": "Pop-out"
+          },
+          "terminalMode": {
+            "title": "Terminal mode",
+            "copy": "Replaces the left sidebar with vertical terminal tabs. Under construction — the tab list is a placeholder until terminal tabs ship. Turning this off restores the worktree sidebar unchanged.",
+            "toggleLabel": "Toggle terminal mode"
           }
         },
         "FloatingWorkspacePane": {
@@ -8356,6 +8361,13 @@
             "agentDashboard": {
               "title": "Agent Dashboard",
               "description": "Kanban board for monitoring agents across worktrees, in-window or as a pop-out."
+            },
+            "terminalMode": {
+              "title": "Terminal mode",
+              "description": "Terminal-first left sidebar: vertical terminal tabs instead of the worktree list.",
+              "terminalMode": "terminal mode",
+              "tabs": "tabs",
+              "verticalTabs": "vertical tabs"
             }
           }
         },
@@ -15096,6 +15108,13 @@
           "openLink": "Open link",
           "updating": "Updating…",
           "update": "Update shared content"
+        }
+      },
+      "verticalTabs": {
+        "VerticalTabsSidebar": {
+          "title": "Terminals",
+          "newTab": "New terminal tab (under construction)",
+          "empty": "No terminal tabs"
         }
       }
     },

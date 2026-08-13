@@ -3131,6 +3131,9 @@ export type GlobalSettings = {
   experimentalNewWorktreeCardStyle?: boolean
   /** Experimental: per-workspace on-demand environment recipes and setup surface. */
   experimentalEphemeralVms?: boolean
+  /** Experimental: terminal-first mode — vertical terminal tabs replace the worktree sidebar.
+   *  Never active on Windows, where the mode is unsupported (docs/terminal-mode-spec.md). */
+  experimentalTerminalMode?: boolean
   /** Compact worktree cards: hide the metadata row when title and branch say the same thing. */
   compactWorktreeCards: boolean
   /** Legacy persisted key from the Experimental rollout; new writes use compactWorktreeCards. */

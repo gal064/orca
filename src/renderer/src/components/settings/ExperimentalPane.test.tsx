@@ -354,4 +354,41 @@ describe('ExperimentalPane', () => {
     expect(updateSettings).toHaveBeenCalledWith({ experimentalNewWorktreeCardStyle: true })
     root.unmount()
   })
+
+  it('renders terminal mode as an off-by-default searchable experimental switch', async () => {
+    const settings = getDefaultSettings('/tmp')
+    const { root, container } = await renderExperimentalPane({ updateSettings: vi.fn(), settings })
+    const entry = getExperimentalPaneSearchEntries().find(
+      (searchEntry) => searchEntry.title === 'Terminal mode'
+    )
+
+    expect(settings.experimentalTerminalMode).toBe(false)
+    expect(container.textContent).toContain('Terminal mode')
+    expect(
+      container
+        .querySelector('#experimental-terminal-mode button[role="switch"]')
+        ?.getAttribute('aria-checked')
+    ).toBe('false')
+    expect(entry?.targetSectionId).toBe('experimental-terminal-mode')
+    root.unmount()
+  })
+
+  it('enables terminal mode through the experimental switch', async () => {
+    const updateSettings = vi.fn()
+    const { root, container } = await renderExperimentalPane({ updateSettings })
+
+    const switchButton = container.querySelector<HTMLButtonElement>(
+      '#experimental-terminal-mode button[role="switch"]'
+    )
+    if (!switchButton) {
+      throw new Error('Terminal mode switch was not rendered')
+    }
+
+    await act(async () => {
+      switchButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(updateSettings).toHaveBeenCalledWith({ experimentalTerminalMode: true })
+    root.unmount()
+  })
 })

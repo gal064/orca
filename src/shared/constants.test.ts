@@ -107,6 +107,10 @@ describe('getDefaultSettings', () => {
     expect(getDefaultSettings('/tmp').experimentalEphemeralVms).toBe(false)
   })
 
+  it('keeps terminal mode disabled by default', () => {
+    expect(getDefaultSettings('/tmp').experimentalTerminalMode).toBe(false)
+  })
+
   it('keeps the agent dashboard popout disabled by default', () => {
     expect(getDefaultSettings('/tmp').experimentalAgentDashboardPopout).toBeUndefined()
     expect(getDefaultSettings('/tmp').experimentalAgentDashboardShowIdle).toBeUndefined()

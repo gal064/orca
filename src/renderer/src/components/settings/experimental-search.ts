@@ -5,6 +5,8 @@ import { translateSearchKeyword } from './settings-search-keywords'
 import { getNewWorktreeCardStyleSearchEntry } from './new-worktree-card-style-search-entry'
 import { getNativeChatExperimentalSearchEntry } from './native-chat-experimental-search-entry'
 import { getEphemeralVmsSearchEntry } from './ephemeral-vms-search'
+import { getTerminalModeExperimentalSearchEntry } from './terminal-mode-experimental-search-entry'
+import { isTerminalModeSupportedPlatform } from '@/lib/terminal-mode'
 
 export const getExperimentalPaneSearchEntries = createLocalizedCatalog(
   (): SettingsSearchEntry[] => [
@@ -229,6 +231,9 @@ export const getExperimentalPaneSearchEntries = createLocalizedCatalog(
       ]
     },
     getNewWorktreeCardStyleSearchEntry(),
+    // Why: Windows hides the row, so indexing it there would strand search on a
+    // result that never renders.
+    ...(isTerminalModeSupportedPlatform() ? [getTerminalModeExperimentalSearchEntry()] : []),
     getEphemeralVmsSearchEntry()
   ]
 )
@@ -276,6 +281,9 @@ export function getExperimentalSearchEntry() {
     ),
     ephemeralVms: findEntry(
       translate('auto.components.settings.ephemeralVms.search.cloudVmTitle', 'Cloud VM')
-    )
+    ),
+    // Why: built directly, not via findEntry — the catalog omits this entry on
+    // Windows, where a lookup would throw and take the whole pane down with it.
+    terminalMode: getTerminalModeExperimentalSearchEntry()
   } as const
 }

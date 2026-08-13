@@ -27,6 +27,7 @@ import { withLinkedIssueDraftContext } from '../../shared/source-control-ai-acti
 import type { SourceControlAiOperation } from '../../shared/source-control-ai-types'
 import type { GitProviderStatusOptions } from '../providers/types'
 import { getRemoteCommitUrl, getRemoteFileUrl } from '../git/repo'
+import { lookupRepoRootForPath, resolveLocalRepoRootForPath } from '../git/repo-root-for-path'
 import {
   abortMerge,
   abortRebase,
@@ -176,6 +177,14 @@ export type RuntimeGitCommandHost = {
    */
   getWorktreeLinkedIssue?(worktreeId: string): number | null | undefined
   getWorktreeLinkedIssueMeta?(worktreeId: string): PullRequestLinkedIssueMeta | null | undefined
+  /**
+   * Authorizes an absolute path on this host against the filesystem allow-list,
+   * returning its canonical form. Terminal mode's repo-root probe is its only
+   * caller. Optional so the existing host doubles keep compiling; a host without
+   * it *throws* rather than answering `null`, because "cannot answer" and "there
+   * is no repository here" are different states to the caller.
+   */
+  authorizeHostPath?(absolutePath: string): Promise<string>
 }
 
 export class RuntimeGitCommands {
@@ -222,6 +231,21 @@ export class RuntimeGitCommands {
     return options
       ? getGitStatus(target.worktree.path, { ...options, ...gitOptions, ...sharedOptions })
       : getGitStatus(target.worktree.path, { ...gitOptions, ...sharedOptions })
+  }
+
+  /**
+   * Nearest enclosing repository root of a host directory — terminal mode's git
+   * panel scope for remote vertical tabs. `null` means "no repository here",
+   * which is a first-class product state (the panel's quiet empty state).
+   */
+  async getRuntimeRepoRootForPath(dirPath: string): Promise<string | null> {
+    if (!this.host.authorizeHostPath) {
+      throw new Error('repo_root_lookup_unsupported')
+    }
+    const authorized = await this.host.authorizeHostPath(dirPath)
+    return lookupRepoRootForPath('local', authorized, (candidate) =>
+      resolveLocalRepoRootForPath(candidate)
+    )
   }
 
   async getRuntimeGitSubmoduleStatus(

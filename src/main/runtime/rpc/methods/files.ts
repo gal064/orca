@@ -106,7 +106,11 @@ const FileTreePath = WorktreeSelector.extend({
   relativePath: z
     .unknown()
     .transform((v) => (typeof v === 'string' ? v : ''))
-    .pipe(z.string())
+    .pipe(z.string()),
+  /** Terminal mode: a directory outside the selector's workspace root. Only sent by
+   *  clients that saw `terminal-mode.absolute-path-scope.v1` — an older host strips
+   *  it and silently answers for the workspace root, which is why the gate is hard. */
+  absolutePath: z.string().min(1).optional()
 })
 
 const ServerDirectoryBrowse = z.object({
@@ -217,6 +221,21 @@ const FileUnwatch = z.object({
     .pipe(z.string().min(1, 'Missing subscriptionId'))
 })
 
+/**
+ * Terminal mode is a desktop feature; a paired phone has no vertical tabs and no
+ * reason to address the host by absolute path. Refusing here keeps the param from
+ * widening the mobile surface at all.
+ */
+function assertAbsolutePathScopeAllowed(
+  absolutePath: string | undefined,
+  clientKind: 'mobile' | 'runtime' | undefined
+): string | undefined {
+  if (absolutePath && clientKind === 'mobile') {
+    throw new Error('absolute_path_scope_unavailable_for_mobile_clients')
+  }
+  return absolutePath
+}
+
 export const FILE_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'files.list',
@@ -314,8 +333,12 @@ export const FILE_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'files.readDir',
     params: FileTreePath,
-    handler: async (params, { runtime }) =>
-      runtime.readFileExplorerDir(params.worktree, params.relativePath)
+    handler: async (params, { runtime, clientKind }) =>
+      runtime.readFileExplorerDir(
+        params.worktree,
+        params.relativePath,
+        assertAbsolutePathScopeAllowed(params.absolutePath, clientKind)
+      )
   }),
   defineMethod({
     name: 'files.browseServerDir',
@@ -458,8 +481,12 @@ export const FILE_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'files.stat',
     params: FileTreePath,
-    handler: async (params, { runtime }) =>
-      runtime.statRuntimeFile(params.worktree, params.relativePath)
+    handler: async (params, { runtime, clientKind }) =>
+      runtime.statRuntimeFile(
+        params.worktree,
+        params.relativePath,
+        assertAbsolutePathScopeAllowed(params.absolutePath, clientKind)
+      )
   }),
   defineStreamingMethod({
     name: 'files.watch',

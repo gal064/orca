@@ -75,6 +75,7 @@ describe('getEditorExternalWatchTargets', () => {
     sshConnectionStates: args.sshConnectionStates ?? new Map(),
     folderWorkspaces: [],
     projectGroups: [],
+    terminalModePanelScope: null,
     settings:
       args.runtimeEnvironmentId === undefined
         ? null

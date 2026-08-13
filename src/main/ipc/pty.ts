@@ -7430,7 +7430,11 @@ export function registerPtyHandlers(
   // Why: Cmd+D split needs the live shell cwd so the new pane inherits it (not the worktree root); '' means unknown/unresolvable (Windows) → renderer falls through.
   ipcMain.handle('pty:getCwd', async (_event, args: { id: string }): Promise<string> => {
     try {
-      return await getProviderForPty(args.id).getCwd(args.id)
+      const cwd = await getProviderForPty(args.id).getCwd(args.id)
+      // Why: terminal mode's filesystem grant only accepts directories main has
+      // observed a shell in, and a shell with no OSC 7 is only ever read here.
+      runtime?.recordObservedPtyCwd(args.id, cwd)
+      return cwd
     } catch {
       return ''
     }

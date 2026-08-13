@@ -54,6 +54,7 @@ import {
 import { wslAwareSpawn } from '../git/runner'
 import { parseWslPath, toWindowsWslPath } from '../wsl'
 import { isENOENT, resolveAuthorizedPath } from '../ipc/filesystem-auth'
+import { isTerminalModeWorkspaceSelector } from '../ipc/terminal-mode-path-scope'
 import { listQuickOpenFiles } from '../ipc/filesystem-list-files'
 import { searchWithGitGrep } from '../ipc/filesystem-search-git'
 import { getLocalGitOptionsForRegisteredWorktree } from '../ipc/local-worktree-runtime-options'
@@ -1286,19 +1287,32 @@ export class RuntimeFileCommands {
     return provider
   }
 
-  async readFileExplorerDir(worktreeSelector: string, relativePath: string): Promise<DirEntry[]> {
-    const target = await this.resolveFileExplorerPath(worktreeSelector, relativePath)
-    const provider = target.connectionId ? getSshFilesystemProvider(target.connectionId) : null
+  /**
+   * Terminal mode's panels follow a shell's pwd, which can sit outside the
+   * workspace the selector resolves to, so clients holding
+   * `terminal-mode.absolute-path-scope.v1` may address the host directly.
+   * SSH-backed workspaces are refused: their reads bypass `resolveAuthorizedPath`
+   * entirely, so an absolute path would carry no containment at all.
+   */
+  private async resolveAbsoluteScopePath(
+    worktreeSelector: string,
+    absolutePath: string
+  ): Promise<string> {
+    const target = await this.resolveFileExplorerPath(worktreeSelector, '')
     if (target.connectionId) {
-      if (!provider) {
-        throw new Error(SSH_FILESYSTEM_PROVIDER_UNAVAILABLE_MESSAGE)
-      }
-      // Why: re-sort locally — the remote relay may be an older build with
-      // lexicographic ordering.
-      return sortDirEntries(await provider.readDir(target.path))
+      throw new Error('absolute_path_scope_unsupported_for_ssh_workspace')
     }
+    // Why the workspace check: without it this param would widen every client's
+    // reach from "inside the selected worktree" to "anywhere in the host's
+    // allow-list". Terminal mode is the only feature that needs it, and only for
+    // its own vertical tabs.
+    if (!isTerminalModeWorkspaceSelector(this.host.requireStore(), target.worktree.id)) {
+      throw new Error('absolute_path_scope_requires_terminal_mode_workspace')
+    }
+    return resolveAuthorizedPath(absolutePath, this.host.requireStore())
+  }
 
-    const dirPath = await resolveAuthorizedPath(target.path, this.host.requireStore())
+  private async readAuthorizedDir(dirPath: string): Promise<DirEntry[]> {
     const entries = await readdir(dirPath, { withFileTypes: true })
     const mapped = await Promise.all(
       entries.map(async (entry) => {
@@ -1311,6 +1325,32 @@ export class RuntimeFileCommands {
       })
     )
     return sortDirEntries(mapped)
+  }
+
+  async readFileExplorerDir(
+    worktreeSelector: string,
+    relativePath: string,
+    absolutePath?: string
+  ): Promise<DirEntry[]> {
+    if (absolutePath) {
+      return this.readAuthorizedDir(
+        await this.resolveAbsoluteScopePath(worktreeSelector, absolutePath)
+      )
+    }
+    const target = await this.resolveFileExplorerPath(worktreeSelector, relativePath)
+    const provider = target.connectionId ? getSshFilesystemProvider(target.connectionId) : null
+    if (target.connectionId) {
+      if (!provider) {
+        throw new Error(SSH_FILESYSTEM_PROVIDER_UNAVAILABLE_MESSAGE)
+      }
+      // Why: re-sort locally — the remote relay may be an older build with
+      // lexicographic ordering.
+      return sortDirEntries(await provider.readDir(target.path))
+    }
+
+    return this.readAuthorizedDir(
+      await resolveAuthorizedPath(target.path, this.host.requireStore())
+    )
   }
 
   async watchFileExplorer(
@@ -1885,8 +1925,18 @@ export class RuntimeFileCommands {
 
   async statRuntimeFile(
     worktreeSelector: string,
-    relativePath: string
+    relativePath: string,
+    absolutePath?: string
   ): Promise<{ size: number; isDirectory: boolean; mtime: number }> {
+    if (absolutePath) {
+      const scopedPath = await this.resolveAbsoluteScopePath(worktreeSelector, absolutePath)
+      const scopedStats = await stat(scopedPath)
+      return {
+        size: scopedStats.size,
+        isDirectory: scopedStats.isDirectory(),
+        mtime: scopedStats.mtimeMs
+      }
+    }
     const target = await this.resolveFileExplorerPath(worktreeSelector, relativePath)
     const provider = target.connectionId ? getSshFilesystemProvider(target.connectionId) : null
     if (target.connectionId) {

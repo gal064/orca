@@ -91,6 +91,7 @@ import type { ResolvedSourceControlAiGenerationParams } from '../../shared/sourc
 import { withLinkedIssueDraftContext } from '../../shared/source-control-ai-action-variables'
 import { validateGitPushTarget } from '../git/push-target-validation'
 import { getRemoteCommitUrl, getRemoteFileUrl } from '../git/repo'
+import { lookupRepoRootForPath, resolveLocalRepoRootForPath } from '../git/repo-root-for-path'
 import {
   resolveAuthorizedPath,
   resolveRegisteredWorktreePath,
@@ -1170,6 +1171,35 @@ export function registerFilesystemHandlers(
   ipcMain.handle('git:cancelStatus', (event, args: { requestToken: string }): void => {
     gitStatusCancellations.cancel(event, args.requestToken)
   })
+
+  // Why resolveAuthorizedPath and not resolveRegisteredWorktreePath: terminal
+  // mode asks about the shell's pwd, which is by definition not a registered
+  // worktree. Containment against the allow-list is the right door for a
+  // read-only "is there a repo here" probe (docs/terminal-mode-design.md P3.1).
+  ipcMain.handle(
+    'git:repoRootForPath',
+    async (_event, args: { dirPath: string; connectionId?: string }): Promise<string | null> => {
+      if (args.connectionId) {
+        const provider = getSshGitProvider(args.connectionId)
+        if (!provider) {
+          throw new Error(SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE)
+        }
+        return lookupRepoRootForPath(`ssh:${args.connectionId}`, args.dirPath, async (dirPath) => {
+          const result = await provider.isGitRepoAsync(dirPath)
+          return result.isRepo ? result.rootPath?.trim() || null : null
+        })
+      }
+      const dirPath = await resolveAuthorizedPath(args.dirPath, store)
+      const repo = getLocalRepoForRegisteredWorktree(store, args.dirPath, dirPath)
+      const gitOptions = getLocalGitOptionsForRepo(store, repo)
+      // Why the distro in the key: a WSL path resolved by a caller with no distro
+      // would otherwise serve a wrong root to the WSL-aware caller for the whole TTL.
+      const hostKey = gitOptions.wslDistro ? `wsl:${gitOptions.wslDistro}` : 'local'
+      return lookupRepoRootForPath(hostKey, dirPath, (candidate) =>
+        resolveLocalRepoRootForPath(candidate, gitOptions)
+      )
+    }
+  )
 
   ipcMain.handle(
     'git:setStatusUpstreamRefWatch',

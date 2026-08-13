@@ -22,6 +22,7 @@ import {
   GitRebaseFromBase,
   GitRemoteCommitUrl,
   GitRemoteFileUrl,
+  GitRepoRootForPath,
   GitStatusParams,
   GitSubmoduleStatus,
   GitTargetedRemote,
@@ -113,6 +114,11 @@ export const GIT_METHODS: RpcMethod[] = [
         ? runtime.getRuntimeGitStatus(params.worktree)
         : runtime.getRuntimeGitStatus(params.worktree, options)
     }
+  }),
+  defineMethod({
+    name: 'git.repoRootForPath',
+    params: GitRepoRootForPath,
+    handler: async (params, { runtime }) => runtime.getRuntimeRepoRootForPath(params.path)
   }),
   defineMethod({
     name: 'git.checkIgnored',

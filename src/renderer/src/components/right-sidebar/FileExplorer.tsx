@@ -57,6 +57,8 @@ import { CLOSE_ALL_CONTEXT_MENUS_EVENT } from '@/components/tab-bar/SortableTab'
 import type { RightSidebarExplorerView } from '../../../../shared/types'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { createNewTerminalTab } from '@/components/terminal/terminal-tab-create'
+import { useTerminalModePanelRoot } from './use-terminal-mode-panels'
+import { TerminalModeExplorerClampNotice } from './TerminalModeExplorerClampNotice'
 
 function FileExplorerFiles(): React.JSX.Element {
   const explorerView = useAppStore((s) => s.rightSidebarExplorerView)
@@ -111,7 +113,10 @@ function FileExplorerFiles(): React.JSX.Element {
   )
   const toggleShowDotfilesForWorktree = useAppStore((s) => s.toggleShowDotfilesForWorktree)
 
-  const worktreePath = activeWorktree?.path ?? null
+  // Terminal mode roots the explorer at the focused terminal's literal pwd
+  // (docs/terminal-mode-spec.md §2); null in classic mode.
+  const terminalModePanelRoot = useTerminalModePanelRoot(activeWorktreeId)
+  const worktreePath = terminalModePanelRoot ?? activeWorktree?.path ?? null
   const runtimeDownloadContext = useMemo(
     () =>
       activeRuntimeEnvironmentId && activeWorktreeId && worktreePath
@@ -679,6 +684,7 @@ function FileExplorerFiles(): React.JSX.Element {
           showDotfiles={showDotfiles}
           onToggleDotfiles={handleToggleDotfiles}
         />
+        <TerminalModeExplorerClampNotice workspaceKey={activeWorktreeId} />
         <FileExplorerQueryStrip view={explorerView} onSelectView={handleSelectExplorerView}>
           {/* Why: keep both query rows mounted and cross-fade so the Names/Contents
              switch does not remount or shift when changing modes. */}

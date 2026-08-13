@@ -859,7 +859,12 @@ import {
   removeWorktree
 } from '../git/worktree'
 import type { AddWorktreeOptions, AddWorktreeResult } from '../git/worktree'
-import { isENOENT, invalidateAuthorizedRootsCache } from '../ipc/filesystem-auth'
+import {
+  isENOENT,
+  invalidateAuthorizedRootsCache,
+  resolveAuthorizedPath
+} from '../ipc/filesystem-auth'
+import { recordTerminalModeObservedCwd } from '../ipc/terminal-mode-path-scope'
 import {
   createSetupRunnerScript,
   getDefaultTabCommandTrustContent,
@@ -9219,6 +9224,7 @@ export class OrcaRuntimeService {
   private readonly gitCommands = new RuntimeGitCommands({
     resolveRuntimeGitTarget: (selector) => this.resolveRuntimeGitTarget(selector),
     getRuntimeSettings: () => this.requireStore().getSettings() as GlobalSettings,
+    authorizeHostPath: (absolutePath) => resolveAuthorizedPath(absolutePath, this.requireStore()),
     getCommitMessageAgentEnvironment: () => this.commitMessageAgentEnv ?? undefined,
     // Why: resolved worktrees are cached for a second, so link/unlink would lag
     // generation; meta is keyed by the same id the resolver returns.
@@ -9249,6 +9255,8 @@ export class OrcaRuntimeService {
 
   getRuntimeGitStatus: RuntimeGitCommands['getRuntimeGitStatus'] =
     this.gitCommands.getRuntimeGitStatus.bind(this.gitCommands)
+  getRuntimeRepoRootForPath: RuntimeGitCommands['getRuntimeRepoRootForPath'] =
+    this.gitCommands.getRuntimeRepoRootForPath.bind(this.gitCommands)
   getRuntimeGitSubmoduleStatus: RuntimeGitCommands['getRuntimeGitSubmoduleStatus'] =
     this.gitCommands.getRuntimeGitSubmoduleStatus.bind(this.gitCommands)
   checkRuntimeGitIgnoredPaths: RuntimeGitCommands['checkRuntimeGitIgnoredPaths'] =
@@ -10834,7 +10842,17 @@ export class OrcaRuntimeService {
    *  through here, so pwd tracking cannot miss a source. */
   private setTrackedPtyCwd(ptyId: string, cwd: string): void {
     this.terminalCwdByPtyId.set(ptyId, cwd)
+    this.recordObservedPtyCwd(ptyId, cwd)
     this.recordTerminalSideEffectFact(ptyId, { kind: 'cwd', cwd })
+  }
+
+  /** Corroboration for terminal mode's filesystem grant: main only authorizes a
+   *  directory it has itself seen one of that workspace's shells in. */
+  recordObservedPtyCwd(ptyId: string, cwd: string): void {
+    const worktreeId = this.ptysById.get(ptyId)?.worktreeId
+    if (worktreeId && cwd) {
+      recordTerminalModeObservedCwd(worktreeId, cwd)
+    }
   }
 
   private recordOsc7MetadataForPty(

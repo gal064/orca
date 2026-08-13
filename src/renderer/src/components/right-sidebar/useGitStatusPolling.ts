@@ -15,6 +15,7 @@ import { useGitStatusFileWatchRefresh } from './git-status-file-watch-refresh'
 import { useGitStatusPushSignalRefresh } from './git-status-push-signal-refresh'
 import { useStaleConflictOperationPolling } from './stale-conflict-operation-poll'
 import { useGitStatusUpstreamRefWatch } from './use-git-status-upstream-ref-watch'
+import { useTerminalModeGitWorkspace } from './use-terminal-mode-panels'
 import {
   createGitStatusRefreshPacing,
   createGitStatusRefreshScheduler,
@@ -39,7 +40,11 @@ const SLOW_GIT_POLL_BACKOFF = {
 export function useGitStatusPolling(options: { enabled?: boolean } = {}): void {
   const enabled = options.enabled ?? true
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
-  const activeWorktree = useWorktreeById(activeWorktreeId)
+  const classicActiveWorktree = useWorktreeById(activeWorktreeId)
+  // Terminal mode polls the repository enclosing the focused terminal's pwd; null
+  // in classic mode, where the workspace's own path is polled as before.
+  const terminalModeGit = useTerminalModeGitWorkspace(activeWorktreeId)
+  const activeWorktree = terminalModeGit ? terminalModeGit.worktree : classicActiveWorktree
   const activeExecutionHostId = useAppStore((s) =>
     getExecutionHostIdForWorktree(s, activeWorktreeId)
   )
@@ -61,7 +66,8 @@ export function useGitStatusPolling(options: { enabled?: boolean } = {}): void {
   const worktreePath = activeWorktree?.path ?? null
   const activePushTarget = activeWorktree?.pushTarget
   const activeRepoId = activeWorktree?.repoId ?? null
-  const activeRepo = useRepoById(activeRepoId)
+  const classicActiveRepo = useRepoById(classicActiveWorktree?.repoId ?? null)
+  const activeRepo = terminalModeGit ? terminalModeGit.repo : classicActiveRepo
   const activeRepoSupportsGit = activeRepo ? isGitRepoKind(activeRepo) : false
   const activeConnectionId = activeRepo?.connectionId ?? null
   const isConnectionReady = useCallback(

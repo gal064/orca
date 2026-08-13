@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import type { Store } from '../persistence'
 import { isTerminalModeGroup } from '../../shared/terminal-mode-group'
+import { getTerminalModePathScopeRoots, isTerminalModeGitRoot } from './terminal-mode-path-scope'
 import { isRepoRoot, listRepoWorktrees } from '../repo-worktrees'
 import { computeWorkspaceRoot, getWorktreePathSettings } from './worktree-logic'
 import { isPathInsideOrEqual } from '../../shared/cross-platform-path'
@@ -153,7 +154,10 @@ export function getAllowedRoots(store: Store): string[] {
   const settings = store.getSettings()
   const roots = [
     ...localRepos.map((repo) => resolve(repo.path)),
-    ...getLocalFolderScopeRoots(store)
+    ...getLocalFolderScopeRoots(store),
+    // Terminal mode only: the one directory the active vertical tab's panels show.
+    // Empty in classic mode — see terminal-mode-path-scope.ts for the guarantees.
+    ...getTerminalModePathScopeRoots(store)
   ]
   if (settings.workspaceDir) {
     if (localRepos.length === 0) {
@@ -421,6 +425,12 @@ export async function resolveRegisteredWorktreePath(
 
   const resolvedTarget = resolve(worktreePath)
   if (registeredWorktreeRoots.has(resolvedTarget) || isRepoRoot(store.getRepos(), resolvedTarget)) {
+    return resolvedTarget
+  }
+  // Terminal mode's git panel operates on the repository enclosing the shell's
+  // pwd, which main resolved itself with `rev-parse --show-toplevel` and which no
+  // `git worktree list` for an added project can contain. Empty in classic mode.
+  if (isTerminalModeGitRoot(resolvedTarget, store)) {
     return resolvedTarget
   }
 

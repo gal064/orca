@@ -24,6 +24,7 @@ import {
   type ActivityBarItem
 } from './activity-bar-buttons'
 import { getActiveChecksStatus } from './active-checks-status'
+import { useTerminalModeGitWorkspace } from './use-terminal-mode-panels'
 import { getVisibleRightSidebarActivityItems } from './right-sidebar-activity-visibility'
 import { getPluginPanelActivityItems } from './plugin-panel-activity-items'
 import {
@@ -88,7 +89,17 @@ function RightSidebarInner(): React.JSX.Element {
   const activeRepo = useRepoById(activeWorktree?.repoId ?? null)
   const activeWorkspaceScope = parseWorkspaceKey(activeWorktreeId ?? '')
   const isFolderWorkspace = activeWorkspaceScope?.type === 'folder'
-  const isFolder = isFolderWorkspace || (activeRepo ? isFolderRepo(activeRepo) : false)
+  // Terminal mode: a vertical tab whose pwd is inside a repository gets the git
+  // tabs back, because Source Control operates on that repository.
+  const terminalModeGit = useTerminalModeGitWorkspace(activeWorktreeId)
+  // Why never a folder in terminal mode: the git tabs must stay reachable for a
+  // vertical tab whether or not its pwd is inside a repository — the panel's own
+  // empty state is the affordance that explains how to get changes there
+  // (docs/terminal-mode-spec.md §4), and hiding the tab on every `cd` out of a
+  // repo would make the activity bar flicker instead.
+  const isFolder = terminalModeGit
+    ? false
+    : isFolderWorkspace || (activeRepo ? isFolderRepo(activeRepo) : false)
   const isSshRepo = Boolean(activeRepo?.connectionId)
   const pluginSystemEnabled = useAppStore((s) => s.settings?.pluginSystemEnabled === true)
   const pluginPanels = usePluginPanels()

@@ -52,6 +52,7 @@ import { createRemoteServerUpdatesSlice } from './remote-server-updates'
 import { createTerminalQuickCommandHostsSlice } from './terminal-quick-command-hosts'
 import { createVerticalTabsSlice } from './vertical-tabs'
 import { createTerminalCwdSlice } from './terminal-cwd'
+import { createTerminalModePanelsSlice } from './terminal-mode-panels'
 import { translate } from '@/i18n/i18n'
 
 export const TEST_REPO = {
@@ -107,7 +108,8 @@ export function createTestStore() {
     ...createRemoteServerUpdatesSlice(...a),
     ...createTerminalQuickCommandHostsSlice(...a),
     ...createVerticalTabsSlice(...a),
-    ...createTerminalCwdSlice(...a)
+    ...createTerminalCwdSlice(...a),
+    ...createTerminalModePanelsSlice(...a)
   }))
 }
 

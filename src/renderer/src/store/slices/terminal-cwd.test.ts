@@ -163,3 +163,76 @@ describe('setPtyCwd', () => {
     expect(store.getState().cwdByPtyId['live-1']).toEqual({ cwd: '/srv/app', source: 'osc7' })
   })
 })
+
+describe('sticky pwd while a non-terminal tab is active', () => {
+  const withDiffTab = () =>
+    makeState({
+      activeTabIdByWorktree: { [VTAB_KEY]: 'diff-tab' },
+      ptyIdsByTabId: { 'tab-1': ['pty-1'], 'diff-tab': [] },
+      unifiedTabsByWorktree: {
+        [VTAB_KEY]: [
+          { id: 'tab-1' },
+          { id: 'diff-tab' }
+        ] as CwdState['unifiedTabsByWorktree'][string]
+      },
+      cwdByPtyId: { 'pty-1': { cwd: '/repo/src', source: 'osc7' } }
+    } as Partial<CwdState>)
+
+  it('follows the last terminal tab when a diff tab is focused', () => {
+    expect(resolveWorkspaceTerminalPtyId(withDiffTab(), VTAB_KEY)).toBe('pty-1')
+    expect(getActivePwdForVtab(withDiffTab(), VTAB_KEY)).toBe('/repo/src')
+  })
+
+  it('falls back to the start directory once no tab has a live PTY', () => {
+    const state = makeState({
+      activeTabIdByWorktree: { [VTAB_KEY]: 'diff-tab' },
+      ptyIdsByTabId: { 'diff-tab': [] },
+      unifiedTabsByWorktree: {
+        [VTAB_KEY]: [{ id: 'diff-tab' }] as CwdState['unifiedTabsByWorktree'][string]
+      }
+    } as Partial<CwdState>)
+    expect(resolveWorkspaceTerminalPtyId(state, VTAB_KEY)).toBeNull()
+    expect(getActivePwdForVtab(state, VTAB_KEY)).toBe('/home/dev')
+  })
+})
+
+describe('last focused terminal tab', () => {
+  it('prefers the remembered terminal tab over the last one in strip order', () => {
+    const state = makeState({
+      activeTabIdByWorktree: { [VTAB_KEY]: 'diff-tab' },
+      ptyIdsByTabId: { 'tab-a': ['pty-a'], 'tab-b': ['pty-b'], 'diff-tab': [] },
+      unifiedTabsByWorktree: {
+        [VTAB_KEY]: [
+          { id: 'tab-a' },
+          { id: 'tab-b' },
+          { id: 'diff-tab' }
+        ] as CwdState['unifiedTabsByWorktree'][string]
+      },
+      lastTerminalTabIdByWorkspace: { [VTAB_KEY]: 'tab-a' },
+      cwdByPtyId: {
+        'pty-a': { cwd: '/repo/a', source: 'osc7' },
+        'pty-b': { cwd: '/repo/b', source: 'osc7' }
+      }
+    } as Partial<CwdState>)
+    expect(getActivePwdForVtab(state, VTAB_KEY)).toBe('/repo/a')
+  })
+
+  it('falls back to strip order when nothing was remembered', () => {
+    const state = makeState({
+      activeTabIdByWorktree: { [VTAB_KEY]: 'diff-tab' },
+      ptyIdsByTabId: { 'tab-a': ['pty-a'], 'tab-b': ['pty-b'], 'diff-tab': [] },
+      unifiedTabsByWorktree: {
+        [VTAB_KEY]: [
+          { id: 'tab-a' },
+          { id: 'tab-b' },
+          { id: 'diff-tab' }
+        ] as CwdState['unifiedTabsByWorktree'][string]
+      },
+      cwdByPtyId: {
+        'pty-a': { cwd: '/repo/a', source: 'osc7' },
+        'pty-b': { cwd: '/repo/b', source: 'osc7' }
+      }
+    } as Partial<CwdState>)
+    expect(getActivePwdForVtab(state, VTAB_KEY)).toBe('/repo/b')
+  })
+})

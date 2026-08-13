@@ -441,7 +441,7 @@ describe('file RPC methods', () => {
       makeRequest('files.readDir', { worktree: 'id:wt-1', relativePath: '' })
     )
 
-    expect(runtime.readFileExplorerDir).toHaveBeenCalledWith('id:wt-1', '')
+    expect(runtime.readFileExplorerDir).toHaveBeenCalledWith('id:wt-1', '', undefined)
     expect(response).toMatchObject({
       ok: true,
       result: [{ name: 'src', isDirectory: true }]
@@ -865,7 +865,7 @@ describe('file RPC methods', () => {
       makeRequest('files.stat', { worktree: 'id:wt-1', relativePath: 'readme.md' })
     )
 
-    expect(runtime.statRuntimeFile).toHaveBeenCalledWith('id:wt-1', 'readme.md')
+    expect(runtime.statRuntimeFile).toHaveBeenCalledWith('id:wt-1', 'readme.md', undefined)
     expect(response).toMatchObject({ ok: true, result: { isDirectory: false } })
   })
 })

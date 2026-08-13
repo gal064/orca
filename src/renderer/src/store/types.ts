@@ -42,6 +42,7 @@ import type { RemoteServerUpdatesSlice } from './slices/remote-server-updates'
 import type { TerminalQuickCommandHostsSlice } from './slices/terminal-quick-command-hosts'
 import type { VerticalTabsSlice } from './slices/vertical-tabs'
 import type { TerminalCwdSlice } from './slices/terminal-cwd'
+import type { TerminalModePanelsSlice } from './slices/terminal-mode-panels'
 
 export type AppState = RepoSlice &
   SparsePresetsSlice &
@@ -86,4 +87,5 @@ export type AppState = RepoSlice &
   RemoteServerUpdatesSlice &
   TerminalQuickCommandHostsSlice &
   VerticalTabsSlice &
-  TerminalCwdSlice
+  TerminalCwdSlice &
+  TerminalModePanelsSlice

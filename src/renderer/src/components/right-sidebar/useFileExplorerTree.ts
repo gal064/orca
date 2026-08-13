@@ -16,6 +16,7 @@ import {
 import { refreshFileExplorerExpandedDirs } from './file-explorer-expanded-dirs-refresh'
 import { collectStaleDirCachePaths } from './file-explorer-stale-dir-cache'
 import { fileExplorerRefreshConcurrency } from './file-explorer-refresh-concurrency'
+import { terminalModeFileScopeArgs } from '@/runtime/terminal-mode-file-scope'
 
 type UseFileExplorerTreeResult = {
   dirCache: Record<string, DirCache>
@@ -147,7 +148,8 @@ export function useFileExplorerTree(
           settings: route.settings,
           worktreeId: activeWorktreeId,
           worktreePath,
-          connectionId: route.connectionId
+          connectionId: route.connectionId,
+          ...terminalModeFileScopeArgs(activeWorktreeId)
         },
         path
       )

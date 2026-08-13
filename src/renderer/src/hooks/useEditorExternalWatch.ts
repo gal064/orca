@@ -34,6 +34,10 @@ import { markFileChangedOnDisk } from '@/components/editor/editor-changed-on-dis
 import { getDiskBaselineSignature } from '@/components/editor/diff-content-signature'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import { getFolderWorkspaceConnectionId } from '@/lib/folder-workspace-connection'
+import {
+  selectTerminalModePanelScopeForWorkspace,
+  selectTerminalModeWatchRoots
+} from '@/store/slices/terminal-mode-panels'
 
 // Why: atomic writes burst same-path events; one reload dispatch each fans out into N EditorPanel rebuilds that can wedge the renderer (issue #826), so debounce per (worktreeId+path).
 const EXTERNAL_RELOAD_DEBOUNCE_MS = 75
@@ -99,6 +103,7 @@ export type EditorExternalWatchTargetState = Pick<
   | 'sshConnectionStates'
   | 'folderWorkspaces'
   | 'projectGroups'
+  | 'terminalModePanelScope'
 >
 
 let cachedOpenFiles: AppState['openFiles'] | null = null
@@ -113,6 +118,7 @@ let cachedGitStatusHugeByWorktree: AppState['gitStatusHugeByWorktree'] | null = 
 let cachedSshConnectionStates: AppState['sshConnectionStates'] | null = null
 let cachedFolderWorkspaces: AppState['folderWorkspaces'] | null = null
 let cachedProjectGroups: AppState['projectGroups'] | null = null
+let cachedTerminalModePanelScope: AppState['terminalModePanelScope'] | null = null
 let cachedWatchedTargetsSnapshot: WatchedTargetsSnapshot = { targets: [], targetsKey: '' }
 
 export function getWatchedTargetKey(target: WatchedTarget): string {
@@ -140,7 +146,8 @@ export function getEditorExternalWatchTargets(
     cachedGitStatusHugeByWorktree === state.gitStatusHugeByWorktree &&
     cachedSshConnectionStates === state.sshConnectionStates &&
     cachedFolderWorkspaces === state.folderWorkspaces &&
-    cachedProjectGroups === state.projectGroups
+    cachedProjectGroups === state.projectGroups &&
+    cachedTerminalModePanelScope === state.terminalModePanelScope
   ) {
     return cachedWatchedTargetsSnapshot
   }
@@ -163,13 +170,21 @@ export function getEditorExternalWatchTargets(
   const activeRepo = activeWorktree
     ? state.repos.find((repo) => repo.id === activeWorktree.repoId)
     : undefined
+  // Why the terminal-mode arm: a vertical tab is a folder workspace, so it is in
+  // neither `worktreesByRepo` nor `repos` and `activeRepo` is always undefined —
+  // which would leave the git panel with no watcher at all whenever it is the only
+  // open surface, and the pwd-derived watch roots below unreachable.
+  const terminalModeGitRoot = activeWorktreeId
+    ? (selectTerminalModePanelScopeForWorkspace(state, activeWorktreeId)?.repoRoot ?? null)
+    : null
   const sourceControlCanConsumeWatch =
     !!activeWorktreeId &&
-    !!activeRepo &&
-    isGitRepoKind(activeRepo) &&
     !state.gitStatusHugeByWorktree[activeWorktreeId] &&
-    (!activeRepo.connectionId ||
-      state.sshConnectionStates.get(activeRepo.connectionId)?.status === 'connected')
+    (terminalModeGitRoot !== null ||
+      (!!activeRepo &&
+        isGitRepoKind(activeRepo) &&
+        (!activeRepo.connectionId ||
+          state.sshConnectionStates.get(activeRepo.connectionId)?.status === 'connected')))
   const activeWorktreeNeedsSidebarWatch =
     activeWorktreeId !== null &&
     state.rightSidebarOpen &&
@@ -211,15 +226,23 @@ export function getEditorExternalWatchTargets(
     const owners = Array.from(targetOwnersByWorktreeId.get(id) ?? []).sort((a, b) =>
       (a ?? '').localeCompare(b ?? '')
     )
+    // Terminal mode watches what its panels show: the explorer's pwd and, when it
+    // differs, the repository Source Control is rooted at. A single watcher on the
+    // workspace's start folder would starve one of the two.
+    const watchPaths = selectTerminalModeWatchRoots(state, id) ?? [
+      wt?.path ?? folderWorkspace!.folderPath
+    ]
     for (const owner of owners) {
-      const target = {
-        worktreeId: id,
-        worktreePath: wt?.path ?? folderWorkspace!.folderPath,
-        connectionId: connectionId ?? undefined,
-        runtimeEnvironmentId: owner
+      for (const watchPath of watchPaths) {
+        const target = {
+          worktreeId: id,
+          worktreePath: watchPath,
+          connectionId: connectionId ?? undefined,
+          runtimeEnvironmentId: owner
+        }
+        nextTargets.push(target)
+        parts.push(getWatchedTargetKey(target))
       }
-      nextTargets.push(target)
-      parts.push(getWatchedTargetKey(target))
     }
   }
 
@@ -236,6 +259,7 @@ export function getEditorExternalWatchTargets(
   cachedSshConnectionStates = state.sshConnectionStates
   cachedFolderWorkspaces = state.folderWorkspaces
   cachedProjectGroups = state.projectGroups
+  cachedTerminalModePanelScope = state.terminalModePanelScope
 
   if (targetsKey === cachedWatchedTargetsSnapshot.targetsKey) {
     return cachedWatchedTargetsSnapshot
@@ -271,6 +295,10 @@ export function useEditorExternalWatch(): void {
     ((payload: FsChangedPayload, runtimeEnvironmentId?: string | null) => void) | null
   >(null)
 
+  // Why: only terminal mode makes two targets share a watch path, and the unwatch
+  // guard below must not change classic behavior with the flag off.
+  const terminalModeScopeActive = useAppStore((s) => s.terminalModePanelScope !== null)
+
   // Why: diff prev vs next targets so unchanged worktrees keep their subscription; tearing down all on every targetsKey change churns watchers and drops events in the gap.
   useEffect(() => {
     const nextTargets = latestTargetsRef.current
@@ -280,13 +308,27 @@ export function useEditorExternalWatch(): void {
     const removed = prev.filter((t) => !nextKeys.has(getWatchedTargetKey(t)))
     const added = nextTargets.filter((t) => !prevKeys.has(getWatchedTargetKey(t)))
 
+    // Why: main keys local watch listeners by sender, not by subscription, so
+    // unwatching a path another live target still watches tears down that
+    // target's events too. Terminal mode makes overlap routine — a vertical tab's
+    // repo root is often a registered worktree path — so the guard is scoped to it
+    // rather than changing classic behavior on the way past.
+    const localWatchKey = (target: WatchedTarget): string =>
+      `${normalizeRuntimePathForComparison(target.worktreePath)}::${target.connectionId ?? 'local'}`
+    const retainedLocalWatchPaths = new Set(
+      terminalModeScopeActive
+        ? nextTargets
+            .filter((target) => !target.runtimeEnvironmentId)
+            .map((target) => localWatchKey(target))
+        : []
+    )
     for (const target of removed) {
       const key = getWatchedTargetKey(target)
       const remoteUnsubscribe = remoteWatchUnsubsRef.current.get(key)
       if (remoteUnsubscribe) {
         remoteUnsubscribe()
         remoteWatchUnsubsRef.current.delete(key)
-      } else {
+      } else if (!retainedLocalWatchPaths.has(localWatchKey(target))) {
         void window.api.fs.unwatchWorktree({
           worktreePath: target.worktreePath,
           connectionId: target.connectionId
@@ -342,7 +384,7 @@ export function useEditorExternalWatch(): void {
     }
     targetsRef.current = nextTargets
     // Why: intentionally differential — no unwatch on cleanup; final unmount unwatching lives in the [] effect below so targetsKey changes don't tear down everything.
-  }, [targetsKey])
+  }, [targetsKey, terminalModeScopeActive])
 
   // Why: keep the fs:changed subscription in an always-mounted [] effect so it doesn't re-subscribe on every targetsKey change and miss events fired during the gap.
   useEffect(() => {

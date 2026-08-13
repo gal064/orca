@@ -16,11 +16,16 @@ import type {
   RuntimeStatus
 } from '../../../shared/runtime-types'
 import {
+  assertRuntimeEnvironmentCapability,
   callRuntimeRpc,
   getActiveRuntimeTarget,
   RuntimeRpcCallError,
   unwrapRuntimeRpcResult
 } from './runtime-rpc-client'
+import {
+  ABSOLUTE_PATH_SCOPE_RUNTIME_CAPABILITY,
+  ABSOLUTE_PATH_SCOPE_UPDATE_REQUIRED_MESSAGE
+} from '../../../shared/protocol-version'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import { basename, joinPath, normalizeRelativePath } from '@/lib/path'
 import {
@@ -65,6 +70,15 @@ export type RuntimeFileOperationArgs = {
   expectedSshTargetId?: string
   expectedSshConnectionGeneration?: number
   expectedExternalSshTargetId?: string
+  /**
+   * Terminal mode only: read this path as an absolute host path instead of a
+   * worktree-relative one, because the panels follow a shell's pwd which can sit
+   * outside the workspace root. Set exclusively by callers that already verified
+   * the host advertises `terminal-mode.absolute-path-scope.v1`; the send site
+   * re-asserts it, because an older host would zod-strip the param and answer for
+   * the workspace root instead — wrong data rather than an error.
+   */
+  absolutePathScope?: boolean
 }
 
 function assertExternalSshReadOwnership(
@@ -464,6 +478,22 @@ export async function readRuntimeDirectory(
   context: RuntimeFileOperationArgs,
   dirPath: string
 ): Promise<DirEntry[]> {
+  const absoluteScope = await getRemoteAbsoluteScopeArgs(context, dirPath)
+  if (absoluteScope) {
+    return callRuntimeRpc<DirEntry[]>(
+      absoluteScope.target,
+      'files.readDir',
+      // relativePath is required by the schema; the host ignores it when
+      // absolutePath is present, and an old host would answer for the workspace
+      // root — which is what the capability gate above prevents.
+      {
+        worktree: absoluteScope.worktreeSelector,
+        relativePath: '',
+        absolutePath: absoluteScope.absolutePath
+      },
+      { timeoutMs: 15_000 }
+    )
+  }
   const remoteArgs = getRemoteFileArgs(context, dirPath)
   if (!remoteArgs) {
     assertLocalFilesystemFallbackAllowed(context)
@@ -1015,6 +1045,19 @@ export async function statRuntimePath(
   context: RuntimeFileOperationArgs,
   absolutePath: string
 ): Promise<{ size: number; isDirectory: boolean; mtime: number }> {
+  const absoluteScope = await getRemoteAbsoluteScopeArgs(context, absolutePath)
+  if (absoluteScope) {
+    return callRuntimeRpc<{ size: number; isDirectory: boolean; mtime: number }>(
+      absoluteScope.target,
+      'files.stat',
+      {
+        worktree: absoluteScope.worktreeSelector,
+        relativePath: '',
+        absolutePath: absoluteScope.absolutePath
+      },
+      { timeoutMs: 15_000 }
+    )
+  }
   const remoteArgs = getRemoteFileArgs(context, absolutePath)
   if (!remoteArgs) {
     assertLocalFilesystemFallbackAllowed(context)
@@ -1302,6 +1345,39 @@ function getRemoteFileArgs(
     worktreeId: context.worktreeId,
     worktreeSelector: toRuntimeWorktreeSelector(context.worktreeId),
     relativePath
+  }
+}
+
+/**
+ * Absolute-path routing for terminal mode's remote workspaces. Returns null for
+ * every caller that has not opted in, so the relative-path contract is untouched.
+ * The capability assert is the hard gate resolved question 3 requires: an older
+ * host strips the param and silently answers for the workspace root.
+ */
+async function getRemoteAbsoluteScopeArgs(
+  context: RuntimeFileOperationArgs,
+  absolutePath: string
+): Promise<{
+  target: ReturnType<typeof getActiveRuntimeTarget> & { kind: 'environment' }
+  worktreeSelector: string
+  absolutePath: string
+} | null> {
+  if (context.absolutePathScope !== true) {
+    return null
+  }
+  const target = getActiveRuntimeTarget(context.settings)
+  if (target.kind !== 'environment' || !context.worktreeId) {
+    return null
+  }
+  await assertRuntimeEnvironmentCapability(
+    target.environmentId,
+    ABSOLUTE_PATH_SCOPE_RUNTIME_CAPABILITY,
+    ABSOLUTE_PATH_SCOPE_UPDATE_REQUIRED_MESSAGE
+  )
+  return {
+    target,
+    worktreeSelector: toRuntimeWorktreeSelector(context.worktreeId),
+    absolutePath
   }
 }
 

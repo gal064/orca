@@ -23,6 +23,7 @@ import {
   setRepoRemoteClientNotifier
 } from '../ipc/repos'
 import { registerTerminalModeHandlers } from '../ipc/terminal-mode-group'
+import { registerTerminalModePathScopeHandlers } from '../ipc/terminal-mode-path-scope'
 import { registerWorktreeHandlers } from '../ipc/worktrees'
 import { registerWorkspaceCleanupHandlers } from '../ipc/workspace-cleanup'
 import {
@@ -118,6 +119,7 @@ export function attachMainWindowServices(
   // Why: deleting a folder workspace has no other path that kills its ptys.
   setFolderWorkspaceTerminalTeardown(runtime)
   registerTerminalModeHandlers(store)
+  registerTerminalModePathScopeHandlers(store)
   registerWorktreeHandlers(mainWindow, store, runtime, {
     onWorktreeLifecycle: options?.onWorktreeLifecycle
   })

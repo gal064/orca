@@ -18,6 +18,8 @@ type PollState = Pick<
   | 'cwdByPtyId'
   | 'ptyIdsByTabId'
   | 'terminalLayoutsByTabId'
+  | 'unifiedTabsByWorktree'
+  | 'lastTerminalTabIdByWorkspace'
 >
 
 /**
@@ -51,6 +53,27 @@ export function selectTerminalCwdPollPtyId(state: PollState): string | null {
 export function useTerminalCwdTracking(): void {
   const setPtyCwd = useAppStore((state) => state.setPtyCwd)
   const clearPtyCwd = useAppStore((state) => state.clearPtyCwd)
+  const recordActiveTerminalTab = useAppStore((state) => state.recordActiveTerminalTab)
+
+  // Why recorded rather than derived: `activeTabIdByWorktree` moves to an editor or
+  // diff tab when one is opened from the panels, and the spec's sticky rule wants
+  // the terminal the user was last in — not whichever terminal sits last in the strip.
+  const activeTerminalTab = useAppStore((state) => {
+    const workspaceKey = state.activeWorkspaceKey
+    const tabId = workspaceKey ? state.activeTabIdByWorktree[workspaceKey] : null
+    return workspaceKey && tabId && (state.ptyIdsByTabId[tabId]?.length ?? 0) > 0
+      ? `${workspaceKey}\u0000${tabId}`
+      : null
+  })
+  useEffect(() => {
+    if (!activeTerminalTab) {
+      return
+    }
+    const [workspaceKey, tabId] = activeTerminalTab.split('\u0000')
+    if (workspaceKey && tabId) {
+      recordActiveTerminalTab(workspaceKey, tabId)
+    }
+  }, [activeTerminalTab, recordActiveTerminalTab])
 
   useEffect(
     () =>

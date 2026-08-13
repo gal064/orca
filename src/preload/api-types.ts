@@ -1406,6 +1406,13 @@ export type PreloadApi = {
   terminalMode: {
     /** Hidden local project group backing terminal-mode vertical tabs, plus the default start dir. */
     ensureLocalContext: () => Promise<TerminalModeLocalContext>
+    /** Declares the directory terminal-mode panels are showing so the filesystem
+     *  boundary allows it; `null` revokes it. Rejected when the directory does not
+     *  resolve on this host, which is how a foreign pwd stays sticky. Returns the
+     *  repository enclosing it, resolved by main. */
+    setPathScope: (args: {
+      scope: { workspaceKey: string; root: string } | null
+    }) => Promise<{ accepted: boolean; repoRoot: string | null }>
   }
   sparsePresets: {
     list: (args: { repoId: string }) => Promise<SparsePreset[]>
@@ -2945,6 +2952,8 @@ export type PreloadApi = {
       branchLineTotalMergeBase?: string
       requestToken?: string
     }) => Promise<GitStatusResult>
+    /** Nearest enclosing repository root of an arbitrary directory, or null outside one. */
+    repoRootForPath: (args: { dirPath: string; connectionId?: string }) => Promise<string | null>
     cancelStatus: (args: { requestToken: string }) => Promise<void>
     setStatusUpstreamRefWatch: (args: {
       worktreeId: string

@@ -9,6 +9,7 @@ import {
   getFileExplorerOwnerUnresolvedMessage,
   getFileExplorerOperationRoute
 } from './file-explorer-operation-owner'
+import { terminalModeFileScopeArgs } from '@/runtime/terminal-mode-file-scope'
 
 export type FileExplorerDirectoryListing = {
   entries: DirEntry[]
@@ -53,7 +54,8 @@ export async function readFileExplorerDirectory(
       settings: route.settings,
       worktreeId: activeWorktreeId,
       worktreePath,
-      connectionId: route.connectionId
+      connectionId: route.connectionId,
+      ...terminalModeFileScopeArgs(activeWorktreeId)
     },
     dirPath
   )

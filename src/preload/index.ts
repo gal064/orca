@@ -756,7 +756,9 @@ const api = {
   } satisfies PreloadApi['folderWorkspaces'],
 
   terminalMode: {
-    ensureLocalContext: () => ipcRenderer.invoke('terminalMode:ensureLocalContext')
+    ensureLocalContext: () => ipcRenderer.invoke('terminalMode:ensureLocalContext'),
+    setPathScope: (args: { scope: { workspaceKey: string; root: string } | null }) =>
+      ipcRenderer.invoke('terminalMode:setPathScope', args)
   } satisfies PreloadApi['terminalMode'],
 
   sparsePresets: {
@@ -3280,6 +3282,8 @@ const api = {
       branchLineTotalMergeBase?: string
       requestToken?: string
     }): Promise<unknown> => ipcRenderer.invoke('git:status', args),
+    repoRootForPath: (args: { dirPath: string; connectionId?: string }): Promise<string | null> =>
+      ipcRenderer.invoke('git:repoRootForPath', args),
     cancelStatus: (args: { requestToken: string }): Promise<void> =>
       ipcRenderer.invoke('git:cancelStatus', args),
     setStatusUpstreamRefWatch: (args: {

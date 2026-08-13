@@ -11918,6 +11918,12 @@
             "title": "Delete this session?",
             "description": "\"{{value0}}\" will be deleted. Once deleted, it will no longer be resumable from {{value1}}'s own command line either.",
             "confirm": "Delete"
+          },
+          "TerminalModeExplorerClampNotice": {
+            "hint": "Host update needed to follow cd outside the start folder."
+          },
+          "TerminalModeSourceControlEmptyState": {
+            "noRepo": "Not a git repository — cd into one to see changes."
           }
         }
       },

@@ -24,30 +24,64 @@ const MAX_TRACKED_PTY_CWDS = 256
 
 type TerminalPtyResolutionState = Pick<
   AppState,
-  'activeTabIdByWorktree' | 'ptyIdsByTabId' | 'terminalLayoutsByTabId'
+  | 'activeTabIdByWorktree'
+  | 'ptyIdsByTabId'
+  | 'terminalLayoutsByTabId'
+  | 'unifiedTabsByWorktree'
+  | 'lastTerminalTabIdByWorkspace'
 >
 
 export type TerminalCwdSlice = {
   cwdByPtyId: Record<string, TerminalCwdEntry>
+  /** Last tab per workspace that was focused *while owning a PTY* — the sticky-pwd
+   *  anchor once an editor or diff tab takes focus. Recorded by
+   *  `useTerminalCwdTracking`, so classic mode never writes it. */
+  lastTerminalTabIdByWorkspace: Record<string, string>
   setPtyCwd: (ptyId: string, cwd: string, source: TerminalCwdSource) => void
+  recordActiveTerminalTab: (workspaceKey: string, tabId: string) => void
   /** Drop a dead PTY's directory. Orca reuses PTY ids across incarnations, so a
    *  retained entry would show the previous shell's directory in the new one. */
   clearPtyCwd: (ptyId: string) => void
 }
 
+/** The last terminal tab the user focused, else the last tab in strip order that
+ *  still owns a PTY (a session restored without any focus history). */
+function findFallbackTerminalTabId(
+  state: TerminalPtyResolutionState,
+  workspaceKey: string
+): string | null {
+  const remembered = state.lastTerminalTabIdByWorkspace?.[workspaceKey]
+  if (remembered && (state.ptyIdsByTabId[remembered]?.length ?? 0) > 0) {
+    return remembered
+  }
+  const tabs = state.unifiedTabsByWorktree?.[workspaceKey] ?? []
+  for (let index = tabs.length - 1; index >= 0; index -= 1) {
+    const candidate = tabs[index]
+    if (candidate && (state.ptyIdsByTabId[candidate.id]?.length ?? 0) > 0) {
+      return candidate.id
+    }
+  }
+  return null
+}
+
 /**
  * The PTY whose cwd represents a workspace: the focused pane of the workspace's
- * active *terminal* tab. `activeTabIdByWorktree` already holds the last terminal
- * tab even while an editor/diff tab is focused, which is exactly the spec's
- * sticky-pwd rule (terminal-mode-spec.md §4). It is sticky across *focus* only:
- * once that tab has no live PTY the caller falls back to the start directory
- * rather than reporting a directory no running shell is in.
+ * active tab, or — when that tab owns no PTY because it is an editor/diff/browser
+ * tab — of the last tab that still does. That is the spec's sticky-pwd rule
+ * (terminal-mode-spec.md §4). It is sticky across *focus* only: once no tab has a
+ * live PTY the caller falls back to the start directory rather than reporting a
+ * directory no running shell is in.
  */
 export function resolveWorkspaceTerminalPtyId(
   state: TerminalPtyResolutionState,
   workspaceKey: string
 ): string | null {
-  const tabId = state.activeTabIdByWorktree[workspaceKey] ?? null
+  const activeTabId = state.activeTabIdByWorktree[workspaceKey] ?? null
+  const activeHasPty = activeTabId && (state.ptyIdsByTabId[activeTabId]?.length ?? 0) > 0
+  // Why the fallback: opening a diff or editor tab from the panels makes it the
+  // active tab, and it owns no PTY — the spec's sticky rule says the panels keep
+  // following the last terminal instead of snapping back to the start directory.
+  const tabId = activeHasPty ? activeTabId : findFallbackTerminalTabId(state, workspaceKey)
   if (!tabId) {
     return null
   }
@@ -115,6 +149,20 @@ function pruneUnreferencedPtyCwds(
 
 export const createTerminalCwdSlice: StateCreator<AppState, [], [], TerminalCwdSlice> = (set) => ({
   cwdByPtyId: {},
+  lastTerminalTabIdByWorkspace: {},
+
+  recordActiveTerminalTab: (workspaceKey, tabId) => {
+    set((state) =>
+      state.lastTerminalTabIdByWorkspace[workspaceKey] === tabId
+        ? state
+        : {
+            lastTerminalTabIdByWorkspace: {
+              ...state.lastTerminalTabIdByWorkspace,
+              [workspaceKey]: tabId
+            }
+          }
+    )
+  },
 
   setPtyCwd: (ptyId, cwd, source) => {
     const trimmed = cwd.trim()

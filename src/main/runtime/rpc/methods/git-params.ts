@@ -15,6 +15,13 @@ export const GitStatusParams = WorktreeSelector.extend({
   branchLineTotalMergeBase: z.string().optional()
 })
 
+export const GitRepoRootForPath = z.object({
+  path: z
+    .unknown()
+    .transform((v) => (typeof v === 'string' ? v : ''))
+    .pipe(z.string().min(1, 'Missing path'))
+})
+
 export const GitCheckIgnored = WorktreeSelector.extend({
   paths: z.array(z.string().min(1, 'Missing path')).max(2000)
 })

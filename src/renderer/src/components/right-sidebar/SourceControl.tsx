@@ -36,6 +36,8 @@ import {
   resolveRemoteOperationErrorMessage
 } from '@/lib/source-control-remote-error'
 import { useActiveWorktree, useRepoById, useWorktreeMap } from '@/store/selectors'
+import { useTerminalModeGitWorkspace } from './use-terminal-mode-panels'
+import { TerminalModeSourceControlEmptyState } from './TerminalModeSourceControlEmptyState'
 import { getHostedReviewCacheKey } from '@/store/slices/hosted-review'
 import { getGitHubPRCacheKey } from '@/store/slices/github-cache-key'
 import { detectLanguage } from '@/lib/language-detect'
@@ -802,15 +804,20 @@ function SourceControlInner(): React.JSX.Element {
   const pendingCommentEditorRevealFrameIdsRef = useRef<number[]>([])
   // Why: setState is async, so a double-click can pass the isCommitting guard before re-render; a synchronously-flipped ref gives a true single-flight lock.
   const commitInFlightRef = useRef<Record<string, boolean>>({})
-  const activeWorktree = useActiveWorktree()
+  const classicActiveWorktree = useActiveWorktree()
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
+  // Terminal mode substitutes the workspace pair for one rooted at the repository
+  // enclosing the focused terminal's pwd (docs/terminal-mode-spec.md §3.3 item 3).
+  const terminalModeGit = useTerminalModeGitWorkspace(activeWorktreeId)
+  const activeWorktree = terminalModeGit ? terminalModeGit.worktree : classicActiveWorktree
   const activeWorktreeInstanceId = activeWorktree?.instanceId
   const activeGroupId = useAppStore((s) =>
     activeWorktreeId ? s.activeGroupIdByWorktree[activeWorktreeId] : undefined
   )
   const worktreeMap = useWorktreeMap()
   const rightSidebarTab = useAppStore((s) => s.rightSidebarTab)
-  const activeRepo = useRepoById(activeWorktree?.repoId ?? null)
+  const classicActiveRepo = useRepoById(classicActiveWorktree?.repoId ?? null)
+  const activeRepo = terminalModeGit ? terminalModeGit.repo : classicActiveRepo
   const activeRepoId = activeRepo?.id ?? null
   const activeRepoPath = activeRepo?.path ?? null
   const activeRepoConnectionId = activeRepo?.connectionId ?? null
@@ -1991,11 +1998,16 @@ function SourceControlInner(): React.JSX.Element {
 
   // Why: prune per-worktree state for removed worktrees so a reused ID doesn't inherit stale state (e.g. a stuck commitInFlightRef disabling Commit).
   useEffect(() => {
+    // Why the extra key: a terminal-mode vertical tab is not in the classic
+    // worktree map, so pruning by that alone drops the active tab's commit draft
+    // (and a live commitInFlightRef) on every background worktree refresh.
+    const isRetained = (key: string): boolean =>
+      worktreeMap.has(key) || (terminalModeGit !== null && key === activeWorktreeId)
     const pruneRecord = <T,>(prev: Record<string, T>): Record<string, T> => {
       let changed = false
       const next: Record<string, T> = {}
       for (const key of Object.keys(prev)) {
-        if (worktreeMap.has(key)) {
+        if (isRetained(key)) {
           next[key] = prev[key]
         } else {
           changed = true
@@ -2016,32 +2028,32 @@ function SourceControlInner(): React.JSX.Element {
     setGitHistoryByWorktree((prev) => pruneRecord(prev))
     // Refs don't need setState — mutate in place to drop stale keys.
     for (const key of Object.keys(commitInFlightRef.current)) {
-      if (!worktreeMap.has(key)) {
+      if (!isRetained(key)) {
         delete commitInFlightRef.current[key]
       }
     }
     for (const key of Object.keys(remoteActionErrorSequenceByWorktreeRef.current)) {
-      if (!worktreeMap.has(key)) {
+      if (!isRetained(key)) {
         delete remoteActionErrorSequenceByWorktreeRef.current[key]
       }
     }
     for (const key of Object.keys(generateInFlightRef.current)) {
-      if (!worktreeMap.has(key)) {
+      if (!isRetained(key)) {
         delete generateInFlightRef.current[key]
       }
     }
     for (const key of Object.keys(createPrIntentInFlightRef.current)) {
-      if (!worktreeMap.has(key)) {
+      if (!isRetained(key)) {
         delete createPrIntentInFlightRef.current[key]
         delete createPrIntentRunTokenRef.current[key]
       }
     }
     for (const key of Object.keys(gitHistoryRequestByWorktreeRef.current)) {
-      if (!worktreeMap.has(key)) {
+      if (!isRetained(key)) {
         delete gitHistoryRequestByWorktreeRef.current[key]
       }
     }
-  }, [updateCommitDrafts, worktreeMap])
+  }, [activeWorktreeId, terminalModeGit, updateCommitDrafts, worktreeMap])
 
   useEffect(() => {
     saveSessionCommitDrafts(commitDrafts)
@@ -5519,7 +5531,9 @@ function SourceControlInner(): React.JSX.Element {
   }, [handleDiscard, handleRevertAllInArea, pendingDiscard])
 
   if (!activeWorktree || !activeRepo || !worktreePath) {
-    return (
+    return terminalModeGit ? (
+      <TerminalModeSourceControlEmptyState pending={terminalModeGit.pending} />
+    ) : (
       <div className="flex items-center justify-center h-full text-xs text-muted-foreground px-4 text-center">
         {translate(
           'auto.components.right.sidebar.SourceControl.c07b236287',

@@ -35,6 +35,12 @@ const ALLOWED: Record<string, string> = {
   'store/classic-workspace-catalog.ts': 'the choke point',
   'store/slices/vertical-tabs.ts': 'owns vertical tabs',
   'components/vertical-tabs/use-vertical-tabs.ts': 'renders vertical tabs',
+  'components/vertical-tabs/use-terminal-mode-panel-scope.ts':
+    'resolves the active vertical tab start directory — vtabs only',
+  'components/vertical-tabs/use-terminal-mode-auto-title.ts':
+    'auto-titles vertical tabs from their own pwd — vtabs only',
+  'components/right-sidebar/use-terminal-mode-panels.ts':
+    'resolves the scoped vertical tab by id — vtabs only',
   'lib/terminal-mode-shortcuts.ts': 'resolves the active vertical tab',
 
   'store/slices/repos.ts': 'owns the catalog; create/update/delete must see every row',

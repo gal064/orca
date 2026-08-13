@@ -83,6 +83,22 @@ export const AGENT_SESSION_OMP_RESUME_PATH_RUNTIME_CAPABILITY =
 export const FILE_MUTATION_OWNERSHIP_RUNTIME_CAPABILITY = 'files.mutation-ownership.v1' as const
 export const FILE_MUTATION_OWNERSHIP_UPDATE_REQUIRED_MESSAGE =
   'Remote file changes require a newer Orca server. Update the HUB and try again.'
+// Why: terminal mode's panels follow a shell's pwd, which can sit outside the
+// workspace root the `worktree` selector resolves to. Hosts without this strip
+// `absolutePath` from files.readDir / files.stat and answer for the workspace
+// root instead — wrong data, not an error — so the client must clamp to the
+// workspace root unless the host advertises it.
+//
+// DELIBERATELY NOT IN `RUNTIME_CAPABILITIES` YET. A capability is a promise about
+// behavior, and it is permanent: a host can accept the param today but still
+// denies any path outside its own allow-list, because the terminal-mode grant is
+// declared by a renderer and an `orca serve` host has none. Phase 4 gives the host
+// a scope source of its own and advertises this then; until it does, every remote
+// vertical tab clamps to its start folder, which is the honest answer.
+export const ABSOLUTE_PATH_SCOPE_RUNTIME_CAPABILITY =
+  'terminal-mode.absolute-path-scope.v1' as const
+export const ABSOLUTE_PATH_SCOPE_UPDATE_REQUIRED_MESSAGE =
+  'Update the Orca server to follow cd outside this tab’s start folder.'
 
 export const RUNTIME_CAPABILITIES = [
   'runtime.status.compat.v1',

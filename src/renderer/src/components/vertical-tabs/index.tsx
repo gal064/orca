@@ -8,6 +8,8 @@ import { translate } from '@/i18n/i18n'
 import VerticalTabRow from './VerticalTabRow'
 import { useActiveVerticalTabId, useVerticalTabs } from './use-vertical-tabs'
 import { useActiveVerticalTabPwd } from './use-active-vertical-tab-pwd'
+import { useVerticalTabPwds } from './use-terminal-mode-auto-title'
+import { resolveVerticalTabDisplayName } from './terminal-mode-auto-title'
 
 /**
  * Terminal-mode left sidebar: the vertical tab strip (docs/terminal-mode-design.md
@@ -23,6 +25,8 @@ function VerticalTabsSidebar(): React.JSX.Element {
   // Working directory the panels follow (Phase 3); shown here so the strip
   // states which terminal directory is in scope.
   const activePwd = useActiveVerticalTabPwd()
+  // Auto-title: a tab is named after its focused terminal's directory until renamed.
+  const pwdByTabId = useVerticalTabPwds()
   const createVerticalTab = useAppStore((s) => s.createVerticalTab)
   const activateVerticalTab = useAppStore((s) => s.activateVerticalTab)
   const renameVerticalTab = useAppStore((s) => s.renameVerticalTab)
@@ -89,7 +93,7 @@ function VerticalTabsSidebar(): React.JSX.Element {
             <VerticalTabRow
               key={tab.id}
               id={tab.id}
-              name={tab.name}
+              name={resolveVerticalTabDisplayName(tab, pwdByTabId[tab.id])}
               folderPath={tab.folderPath}
               active={tab.id === activeTabId}
               onActivate={activateVerticalTab}

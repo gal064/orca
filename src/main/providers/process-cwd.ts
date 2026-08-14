@@ -9,18 +9,23 @@ import { readlink } from 'node:fs/promises'
  * is not a pattern used in this repo. The function is short and pure, and
  * the duplication is cheaper than reshaping both bundle graphs.
  *
- * Tries `/proc/<pid>/cwd` on Linux, falls back to `lsof -d cwd` on macOS.
- * Returns `''` when neither works (including Windows, where `/proc` is
+ * Tries `/proc/<pid>/cwd` on Linux, falls back to `lsof -d cwd` on macOS, and
+ * on macOS only, to the process's first child when `lsof` can read nothing for
+ * the pid itself (the setuid-root login wrapper — see {@link doResolve}).
+ * Returns `''` when none of those work (including Windows, where `/proc` is
  * absent and `lsof` is not native).
  *
  * Results are coalesced and briefly cached per-pid: rapid repeat calls
  * (e.g. chained Cmd+D on macOS) reuse a single `lsof` child rather than
  * stacking concurrent subprocesses whose results the caller may discard
- * after its own timeout.
+ * after its own timeout. The cache is keyed on the pid the caller passed; the
+ * child pid the macOS descent finds is nobody's held reference, so a recycled
+ * child within the TTL would be attributed to this parent.
  */
 const CACHE_TTL_MS = 1500
 const CACHE_MAX_ENTRIES = 256
 const LSOF_TIMEOUT_MS = 1500
+const PGREP_TIMEOUT_MS = 500
 
 type CacheEntry = { value: string; at: number }
 const resultCache = new Map<number, CacheEntry>()
@@ -44,11 +49,14 @@ export async function resolveProcessCwd(pid: number): Promise<string> {
   // Populate the cache inside the shared promise chain so every awaiter
   // (including any second caller that joined via `inflight`) observes the
   // result through the same write, rather than racing on a post-await set.
-  const promise = doResolve(pid).then((value) => {
-    rememberResult(pid, value, Date.now())
-    inflight.delete(pid)
-    return value
-  })
+  // `finally` rather than a tail of `then`: doResolve catches everything today,
+  // but a future throw must not strand the entry and wedge this pid forever.
+  const promise = doResolve(pid)
+    .then((value) => {
+      rememberResult(pid, value, Date.now())
+      return value
+    })
+    .finally(() => inflight.delete(pid))
   inflight.set(pid, promise)
   return promise
 }
@@ -84,29 +92,72 @@ async function doResolve(pid: number): Promise<string> {
     /* fall through */
   }
 
+  const direct = await readCwdForPid(pid)
+  if (direct.cwd || direct.timedOut || process.platform !== 'darwin') {
+    return direct.cwd
+  }
+
+  // Why: on macOS the pty process is `/usr/bin/login` (setuid root — see
+  // macos-tcc-login-shell.ts), whose file descriptors lsof will not report to a
+  // non-root caller, so the query above finds no cwd record at all. That
+  // trampoline `exec`s, so the user's shell is the login process's first child.
+  // A timeout is excluded above: a slow lsof is no evidence of a setuid parent,
+  // and descending on it would double this call's worst-case budget. The
+  // no-records signal is a proxy for "this is the wrapper" — if Orca itself ran
+  // as root, lsof would answer for login(1) and report its unchanging spawn
+  // directory instead.
+  const [firstChild] = await childPids(pid)
+  return firstChild === undefined ? '' : (await readCwdForPid(firstChild)).cwd
+}
+
+/** `timedOut` separates "lsof read nothing for this pid" from "lsof hung". */
+type CwdQuery = { cwd: string; timedOut: boolean }
+
+async function readCwdForPid(pid: number): Promise<CwdQuery> {
   try {
     // Why: `-a` ANDs the -p and -d filters. Without it, macOS lsof ORs them
     // and emits cwd records for every process on the system, so the n-line
     // scan below picks up the first unrelated process (often pid ~391 with
     // cwd `/`) and returns `/` regardless of the target pid's real cwd.
-    const stdout = await readCwdWithLsof(pid)
+    const stdout = await execFile(
+      'lsof',
+      ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'],
+      LSOF_TIMEOUT_MS
+    )
     for (const line of stdout.split('\n')) {
       if (line.startsWith('n') && line.includes('/')) {
         // Why: lsof -d cwd is authoritative — don't second-guess it with
         // existsSync. A concurrent rmdir would race the check and cause us
         // to drop the correct answer; node-pty handles a missing cwd on
         // spawn anyway.
-        return line.slice(1)
+        return { cwd: line.slice(1), timedOut: false }
       }
     }
-  } catch {
-    /* fall through */
+    return { cwd: '', timedOut: false }
+  } catch (error) {
+    // lsof exits non-zero with no output when it can read nothing for the pid,
+    // which is exactly the setuid case the caller descends on.
+    return { cwd: '', timedOut: error instanceof CommandTimeoutError }
   }
-
-  return ''
 }
 
-function readCwdWithLsof(pid: number): Promise<string> {
+/** Direct children of `pid`, empty when pgrep is unavailable or finds none. */
+async function childPids(pid: number): Promise<number[]> {
+  try {
+    const stdout = await execFile('pgrep', ['-P', String(pid)], PGREP_TIMEOUT_MS)
+    return stdout
+      .split('\n')
+      .map((line) => Number.parseInt(line.trim(), 10))
+      .filter((child) => Number.isInteger(child) && child > 0)
+  } catch {
+    // pgrep exits 1 when nothing matches, which execFile surfaces as an error.
+    return []
+  }
+}
+
+class CommandTimeoutError extends Error {}
+
+function execFile(file: string, args: string[], timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     let settled = false
     let child: ReturnType<typeof execFileCb> | undefined
@@ -116,8 +167,8 @@ function readCwdWithLsof(pid: number): Promise<string> {
       }
       settled = true
       child?.kill()
-      reject(new Error(`lsof timed out after ${LSOF_TIMEOUT_MS}ms`))
-    }, LSOF_TIMEOUT_MS)
+      reject(new CommandTimeoutError(`${file} timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
 
     const settle = (callback: () => void): void => {
       if (settled) {
@@ -128,15 +179,15 @@ function readCwdWithLsof(pid: number): Promise<string> {
       callback()
     }
 
-    // Why: execFile's timeout only signals lsof; a missing callback would
+    // Why: execFile's timeout only signals the child; a missing callback would
     // otherwise leave the shared per-pid cwd lookup promise cached forever.
     try {
       child = execFileCb(
-        'lsof',
-        ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'],
+        file,
+        args,
         {
           encoding: 'utf-8',
-          timeout: LSOF_TIMEOUT_MS
+          timeout: timeoutMs
         },
         (error, stdout) => {
           if (error) {

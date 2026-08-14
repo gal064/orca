@@ -33,6 +33,8 @@ function VerticalTabsSidebar(): React.JSX.Element {
   const pwdByTabId = useVerticalTabPwds()
   const activateVerticalTab = useAppStore((s) => s.activateVerticalTab)
   const createVerticalTab = useAppStore((s) => s.createVerticalTab)
+  // Shared with the "+" control: a create on a disconnected SSH host takes a connect first.
+  const creating = useAppStore((s) => s.verticalTabCreatesInFlight > 0)
   const handleCreateFirstTab = useCallback(() => {
     void createVerticalTab()
   }, [createVerticalTab])
@@ -94,12 +96,19 @@ function VerticalTabsSidebar(): React.JSX.Element {
             type="button"
             className="mx-2 rounded-md px-2 py-6 text-center text-xs text-muted-foreground hover:bg-worktree-sidebar-accent/60 hover:text-foreground"
             data-testid="vertical-tabs-empty-create"
+            aria-busy={creating}
+            disabled={creating}
             onClick={handleCreateFirstTab}
           >
-            {translate(
-              'auto.components.verticalTabs.VerticalTabsSidebar.emptyAction',
-              'No terminal tabs — create one'
-            )}
+            {creating
+              ? translate(
+                  'auto.components.verticalTabs.NewVerticalTabButton.creating',
+                  'Opening terminal tab…'
+                )
+              : translate(
+                  'auto.components.verticalTabs.VerticalTabsSidebar.emptyAction',
+                  'No terminal tabs — create one'
+                )}
           </button>
         ) : (
           tabs.map((tab) => (

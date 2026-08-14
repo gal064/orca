@@ -50,6 +50,7 @@ import { useAutomationDispatchEvents } from './hooks/useAutomationDispatchEvents
 import RetainedAgentsSyncGate from './components/dashboard/RetainedAgentsSyncGate'
 import { AgentHibernationGate } from './components/AgentHibernationGate'
 import { AiVaultTabTitleSyncGate } from './components/AiVaultTabTitleSyncGate'
+import { TerminalModeActiveTabFallbackGate } from './store/terminal-mode-active-tab-fallback'
 import { ActivityTitlebarControls } from './components/activity/ActivityTitlebarControls'
 import Sidebar from './components/Sidebar'
 import { shutdownBufferCaptures } from './components/terminal-pane/shutdown-buffer-captures'
@@ -2237,6 +2238,9 @@ function App(): React.JSX.Element {
               </Suspense>
             ) : null}
             <AgentHibernationGate />
+            {/* Why a leaf here and not in the sidebar: turning terminal mode off happens in
+            the Settings view, where the sidebar is unmounted (docs/terminal-mode-spec.md §3.3). */}
+            <TerminalModeActiveTabFallbackGate />
             {/* Why: workspace activation is a hot path; activeWorktreeId in reset keys would remount whole surfaces during wake. */}
             <RecoverableRenderErrorBoundary
               boundaryId="app.workspace-shell"

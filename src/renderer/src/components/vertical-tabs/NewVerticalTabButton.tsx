@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react'
-import { ChevronDown, Plus } from 'lucide-react'
+import { ChevronDown, Loader2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -25,6 +25,10 @@ import { useTerminalModeHostOptions } from './use-terminal-mode-host-options'
 function NewVerticalTabButton(): React.JSX.Element {
   const createVerticalTab = useAppStore((s) => s.createVerticalTab)
   const hosts = useTerminalModeHostOptions()
+  // Why the store and not local state: creating on a disconnected SSH host connects it
+  // first, which can take a relay deploy or a passphrase prompt (Phase 6, item 0a), and
+  // Cmd+T and the empty-state button start the same wait from outside this component.
+  const creating = useAppStore((s) => s.verticalTabCreatesInFlight > 0)
 
   const handleCreate = useCallback(() => {
     void createVerticalTab()
@@ -40,6 +44,10 @@ function NewVerticalTabButton(): React.JSX.Element {
     'auto.components.verticalTabs.VerticalTabsSidebar.newTab',
     'New terminal tab'
   )
+  const creatingLabel = translate(
+    'auto.components.verticalTabs.NewVerticalTabButton.creating',
+    'Opening terminal tab…'
+  )
 
   return (
     <div className="flex items-center">
@@ -49,15 +57,22 @@ function NewVerticalTabButton(): React.JSX.Element {
             variant="ghost"
             size="icon-xs"
             className="text-muted-foreground"
-            aria-label={newTabLabel}
+            aria-label={creating ? creatingLabel : newTabLabel}
+            aria-busy={creating}
+            disabled={creating}
             data-testid="vertical-tabs-new-tab"
+            data-creating={creating ? 'true' : undefined}
             onClick={handleCreate}
           >
-            <Plus className="size-3.5" strokeWidth={2.25} />
+            {creating ? (
+              <Loader2 className="size-3.5 animate-spin" strokeWidth={2.25} />
+            ) : (
+              <Plus className="size-3.5" strokeWidth={2.25} />
+            )}
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom" sideOffset={6}>
-          {newTabLabel}
+          {creating ? creatingLabel : newTabLabel}
         </TooltipContent>
       </Tooltip>
       {hosts.length > 1 ? (
@@ -67,6 +82,7 @@ function NewVerticalTabButton(): React.JSX.Element {
               variant="ghost"
               size="icon-xs"
               className="size-4 text-muted-foreground"
+              disabled={creating}
               aria-label={translate(
                 'auto.components.verticalTabs.NewVerticalTabButton.chooseHost',
                 'New terminal tab on…'

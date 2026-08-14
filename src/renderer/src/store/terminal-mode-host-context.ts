@@ -47,5 +47,37 @@ export async function ensureTerminalModeHostContext(
       )
     )
   }
-  return await ensureContext({ connectionId: route.kind === 'ssh' ? route.connectionId : null })
+  // Why fenced: the SSH leg expands `~` over the relay, whose own timeout is 30 s and whose
+  // failure path returns the unexpanded path rather than throwing. Nothing else bounds the
+  // wait, and the "+" control is showing progress for the whole of it.
+  return await withEnsureContextTimeout(
+    ensureContext({ connectionId: route.kind === 'ssh' ? route.connectionId : null })
+  )
+}
+
+const ENSURE_CONTEXT_TIMEOUT_MS = 45_000
+
+async function withEnsureContextTimeout(
+  request: Promise<TerminalModeLocalContext>
+): Promise<TerminalModeLocalContext> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new Error(
+          translate(
+            'auto.store.terminalModeHostContext.timedOut',
+            'The host did not answer in time. Check the connection and try again.'
+          )
+        )
+      )
+    }, ENSURE_CONTEXT_TIMEOUT_MS)
+  })
+  try {
+    return await Promise.race([request, timeout])
+  } finally {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  }
 }

@@ -3,13 +3,22 @@ import type { FolderWorkspace, ProjectGroup } from '../../../../shared/types'
 
 vi.mock('@/lib/renderer-app-platform', () => ({ getRendererAppPlatform: () => 'linux' }))
 
-const { ensureTerminalModeHostContext, terminalModeHostOptions } = vi.hoisted(() => ({
+const {
+  ensureTerminalModeHostContext,
+  ensureSshTargetConnectedForVerticalTab,
+  toastError,
+  terminalModeHostOptions
+} = vi.hoisted(() => ({
   ensureTerminalModeHostContext: vi.fn(),
+  ensureSshTargetConnectedForVerticalTab: vi.fn(),
+  toastError: vi.fn(),
   terminalModeHostOptions: {
     current: [] as { id: string; label: string; detail: string; supported: boolean }[]
   }
 }))
 vi.mock('../terminal-mode-host-context', () => ({ ensureTerminalModeHostContext }))
+vi.mock('../terminal-mode-ssh-connect', () => ({ ensureSshTargetConnectedForVerticalTab }))
+vi.mock('sonner', () => ({ toast: { error: toastError } }))
 vi.mock('@/lib/terminal-mode-host-options', () => ({
   selectTerminalModeHostOptions: () => terminalModeHostOptions.current
 }))
@@ -195,9 +204,17 @@ describe('createVerticalTab', () => {
   function makeStore(overrides: Record<string, unknown> = {}) {
     const createFolderWorkspace = vi.fn(async () => ({ id: 'new-vtab' }))
     const activateVerticalTab = vi.fn()
-    const setState = vi.fn()
+    const setSshConnectionState = vi.fn()
+    // Applies patches, so the in-flight counter the "+" controls read is observable here.
+    const setState = vi.fn((updater: unknown) => {
+      const patch =
+        typeof updater === 'function' ? (updater as (s: unknown) => object)(state) : updater
+      Object.assign(state, patch)
+    })
     const state: Record<string, unknown> = {
       settings: { experimentalTerminalMode: true },
+      verticalTabCreatesInFlight: 0,
+      setSshConnectionState,
       projectGroups: [hidden],
       folderWorkspaces: [tab('vtab', 'hidden', 1)],
       activeWorkspaceKey: 'folder:vtab',
@@ -207,17 +224,21 @@ describe('createVerticalTab', () => {
       unifiedTabsByWorktree: {},
       lastTerminalTabIdByWorkspace: {},
       cwdByPtyId: {},
+      sshConnectionStates: new Map(),
       createFolderWorkspace,
       activateVerticalTab,
       ...overrides
     }
     const get = () => state as never
     const slice = createVerticalTabsSlice(setState as never, get as never, undefined as never)
-    return { slice, createFolderWorkspace, activateVerticalTab, state }
+    return { slice, createFolderWorkspace, activateVerticalTab, setSshConnectionState, state }
   }
 
   beforeEach(() => {
     ensureTerminalModeHostContext.mockReset()
+    toastError.mockReset()
+    ensureSshTargetConnectedForVerticalTab.mockReset()
+    ensureSshTargetConnectedForVerticalTab.mockResolvedValue(undefined)
     ensureTerminalModeHostContext.mockResolvedValue({ projectGroup: hidden, homeDir: '/home/dev' })
     terminalModeHostOptions.current = [
       { id: 'local', label: 'Local', detail: 'This computer', supported: true },
@@ -290,6 +311,113 @@ describe('createVerticalTab', () => {
     expect(createFolderWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ connectionId: 'box' }),
       { runtimeEnvironmentId: null }
+    )
+  })
+
+  it('connects an SSH target before resolving its home directory', async () => {
+    terminalModeHostOptions.current = [
+      { id: 'local', label: 'Local', detail: '', supported: true },
+      { id: 'ssh:box', label: 'box', detail: '', supported: true }
+    ]
+    const { slice } = makeStore({ activeWorkspaceKey: null })
+    await slice.createVerticalTab({ hostId: 'ssh:box' })
+    expect(ensureSshTargetConnectedForVerticalTab).toHaveBeenCalledWith('box', expect.anything())
+    // Ordering is the fix: a disconnected target resolves `~` to the literal `~`.
+    expect(ensureSshTargetConnectedForVerticalTab.mock.invocationCallOrder[0]).toBeLessThan(
+      ensureTerminalModeHostContext.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('reads the live target status and publishes the connect result', async () => {
+    terminalModeHostOptions.current = [
+      { id: 'local', label: 'Local', detail: '', supported: true },
+      { id: 'ssh:box', label: 'box', detail: '', supported: true }
+    ]
+    const { slice, setSshConnectionState } = makeStore({
+      activeWorkspaceKey: null,
+      sshConnectionStates: new Map([['box', { targetId: 'box', status: 'connected' }]])
+    })
+    await slice.createVerticalTab({ hostId: 'ssh:box' })
+    const deps = ensureSshTargetConnectedForVerticalTab.mock.calls[0][1] as {
+      getStatus: () => string | undefined
+      onConnected: (state: unknown) => void
+    }
+    // Why live: the status can change during the connect the deps are handed to.
+    expect(deps.getStatus()).toBe('connected')
+    deps.onConnected({ targetId: 'box', status: 'connected' })
+    expect(setSshConnectionState).toHaveBeenCalledWith('box', {
+      targetId: 'box',
+      status: 'connected'
+    })
+  })
+
+  it('does not dial a connection for a local or runtime host', async () => {
+    const { slice } = makeStore({ activeWorkspaceKey: null })
+    await slice.createVerticalTab({ hostId: 'runtime:env-1' })
+    expect(ensureSshTargetConnectedForVerticalTab).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a failed SSH connect as a readable toast, not a created tab', async () => {
+    terminalModeHostOptions.current = [
+      { id: 'local', label: 'Local', detail: '', supported: true },
+      { id: 'ssh:box', label: 'box', detail: '', supported: true }
+    ]
+    ensureSshTargetConnectedForVerticalTab.mockRejectedValue(new Error('Connection timed out.'))
+    const { slice, createFolderWorkspace, state } = makeStore({ activeWorkspaceKey: null })
+    await expect(slice.createVerticalTab({ hostId: 'ssh:box' })).resolves.toBeNull()
+    expect(createFolderWorkspace).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledWith('Failed to create terminal tab', {
+      description: 'Connection timed out.'
+    })
+    expect(state.verticalTabCreatesInFlight).toBe(0)
+  })
+
+  it('refuses a host that could not expand its home directory', async () => {
+    // A relay-less SSH target answers `~` with `~`; creating there fails on a path the
+    // user never chose, so the readable failure belongs here.
+    ensureTerminalModeHostContext.mockResolvedValue({ projectGroup: hidden, homeDir: '~' })
+    const { slice, createFolderWorkspace } = makeStore({ activeWorkspaceKey: null })
+    await expect(slice.createVerticalTab()).resolves.toBeNull()
+    expect(createFolderWorkspace).not.toHaveBeenCalled()
+    expect(toastError.mock.calls[0][1].description).toMatch(/home directory/i)
+  })
+
+  it('reports creation as in flight while a host is being resolved', async () => {
+    let release: (() => void) | undefined
+    ensureTerminalModeHostContext.mockReturnValue(
+      new Promise((resolve) => {
+        release = () => resolve({ projectGroup: hidden, homeDir: '/home/dev' })
+      })
+    )
+    const { slice, state } = makeStore({ activeWorkspaceKey: null })
+    const pending = slice.createVerticalTab()
+    await Promise.resolve()
+    // The "+" control and the empty-state button both read this counter.
+    expect(state.verticalTabCreatesInFlight).toBe(1)
+    release?.()
+    await pending
+    expect(state.verticalTabCreatesInFlight).toBe(0)
+  })
+
+  it('inherits the pwd focused when the host finished, not when the click happened', async () => {
+    let release: (() => void) | undefined
+    ensureTerminalModeHostContext.mockReturnValue(
+      new Promise((resolve) => {
+        release = () => resolve({ projectGroup: hidden, homeDir: '/home/dev' })
+      })
+    )
+    const { slice, createFolderWorkspace, state } = makeStore({
+      cwdByPtyId: { 'pty-1': { cwd: '/srv/app', source: 'osc7' } }
+    })
+    const pending = slice.createVerticalTab()
+    await Promise.resolve()
+    // The user kept working during a connect that can last minutes.
+    state.cwdByPtyId = { 'pty-1': { cwd: '/srv/other', source: 'osc7' } }
+    release?.()
+    await pending
+    expect(createFolderWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ folderPath: '/srv/other' }),
+      expect.anything()
     )
   })
 

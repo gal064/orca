@@ -742,6 +742,37 @@ the wrong SSH timeout budget, the hand-rolled status check, button-local progres
 the sidebar mount point, a state snapshot held across a minutes-long await, an unfenced
 `ensureContext`, and the missing §3.3 entries.
 
+### Acceptance run (executed 2026-08-14, Linux/Xvfb `:99`, final Phase 6 code)
+
+Rig: dev client on its own profile (`/tmp/orca-p6c`) driven over CDP, plus real X key events
+through `xdotool` so the menu accelerators fire the way they do for a user; a second
+`orca serve` built from this branch (`/tmp/orca-p6s`, port 36791, paired as `p6-serve`). The
+machine's production serve (`~/orca-src`, :6768, `~/.config/orca`) and `~/.config/orca-dev`
+were not touched. Screenshots under `scratchpad/p6-shots/` (session-scoped, not in the tree).
+
+| Checklist row | Result |
+| --- | --- |
+| Create / rename / close vtabs; auto-title follows pwd until pinned | **Pass.** Created from the empty state, the "+", the host picker and `Ctrl+N`; `cd` retitles the tab (`p6-hostwork`), an inline rename pins it and a later `cd` no longer renames it — the pin survived a client restart. **Reorder: not implemented** (deferred since Phase 1, `manualOrder` unused, `createdAt` order). |
+| New vtab inherits host + pwd; default host; host picker | **Pass.** `Ctrl+N` from a tab sitting in a repo opened there; the picker lists Local / `p6-serve` / an SSH target and pins the new tab to the pick; a remote tab starts at the host's `$HOME`. |
+| New htab inherits pwd; shortcuts on Linux | **Pass.** `Ctrl+T` inherits the pwd; `Ctrl+1..3` switch vertical tabs; `Alt+1/2` switch horizontal tabs (default policy — the `terminal-first` caveat from Phase 5 is unchanged); `Ctrl+W` closes an htab without touching the vtab; `Ctrl+Shift+W` opens the close dialog. |
+| Explorer re-roots on `cd` | **Pass** for bash, local and remote (`p6-hostwork` → `sub/deeper` → repo, over the host grant). zsh/fish were not re-exercised in this pass (Phase 2/3 covered them). |
+| Git panel: repo detection, empty state, diff | **Pass (local).** Nearest-repo detection from the pwd, `CHANGES 1 · README.md +2 M`, the file opens a correct diff htab, and leaving the repo shows "Not a git repository — cd into one to see changes." **Remote is the documented clamp**: a remote tab shows the panel only when the pwd's repository *is* the workspace root, and even then `git.status` stays selector-addressed, so the changes list was empty. Pre-existing and recorded above ("`git.status` is still selector-addressed"). |
+| Fallback polling covers a stripped shell | **Pass.** Client relaunched with `ORCA_DISABLE_OSC7=1`; a new local vtab still followed `cd` into `sub/deeper` — tab auto-name and explorer both re-rooted from the process-cwd poll. |
+| Agent in an htab: dot, attention, click-through | **Pass.** A real `claude` session drove its row `Working` → `Done`; the Activity page listed the thread with a live preview and **"TERMINAL TABS"** as its heading (item 0b-i), and "Jump to workspace" from there landed on the right vertical tab with its terminal focused. |
+| Restart restores layout + pwds; reattach restores live sessions | **Pass (the MUST).** Client `SIGKILL` + relaunch: all four vtabs back, the remote tab reattached to the **same shell pid** with scrollback and pwd intact and its `nohup` counter still ticking, the local tab kept its pwd and scrollback. |
+| Host restart | **Pass.** `orca serve` killed and relaunched: the remote pane recovered on its own, same shell pid, correct pwd, no error banner, no vertical tab lost. |
+| Close-with-running-agent confirmation | **Pass.** With `claude` mid-turn the dialog names `claude`; Cancel leaves the tab and its processes alone. |
+| Classic mode with the flag off | **Pass.** Toggled from Settings: the vertical strip disappears, **no terminal pane is left rendered** (item 0b-ii), and the classic sidebar plus its empty state render normally. Toggling back restores all four tabs. |
+| SSH "+" connect UX (item 0a) | **Pass.** Against a deliberately unreachable target the "+" goes busy (`aria-busy`, "Opening terminal tab…") for the whole connect, and the failure toast reads "Failed to create terminal tab / connect ECONNREFUSED 127.0.0.1:59" — no `folder_workspace_path_unavailable:~`, no Electron `invoking remote method` wrapper, no phantom tab. |
+
+Two things the run found and fixed on the spot: the failure toast still carried Electron's IPC
+wrapper (now stripped in `terminal-mode-ssh-connect.ts`, with a unit test), and the earlier
+draft's activity heading would have mislabelled classic folder workspaces (fixed before the
+run, see the review round above).
+
+macOS local and macOS client → omarchy remote host remain the user's manual passes; Windows
+stays CI-only (the flag cannot be enabled there).
+
 ---
 
 ## Phase 2 implementation notes (recorded 2026-08-13)

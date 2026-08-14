@@ -161,6 +161,25 @@ On conflicts: do **not** `--abort` unilaterally. List the conflicted files, reso
 - localization catalogs → `pnpm run sync:localization-catalog`
 - bundled skill guides / manifest → `pnpm run generate:bundled-skill-guides` and `pnpm run generate:skill-bundle-manifest`
 
+### 3a. Terminal-mode isolation gate (only on a branch that has terminal mode)
+
+An upstream change that adds a new workspace-catalog enumeration leaks vertical tabs into
+classic UI silently, so run these before building — the tests are structural tripwires and a
+merge is exactly when they fire:
+
+```bash
+pnpm vitest run --config config/vitest.config.ts \
+  src/renderer/src/store/terminal-mode-isolation.test.ts \
+  src/renderer/src/store/classic-catalog-readers.test.ts \
+  src/main/runtime/terminal-mode-host-isolation.test.ts
+pnpm typecheck
+```
+
+If either command fails, **stop and report** — do not build or install. A new offender in
+`classic-catalog-readers.test.ts` means the merged code reads `projectGroups` /
+`folderWorkspaces` raw; route it through `src/renderer/src/store/classic-workspace-catalog.ts`
+(that file's header says which cases may be allowlisted instead).
+
 ## 4. Install dependencies
 
 ```bash

@@ -16,6 +16,7 @@ import { translate } from '@/i18n/i18n'
 import { isTerminalMode } from '@/lib/terminal-mode'
 import { getTerminalModeHostRoute, resolveNewVerticalTabHostId } from '@/lib/terminal-mode-hosts'
 import { ensureTerminalModeHostContext } from '../terminal-mode-host-context'
+import { ensureSshTargetConnectedForVerticalTab } from '../terminal-mode-ssh-connect'
 import { selectTerminalModeHostOptions } from '@/lib/terminal-mode-host-options'
 
 const NO_VERTICAL_TABS: readonly FolderWorkspace[] = Object.freeze([])
@@ -108,9 +109,27 @@ export function getActiveVerticalTabHostId(
   return activeId ? getVerticalTabHostId(state, activeId) : null
 }
 
+/**
+ * A host that could not expand `~` hands back the tilde itself (`resolveRemoteHomePath`
+ * has no live relay to ask), and the create then fails on a path the user never chose.
+ * Fail here instead, where the cause is still known.
+ */
+function assertResolvedHomeDir(homeDir: string): void {
+  if (!homeDir || homeDir.startsWith('~')) {
+    throw new Error(
+      translate(
+        'auto.store.slices.verticalTabs.homeUnresolved',
+        'Orca could not resolve the home directory on that host. Check the connection and try again.'
+      )
+    )
+  }
+}
+
 export type VerticalTabsSlice = {
   /** Folder-workspace id awaiting the close confirmation dialog. */
   verticalTabPendingCloseId: string | null
+  /** Creates awaiting a host — the "+" controls show progress while this is above zero. */
+  verticalTabCreatesInFlight: number
   /**
    * Called by the tab system when a user close empties a workspace. A no-op unless
    * terminal mode is on and the workspace is a vertical tab.
@@ -132,6 +151,7 @@ export const createVerticalTabsSlice: StateCreator<AppState, [], [], VerticalTab
   get
 ) => ({
   verticalTabPendingCloseId: null,
+  verticalTabCreatesInFlight: 0,
 
   closeVerticalTabIfEmptied: (workspaceKey, options) => {
     const state = get()
@@ -157,6 +177,7 @@ export const createVerticalTabsSlice: StateCreator<AppState, [], [], VerticalTab
   },
 
   createVerticalTab: async (options) => {
+    set((current) => ({ verticalTabCreatesInFlight: current.verticalTabCreatesInFlight + 1 }))
     try {
       const state = get()
       const inheritedHostId = getActiveVerticalTabHostId(state)
@@ -166,8 +187,18 @@ export const createVerticalTabsSlice: StateCreator<AppState, [], [], VerticalTab
         defaultHostId: state.settings?.terminalModeDefaultHost ?? null,
         availableHosts: selectTerminalModeHostOptions(state)
       })
-      const context = await ensureTerminalModeHostContext(hostId)
       const route = getTerminalModeHostRoute(hostId)
+      if (route.kind === 'ssh') {
+        const connectionId = route.connectionId
+        // Why before the ensure: it resolves the tab's start directory through the relay,
+        // which a disconnected target answers with the literal `~`.
+        await ensureSshTargetConnectedForVerticalTab(connectionId, {
+          getStatus: () => get().sshConnectionStates.get(connectionId)?.status,
+          onConnected: (connectState) => get().setSshConnectionState(connectionId, connectState)
+        })
+      }
+      const context = await ensureTerminalModeHostContext(hostId)
+      assertResolvedHomeDir(context.homeDir)
       // Why the owner is stamped here: the group was created on `hostId`, but the
       // renderer catalog has not fetched it yet, and every host resolution for the
       // new workspace reads it from this record.
@@ -183,9 +214,12 @@ export const createVerticalTabsSlice: StateCreator<AppState, [], [], VerticalTab
       )
       // Ghostty-style inheritance: a new tab opens where the focused terminal is —
       // but only when it runs on the same host, since a pwd is a path on one machine.
+      // Why re-read: an SSH connect above can take minutes, and the user's focused
+      // directory during that wait is the one they expect to inherit.
+      const current = get()
       const focusedPwd =
-        inheritedHostId === hostId && state.activeWorkspaceKey
-          ? getActivePwdForVtab(state, state.activeWorkspaceKey)
+        inheritedHostId === hostId && current.activeWorkspaceKey
+          ? getActivePwdForVtab(current, current.activeWorkspaceKey)
           : null
       const startDir = options?.startDir?.trim() || focusedPwd?.trim() || context.homeDir
       const workspace = await get().createFolderWorkspace(
@@ -211,6 +245,10 @@ export const createVerticalTabsSlice: StateCreator<AppState, [], [], VerticalTab
         { description: err instanceof Error ? err.message : undefined }
       )
       return null
+    } finally {
+      set((current) => ({
+        verticalTabCreatesInFlight: Math.max(0, current.verticalTabCreatesInFlight - 1)
+      }))
     }
   },
 

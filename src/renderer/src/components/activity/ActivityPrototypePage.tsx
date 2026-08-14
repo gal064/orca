@@ -25,6 +25,12 @@ import type { RetainedAgentEntry } from '@/store/slices/agent-status'
 import { getRepoMapFromState } from '@/store/selectors'
 import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import { selectActivityWorktreeMap } from './activity-workspace-rows'
+import {
+  ACTIVITY_TERMINAL_TABS_GROUP_KEY,
+  getActivityTerminalTabProjectLabel,
+  selectActivityTerminalTabKeys,
+  NO_ACTIVITY_TERMINAL_TAB_KEYS
+} from './activity-terminal-tab-group'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
 import { Button } from '@/components/ui/button'
 import { RepoBadgeMark } from '@/components/repo/RepoBadgeLabel'
@@ -929,9 +935,18 @@ export function ActivityThreadOptionsMenu({
   )
 }
 
-function ActivityProjectLabel({ repo }: { repo: Repo | null }): React.JSX.Element {
+function ActivityProjectLabel({
+  repo,
+  worktreeId
+}: {
+  repo: Repo | null
+  worktreeId: string
+}): React.JSX.Element {
+  // Terminal mode's vertical tabs have no project row behind their synthetic repo id.
+  const terminalTabKeys = useAppStore(selectActivityTerminalTabKeys)
   const label =
     repo?.displayName?.trim() ||
+    getActivityTerminalTabProjectLabel(worktreeId, terminalTabKeys) ||
     translate('auto.components.activity.ActivityPrototypePage.5651b216c6', 'Unknown project')
   return (
     <div className="flex min-w-0 items-center gap-1.5">
@@ -974,7 +989,8 @@ function threadAgentStateLabel(thread: AgentPaneThread): string {
 
 export function getActivityThreadGroup(
   thread: AgentPaneThread,
-  groupBy: ActivityGroupBy
+  groupBy: ActivityGroupBy,
+  terminalTabKeys: ReadonlySet<string> = NO_ACTIVITY_TERMINAL_TAB_KEYS
 ): { key: string; label: string } {
   if (groupBy === 'status') {
     const state = threadAgentState(thread)
@@ -984,15 +1000,20 @@ export function getActivityThreadGroup(
     return { key: state, label: threadAgentStateLabel(thread) }
   }
   if (groupBy === 'project') {
-    return thread.repo
-      ? { key: `project:${thread.repo.id}`, label: thread.repo.displayName }
-      : {
-          key: 'project:unknown',
-          label: translate(
-            'auto.components.activity.ActivityPrototypePage.5651b216c6',
-            'Unknown project'
-          )
-        }
+    if (thread.repo) {
+      return { key: `project:${thread.repo.id}`, label: thread.repo.displayName }
+    }
+    const terminalTabLabel = getActivityTerminalTabProjectLabel(thread.worktree.id, terminalTabKeys)
+    if (terminalTabLabel) {
+      return { key: ACTIVITY_TERMINAL_TABS_GROUP_KEY, label: terminalTabLabel }
+    }
+    return {
+      key: 'project:unknown',
+      label: translate(
+        'auto.components.activity.ActivityPrototypePage.5651b216c6',
+        'Unknown project'
+      )
+    }
   }
   if (groupBy === 'worktree') {
     return { key: `worktree:${thread.worktree.id}`, label: thread.worktree.displayName }
@@ -1002,12 +1023,13 @@ export function getActivityThreadGroup(
 
 export function buildActivityThreadGroups(
   threads: AgentPaneThread[],
-  groupBy: ActivityGroupBy
+  groupBy: ActivityGroupBy,
+  terminalTabKeys: ReadonlySet<string> = NO_ACTIVITY_TERMINAL_TAB_KEYS
 ): ActivityThreadGroup[] {
   const groups: ActivityThreadGroup[] = []
   const groupIndexByKey = new Map<string, number>()
   for (const thread of threads) {
-    const group = getActivityThreadGroup(thread, groupBy)
+    const group = getActivityThreadGroup(thread, groupBy, terminalTabKeys)
     const existingIndex = groupIndexByKey.get(group.key)
     if (existingIndex === undefined) {
       groups.push({ key: group.key, label: group.label, threads: [thread] })
@@ -1281,7 +1303,7 @@ function ThreadRow({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start gap-2">
             <div className="min-w-0 flex-1 space-y-0.5">
-              <ActivityProjectLabel repo={thread.repo} />
+              <ActivityProjectLabel repo={thread.repo} worktreeId={thread.worktree.id} />
               <div
                 className={cn(
                   'min-w-0 text-[13px] leading-snug',
@@ -1438,6 +1460,7 @@ export default function ActivityPrototypePage(): React.JSX.Element {
       retainedAgentsByPaneKey: s.retainedAgentsByPaneKey,
       tabsByWorktree: s.tabsByWorktree,
       worktreeMap: selectActivityWorktreeMap(s),
+      terminalTabKeys: selectActivityTerminalTabKeys(s),
       repoMap: getRepoMapFromState(s),
       acknowledgedAgentsByPaneKey: s.acknowledgedAgentsByPaneKey,
       acknowledgeAgents: s.acknowledgeAgents,
@@ -1500,8 +1523,8 @@ export default function ActivityPrototypePage(): React.JSX.Element {
     })
   }, [allThreads, readFilter, query, effectiveSelectedPaneKey])
   const visibleThreadGroups = useMemo(
-    () => buildActivityThreadGroups(visibleThreads, groupBy),
-    [visibleThreads, groupBy]
+    () => buildActivityThreadGroups(visibleThreads, groupBy, storeData.terminalTabKeys),
+    [visibleThreads, groupBy, storeData.terminalTabKeys]
   )
 
   const selectedThread = effectiveSelectedPaneKey

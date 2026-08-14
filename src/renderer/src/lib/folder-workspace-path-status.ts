@@ -63,11 +63,16 @@ export function getFolderWorkspacePathStatusDescription(
   }
 }
 
+// Main's throw reaches the renderer wrapped ("Error invoking remote method 'x': Error: code"),
+// which no prefix match below would ever see. The code is always the tail.
+const FOLDER_WORKSPACE_ERROR_CODE = /folder_workspace_[a-z_]+:[\s\S]*/
+
 export function formatFolderWorkspaceCreateError(error: unknown): {
   title: string
   description: string
 } {
-  const message = error instanceof Error ? error.message : String(error)
+  const raw = error instanceof Error ? error.message : String(error)
+  const message = raw.match(FOLDER_WORKSPACE_ERROR_CODE)?.[0] ?? raw
   const path = message.includes(':') ? message.slice(message.indexOf(':') + 1) : ''
   if (message.startsWith('folder_workspace_path_missing:')) {
     return {

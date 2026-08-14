@@ -383,8 +383,20 @@
         "verticalTabs": {
           "createFailed": "Failed to create terminal tab",
           "renameFailed": "Failed to rename terminal tab",
-          "unsupportedHost": "Terminal tabs are only available on the desktop app."
+          "unsupportedHost": "Terminal tabs are only available on the desktop app.",
+          "homeUnresolved": "Orca could not resolve the home directory on that host. Check the connection and try again."
         }
+      },
+      "terminalModeCreateFailure": {
+        "homeUnresolved": "Orca could not resolve the home directory on that host. Check the connection and try again."
+      },
+      "terminalModeSshConnect": {
+        "unsupported": "Terminal tabs on SSH hosts are only available in the desktop app.",
+        "notConnected": "The SSH host is not connected yet. Try again once it finishes connecting.",
+        "failed": "Could not connect to the SSH host."
+      },
+      "terminalModeHostContext": {
+        "timedOut": "The host did not answer in time. Check the connection and try again."
       }
     },
     "lib": {
@@ -14553,7 +14565,8 @@
           "f915168c8e": "unread",
           "d6a8de3934": "agents",
           "dc708f3eff": "Close agents"
-        }
+        },
+        "terminalTabsProject": "Terminal tabs"
       },
       "confirmation": {
         "dialog": {
@@ -15143,7 +15156,8 @@
         },
         "NewVerticalTabButton": {
           "chooseHost": "New terminal tab on…",
-          "hostNeedsUpdate": "Server update needed"
+          "hostNeedsUpdate": "Server update needed",
+          "creating": "Opening terminal tab…"
         }
       }
     },

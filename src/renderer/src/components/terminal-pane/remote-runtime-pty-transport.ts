@@ -787,19 +787,12 @@ export function createRemoteRuntimePtyTransport(
     if (hostHandle === undefined || !isCurrent()) {
       return undefined
     }
-    if (hostHandle === null) {
-      surfaceErrorMessage('Remote terminal was closed.')
-      if (lostPtyId && isCurrent()) {
-        reportLostRemoteSession(lostPtyId)
-      }
-      return undefined
-    }
-    if (!hostHandle || !isCurrent()) {
-      if (isCurrent()) {
+    // Null is "the host says it is gone"; empty string is a handle we can do nothing with.
+    // `isCurrent()` was already checked above with no await in between, so it still holds.
+    if (!hostHandle) {
+      const recovering = lostPtyId ? reportLostRemoteSession(lostPtyId) : false
+      if (!recovering) {
         surfaceErrorMessage('Remote terminal was closed.')
-        if (lostPtyId) {
-          reportLostRemoteSession(lostPtyId)
-        }
       }
       return undefined
     }
@@ -1406,15 +1399,22 @@ export function createRemoteRuntimePtyTransport(
    * waiters on their 15 s timeout — but the signal is `onPtySessionLost`, because
    * `onPtyExit` retires a PTY that *was* live and closes the tab when it is the pane's
    * only one. A server restart must not delete the user's terminal.
+   *
+   * Returns whether the pane was actually told, so the caller can keep the "terminal was
+   * closed" banner for panes that have no recovery wired — `setTerminalError` is sticky, so
+   * surfacing it ahead of a successful respawn leaves a permanent lie over a live shell.
    */
-  function reportLostRemoteSession(lostPtyId: string): void {
+  function reportLostRemoteSession(lostPtyId: string): boolean {
     if (destroyed) {
-      // Why: the pane is unmounting, so respawning into it would create a PTY nobody
-      // owns. Every other late callback in this transport carries the same guard.
-      return
+      // Why: the pane is unmounting, so respawning into it would create a PTY nobody owns.
+      return false
+    }
+    if (!onPtySessionLost) {
+      return false
     }
     tearDownRemoteTerminal()
-    onPtySessionLost?.(lostPtyId)
+    onPtySessionLost(lostPtyId)
+    return true
   }
 
   function rebindRemoteTerminalHandle(nextHandle: string): void {
@@ -2272,7 +2272,14 @@ export function createRemoteRuntimePtyTransport(
           return
         }
         const resolved = await resolvePersistedHostPane()
-        if (generation !== attachGeneration || destroyed) {
+        // Why the epoch too: `connect()` bumps only `lifecycleEpoch`, so a connect landing
+        // while this resolve is in flight is invisible to the generation check — and the
+        // stale attach would then tear down and respawn the session connect just created.
+        if (
+          generation !== attachGeneration ||
+          attachLifecycleEpoch !== lifecycleEpoch ||
+          destroyed
+        ) {
           return
         }
         if (
@@ -2295,12 +2302,13 @@ export function createRemoteRuntimePtyTransport(
           return
         }
         if (!resolved) {
-          surfaceErrorMessage('Remote terminal was closed.')
           // Why a signal and not a throw: `attach` is fire-and-forget, so throwing here
           // reaches this IIFE's own `.catch`, never the caller's synchronous one — which
           // is why the pane used to sit on a dead id forever, re-reading it from the
           // session on every later launch. The pane owns the recovery.
-          reportLostRemoteSession(options.existingPtyId)
+          if (!reportLostRemoteSession(options.existingPtyId)) {
+            surfaceErrorMessage('Remote terminal was closed.')
+          }
           return
         }
         await adoptResolvedHostPane(resolved, options, false, generation)

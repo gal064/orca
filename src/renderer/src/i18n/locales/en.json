@@ -767,6 +767,9 @@
             "additionalErrors": "{{count}} additional images could not be attached."
           }
         }
+      },
+      "terminalModeCloseAgents": {
+        "genericAgent": "agent"
       }
     },
     "hooks": {
@@ -15127,7 +15130,6 @@
         "VerticalTabsSidebar": {
           "title": "Terminals",
           "newTab": "New terminal tab",
-          "empty": "No terminal tabs",
           "emptyAction": "No terminal tabs — create one"
         },
         "VerticalTabCloseConfirmDialog": {
@@ -15142,9 +15144,6 @@
         "NewVerticalTabButton": {
           "chooseHost": "New terminal tab on…",
           "hostNeedsUpdate": "Server update needed"
-        },
-        "VerticalTabsAgentsEntry": {
-          "agents": "Agents"
         }
       }
     },

@@ -7,6 +7,7 @@ import {
   getTerminalModeGroupIds
 } from '../../../shared/terminal-mode-group'
 import { folderWorkspaceKey } from '../../../shared/workspace-scope'
+import { isTerminalMode } from '@/lib/terminal-mode'
 
 /**
  * The one place classic UI reads the workspace catalog.
@@ -66,6 +67,10 @@ const NO_WORKSPACES: readonly FolderWorkspace[] = Object.freeze([])
 const classicGroupsCache = new WeakMap<object, WeakMap<object, readonly ProjectGroup[]>>()
 const classicWorkspacesCache = new WeakMap<object, WeakMap<object, readonly FolderWorkspace[]>>()
 const terminalModeKeysCache = new WeakMap<object, WeakMap<object, ReadonlySet<string>>>()
+const terminalModeWorkspacesCache = new WeakMap<
+  object,
+  WeakMap<object, readonly FolderWorkspace[]>
+>()
 
 export function selectClassicProjectGroups(state: CatalogState): readonly ProjectGroup[] {
   return cacheByBothSources(classicGroupsCache, state.projectGroups, state.folderWorkspaces, () =>
@@ -83,6 +88,51 @@ export function selectClassicFolderWorkspaces(state: CatalogState): readonly Fol
         state.folderWorkspaces ?? NO_WORKSPACES,
         state.projectGroups ?? NO_GROUPS
       )
+  )
+}
+
+/**
+ * Workspaces whose unread state a badge may count.
+ *
+ * A vertical tab is neither visible nor clearable with the flag off, so counting one in
+ * classic mode produces a badge no surface can render and no click can dismiss — and it
+ * survives restarts. In terminal mode they are the whole point, so the raw catalog is
+ * correct there. Both badge surfaces call this instead of branching for themselves.
+ *
+ * Identity-stable in both arms: terminal mode returns the store array untouched, classic
+ * returns the cached classic selection.
+ */
+export function selectBadgeCountableFolderWorkspaces(
+  state: CatalogState & Pick<AppState, 'settings'>
+): readonly FolderWorkspace[] {
+  return isTerminalMode(state.settings)
+    ? (state.folderWorkspaces ?? NO_WORKSPACES)
+    : selectClassicFolderWorkspaces(state)
+}
+
+/**
+ * The vertical tabs themselves — the complement of `selectClassicFolderWorkspaces`.
+ *
+ * For the few surfaces that must render terminal mode's own workspaces rather than hide
+ * them. Lives here so those surfaces still read the catalog through the choke point and
+ * the isolation tripwire keeps its meaning.
+ */
+export function selectTerminalModeFolderWorkspaces(
+  state: CatalogState
+): readonly FolderWorkspace[] {
+  return cacheByBothSources(
+    terminalModeWorkspacesCache,
+    state.projectGroups,
+    state.folderWorkspaces,
+    () => {
+      const groupIds = getTerminalModeGroupIds(state.projectGroups ?? NO_GROUPS)
+      if (groupIds.size === 0) {
+        return NO_WORKSPACES
+      }
+      return (state.folderWorkspaces ?? NO_WORKSPACES).filter((workspace) =>
+        groupIds.has(workspace.projectGroupId)
+      )
+    }
   )
 }
 

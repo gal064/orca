@@ -886,23 +886,23 @@ export function useIpcEvents(): void {
         // Why: local CLI worktree events carry local ids; runtime activation comes via the remote stream, allowed separately.
         return
       }
+      // Why first: a terminal-mode vertical tab has no repo to fetch — its `folder:` key
+      // resolves out of the folder-workspace catalog and `repoId` is null for it, so the
+      // fetch and the existed/exists probes below have nothing to say about it. Its own
+      // dispatcher is also what enforces the path-status gate; the worktree path would
+      // activate a missing or disconnected vertical tab and stamp a synthetic repo id
+      // into `activeRepoId`. Worktree keys keep the richer options; a folder workspace
+      // has no setup/startup launch of its own to carry.
+      if (parseWorkspaceKey(worktreeId)?.type === 'folder') {
+        activateAndRevealWorkspace(worktreeId)
+        return
+      }
       const existedBeforeFetch = Boolean(useAppStore.getState().getKnownWorktreeById(worktreeId))
-      // Why the guard: a terminal-mode vertical tab has no repo to fetch — its `folder:`
-      // key resolves out of the folder-workspace catalog, and `repoId` is null for it.
       if (repoId) {
         // Why: fetch first so activation can resolve the CLI-created worktree; it arrived from main, not yet in renderer state.
         await useAppStore.getState().fetchWorktrees(repoId)
       }
       const existsAfterFetch = Boolean(useAppStore.getState().getKnownWorktreeById(worktreeId))
-      // Why the dispatcher for a folder key: its folder branch is what enforces the
-      // path-status gate, and the worktree path would otherwise activate a missing or
-      // disconnected vertical tab and stamp a synthetic repo id into `activeRepoId`.
-      // Worktree keys keep the richer options; a folder workspace has no setup/startup
-      // launch of its own to carry.
-      if (parseWorkspaceKey(worktreeId)?.type === 'folder') {
-        activateAndRevealWorkspace(worktreeId)
-        return
-      }
       // Why: use the canonical activation path so the CLI switch records a back/forward visit, or the nav buttons ignore it.
       activateAndRevealWorktree(worktreeId, {
         ...(setup ? { setup } : {}),

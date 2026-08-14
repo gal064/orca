@@ -3777,7 +3777,8 @@ const api = {
     },
     onActivateWorktree: (
       callback: (data: {
-        repoId: string
+        /** Null for a terminal-mode vertical tab: it has no repo behind it. */
+        repoId: string | null
         worktreeId: string
         setup?: WorktreeSetupLaunch
         startup?: { command: string; env?: Record<string, string> }
@@ -3787,7 +3788,7 @@ const api = {
       const listener = (
         _event: Electron.IpcRendererEvent,
         data: {
-          repoId: string
+          repoId: string | null
           worktreeId: string
           setup?: WorktreeSetupLaunch
           startup?: { command: string; env?: Record<string, string> }

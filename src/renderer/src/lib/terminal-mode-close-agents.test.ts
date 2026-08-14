@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
+import { AGENT_STATUS_STALE_AFTER_MS } from '../../../shared/agent-status-types'
 import { folderWorkspaceKey } from '../../../shared/workspace-scope'
 import { selectAgentsAtRiskForVerticalTab } from './terminal-mode-close-agents'
 
@@ -94,20 +94,32 @@ describe('agents a vertical-tab close would kill', () => {
   })
 })
 
-describe('the close confirmation itself', () => {
-  it('is not conditional — closing a vertical tab deletes the workspace', () => {
-    // The dialog is the only thing between Ctrl+Shift+W and an irreversible
-    // `deleteFolderWorkspace` that also kills a build or a `top` no agent list can see.
-    // Phase 5 makes it *informative*, not optional.
-    const source = readFileSync(
-      new URL('../store/slices/vertical-tabs.ts', import.meta.url),
-      'utf-8'
+describe('agreement with the status dot', () => {
+  it('ignores a stale working row, because the row’s dot does too', () => {
+    // `selectLiveAgentStatusEntriesForWorktree` applies no freshness filter but the
+    // summary behind the dot does. Without the same gate the tab shows grey while the
+    // dialog announces an agent that is not there — the cry-wolf the file exists to avoid.
+    const now = Date.now()
+    const agents = selectAgentsAtRiskForVerticalTab(
+      stateWith({
+        [PANE_A]: entry(PANE_A, {
+          agentType: 'claude',
+          updatedAt: now - AGENT_STATUS_STALE_AFTER_MS - 1
+        })
+      }),
+      VTAB,
+      now
     )
-    const requestBody = source.slice(
-      source.indexOf('requestVerticalTabClose: (folderWorkspaceId)'),
-      source.indexOf('closeVerticalTab: async (folderWorkspaceId')
+    expect(agents).toEqual([])
+  })
+
+  it('ignores a hydrated-but-unconfirmed row after a client restart', () => {
+    const agents = selectAgentsAtRiskForVerticalTab(
+      stateWith({
+        [PANE_A]: entry(PANE_A, { agentType: 'claude', restoredUnconfirmed: true })
+      }),
+      VTAB
     )
-    expect(requestBody).not.toContain('closeVerticalTab(')
-    expect(requestBody).toContain('verticalTabPendingCloseId: folderWorkspaceId')
+    expect(agents).toEqual([])
   })
 })

@@ -24,6 +24,7 @@ import type { AppState } from './types'
 import type { FolderWorkspace, ProjectGroup, Repo } from '../../../shared/types'
 import { TERMINAL_MODE_GROUP_NAME } from '../../../shared/terminal-mode-group'
 import {
+  selectBadgeCountableFolderWorkspaces,
   selectClassicFolderWorkspaces,
   selectClassicProjectGroups,
   selectTerminalModeWorkspaceKeys
@@ -100,6 +101,23 @@ describe('the choke point', () => {
     const classicOnly = { projectGroups: [CLASSIC], folderWorkspaces: [FOLDER] }
     expect(selectClassicProjectGroups(classicOnly)).toBe(classicOnly.projectGroups)
     expect(selectClassicFolderWorkspaces(classicOnly)).toBe(classicOnly.folderWorkspaces)
+  })
+
+  it('lets a badge count a vertical tab only in terminal mode', () => {
+    // A vertical tab is invisible and unclearable with the flag off, so counting one
+    // there is a badge nobody can ever dismiss — and it survives restarts.
+    expect(
+      selectBadgeCountableFolderWorkspaces({
+        ...catalog,
+        settings: { experimentalTerminalMode: false } as never
+      }).map((entry) => entry.id)
+    ).toEqual(['folder'])
+    expect(
+      selectBadgeCountableFolderWorkspaces({
+        ...catalog,
+        settings: { experimentalTerminalMode: true } as never
+      }).map((entry) => entry.id)
+    ).toEqual(['vtab', 'folder'])
   })
 
   it('re-derives when the catalog changes rather than serving a stale cache', () => {

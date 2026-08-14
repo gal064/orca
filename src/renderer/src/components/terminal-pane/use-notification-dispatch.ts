@@ -190,9 +190,7 @@ export function dispatchTerminalNotification(
   // raw `folder:<uuid>` key. `getKnownWorktreeById` resolves those from the folder
   // catalog; it carries no real repo, which is exactly right for a vertical tab.
   const worktree =
-    getWorktreeMapFromState(state).get(worktreeId) ??
-    state.getKnownWorktreeById?.(worktreeId) ??
-    undefined
+    getWorktreeMapFromState(state).get(worktreeId) ?? state.getKnownWorktreeById(worktreeId)
   const repo = worktree ? getRepoMapFromState(state).get(worktree.repoId) : null
   const customSoundId = state.settings?.notifications?.customSoundId ?? 'system'
   const customSoundVolume = state.settings?.notifications?.customSoundVolume ?? null

@@ -32,7 +32,10 @@ beforeEach(() => {
   })
 })
 
-async function attachToAGoneSession(resolvePaneOutcome: 'not-found' | 'method-missing') {
+async function attachToAGoneSession(
+  resolvePaneOutcome: 'not-found' | 'method-missing',
+  options: { withRecovery?: boolean } = {}
+) {
   runtimeCall.mockImplementation(async (request: { method: string }) => {
     if (request.method === 'terminal.resolvePane') {
       return resolvePaneOutcome === 'not-found'
@@ -65,7 +68,7 @@ async function attachToAGoneSession(resolvePaneOutcome: 'not-found' | 'method-mi
     tabId: 'tab-1',
     leafId: 'pane:1',
     onPtyExit,
-    onPtySessionLost
+    ...(options.withRecovery === false ? {} : { onPtySessionLost })
   })
   transport.attach({
     existingPtyId: STALE_PTY_ID,
@@ -81,8 +84,18 @@ describe('a remote pane whose persisted session is gone', () => {
     const { onPtySessionLost, onError } = await attachToAGoneSession('not-found')
 
     await vi.waitFor(() => expect(onPtySessionLost).toHaveBeenCalledWith(STALE_PTY_ID))
-    // The user still gets told why the pane they were looking at went away.
-    expect(onError).toHaveBeenCalledWith('Remote terminal was closed.')
+    // And no error banner: `setTerminalError` is sticky until the user dismisses it by
+    // hand, so surfacing "Remote terminal was closed." ahead of the respawn this signal
+    // triggers would leave a permanent lie sitting over a live shell.
+    expect(onError).not.toHaveBeenCalledWith('Remote terminal was closed.')
+  })
+
+  it('still surfaces the error when no recovery is wired to hear the signal', async () => {
+    // A pane that never passed `onPtySessionLost` gets nothing back, so the banner is
+    // the only thing that would tell the user why the terminal stopped responding.
+    const { onError } = await attachToAGoneSession('not-found', { withRecovery: false })
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith('Remote terminal was closed.'))
   })
 
   it('never routes it through onPtyExit, which would close the tab', async () => {

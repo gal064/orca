@@ -1,11 +1,14 @@
 // Why here and not under `components/vertical-tabs/`: the vertical-tabs store slice
 // needs this, and a slice importing a component module inverts the dependency
 // direction (and risks the store-index cycle Phase 4 hit).
+import { translate } from '@/i18n/i18n'
 import type { AppState } from '@/store/types'
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import { folderWorkspaceKey } from '../../../shared/workspace-scope'
 import { selectWorktreeAgentActivitySummary } from '@/components/sidebar/worktree-agent-activity-summary'
 import { selectLiveAgentStatusEntriesForWorktree } from '@/components/sidebar/worktree-agent-row-selectors'
+import { isExplicitAgentStatusFresh } from './pane-agent-evidence'
+import { AGENT_STATUS_STALE_AFTER_MS } from '../../../shared/agent-status-types'
 
 export type ClosingAgent = {
   paneKey: string
@@ -19,7 +22,14 @@ export type ClosingAgent = {
  * which is the same reflex that makes a confirmation useless for the case that
  * matters (spec §4, "confirmation dialog lists the running agent(s) it would kill").
  */
-function isAgentAtRisk(entry: AgentStatusEntry): boolean {
+function isAgentAtRisk(entry: AgentStatusEntry, now: number): boolean {
+  // Why the freshness gate: `selectLiveAgentStatusEntriesForWorktree` applies none, while the
+  // summary driving the row's status dot skips stale and `restoredUnconfirmed` rows. Without
+  // this, a hydrated-but-unconfirmed row after a client restart — or any `working` row the
+  // agent never closed out — gives a grey dot and a dialog naming an agent that is not there.
+  if (!isExplicitAgentStatusFresh(entry, now, AGENT_STATUS_STALE_AFTER_MS)) {
+    return false
+  }
   return entry.state === 'working' || entry.state === 'waiting' || entry.state === 'blocked'
 }
 
@@ -37,7 +47,8 @@ export function selectAgentsAtRiskForVerticalTab(
     | 'tabsByWorktree'
     | 'agentStatusEpoch'
   >,
-  folderWorkspaceId: string
+  folderWorkspaceId: string,
+  now: number = Date.now()
 ): ClosingAgent[] {
   const workspaceKey = folderWorkspaceKey(folderWorkspaceId)
   // Why both: the entries carry the labels, but the *set* comes from the same summary
@@ -45,7 +56,7 @@ export function selectAgentsAtRiskForVerticalTab(
   // keys, orchestration parents), and a tab whose dot says "working" while its close
   // dialog lists nothing is the worst possible disagreement.
   const agents = selectLiveAgentStatusEntriesForWorktree(state, workspaceKey)
-    .filter(isAgentAtRisk)
+    .filter((entry) => isAgentAtRisk(entry, now))
     .map((entry) => ({ paneKey: entry.paneKey, label: agentLabel(entry) }))
   if (agents.length > 0) {
     return agents
@@ -56,6 +67,11 @@ export function selectAgentsAtRiskForVerticalTab(
   // dot is the worst disagreement available, so the dot wins and gets a generic row.
   const summary = selectWorktreeAgentActivitySummary(state, workspaceKey)
   return summary.hasLiveWorking || summary.hasPermission
-    ? [{ paneKey: workspaceKey, label: 'agent' }]
+    ? [
+        {
+          paneKey: workspaceKey,
+          label: translate('auto.lib.terminalModeCloseAgents.genericAgent', 'agent')
+        }
+      ]
     : []
 }

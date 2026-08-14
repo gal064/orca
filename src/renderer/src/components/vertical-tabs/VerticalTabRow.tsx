@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/context-menu'
 import StatusIndicator from '@/components/sidebar/StatusIndicator'
 import { WorktreeTitleInlineRename } from '@/components/sidebar/WorktreeTitleInlineRename'
-import type { WorktreeStatus } from '@/lib/worktree-status'
+import { getWorktreeStatusLabel, type WorktreeStatus } from '@/lib/worktree-status'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 
@@ -85,6 +85,7 @@ function VerticalTabRow({
           onKeyDown={handleKeyDown}
         >
           <StatusIndicator status={status} aria-hidden="true" />
+          <span className="sr-only">{getWorktreeStatusLabel(status)}</span>
           <WorktreeTitleInlineRename
             className="flex-1 text-[13px]"
             displayName={name}

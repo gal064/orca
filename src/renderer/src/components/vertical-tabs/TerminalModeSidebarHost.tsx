@@ -1,12 +1,15 @@
 import React, { useCallback, useMemo } from 'react'
 import { useAppStore } from '@/store'
-import { selectAgentsAtRiskForVerticalTab } from '@/lib/terminal-mode-close-agents'
+import {
+  selectAgentsAtRiskForVerticalTab,
+  type ClosingAgent
+} from '@/lib/terminal-mode-close-agents'
 import VerticalTabCloseConfirmDialog from './VerticalTabCloseConfirmDialog'
 import { useTerminalCwdTracking } from './use-terminal-cwd-tracking'
 import { useTerminalModePanelScope } from './use-terminal-mode-panel-scope'
 import { useTerminalModeAutoTitlePersistence } from './use-terminal-mode-auto-title'
 
-const EMPTY_AGENTS: never[] = []
+const EMPTY_AGENTS: readonly ClosingAgent[] = []
 
 /**
  * The close confirmation lives here rather than in the tab strip because

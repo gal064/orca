@@ -14,6 +14,7 @@ describe('getUnreadBadgeCount', () => {
   it('counts unread worktrees', () => {
     expect(
       getUnreadBadgeCount({
+        folderWorkspaces: [],
         worktreesByRepo: { repo: [worktree('wt-1', true), worktree('wt-2', false)] },
         tabsByWorktree: {},
         unreadTerminalTabs: {}
@@ -24,6 +25,7 @@ describe('getUnreadBadgeCount', () => {
   it('dedupes unread terminal tabs against their worktree', () => {
     expect(
       getUnreadBadgeCount({
+        folderWorkspaces: [],
         worktreesByRepo: { repo: [worktree('wt-1', true)] },
         tabsByWorktree: { 'wt-1': [tab('tab-1'), tab('tab-2')] },
         unreadTerminalTabs: { 'tab-1': true, 'tab-2': true }
@@ -34,6 +36,7 @@ describe('getUnreadBadgeCount', () => {
   it('counts tab-only unread activity by owning worktree', () => {
     expect(
       getUnreadBadgeCount({
+        folderWorkspaces: [],
         worktreesByRepo: { repo: [worktree('wt-1', false), worktree('wt-2', false)] },
         tabsByWorktree: { 'wt-1': [tab('tab-1')], 'wt-2': [tab('tab-2')] },
         unreadTerminalTabs: { 'tab-1': true, 'tab-2': true }
@@ -62,17 +65,5 @@ describe('getUnreadBadgeCount', () => {
         unreadTerminalTabs: { 'tab-1': true }
       })
     ).toBe(1)
-  })
-
-  it('counts nothing when the caller passes no folder workspaces', () => {
-    // The caller decides reachability: classic mode hands over the filtered catalog,
-    // so a vertical tab cannot leave a badge nobody can render or clear.
-    expect(
-      getUnreadBadgeCount({
-        worktreesByRepo: {},
-        tabsByWorktree: {},
-        unreadTerminalTabs: {}
-      })
-    ).toBe(0)
   })
 })

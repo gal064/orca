@@ -9186,6 +9186,12 @@ export function connectPanePty(
             }
             clearPaneMode2031State()
             clearHiddenOutputRestoreState()
+            // Why here too: this branch attaches to a persisted id just like the one above, so
+            // it can hit the same "host restarted, session gone" answer. Without arming, the
+            // lost-session signal would prune the tab's id and leave the pane dead with no respawn.
+            respawnAfterLostSession = () => {
+              void startFreshSpawn()
+            }
             const outputCallbacks = captureTransportOutputCallbacks(reportError)
             transport.attach({
               existingPtyId: spawnedPtyId,

@@ -5,8 +5,7 @@ import { migrationUnsupportedToAgentStatusEntry } from '@/lib/migration-unsuppor
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import type { AgentStatusEntry, AgentStatusState } from '../../../../shared/agent-status-types'
-import { isTerminalMode } from '@/lib/terminal-mode'
-import { selectClassicFolderWorkspaces } from '@/store/classic-workspace-catalog'
+import { selectBadgeCountableFolderWorkspaces } from '@/store/classic-workspace-catalog'
 
 type ActivityUnreadCountSource = Pick<
   AppState,
@@ -17,8 +16,9 @@ type ActivityUnreadCountSource = Pick<
   | 'worktreesByRepo'
 > & {
   /** Folder workspaces carry `isUnread` too, and a terminal-mode vertical tab is one —
-   *  without them the badge on the sidebar's own Agents row cannot see a vertical tab. */
-  folderWorkspaces?: readonly AppState['folderWorkspaces'][number][]
+   *  without them the badge on the sidebar's own Agents row cannot see a vertical tab.
+   *  Required so a caller cannot silently opt out of counting them. */
+  folderWorkspaces: readonly AppState['folderWorkspaces'][number][]
 }
 
 type ActivityUnreadCountMode = 'agent-events' | 'sidebar-badge'
@@ -57,7 +57,7 @@ export function countActivityUnread(
         }
       }
     }
-    for (const workspace of source.folderWorkspaces ?? EMPTY_FOLDER_WORKSPACES) {
+    for (const workspace of source.folderWorkspaces) {
       if (workspace.isUnread) {
         count += 1
       }
@@ -131,11 +131,12 @@ export function useActivityUnreadCount(enabled: boolean, mode: ActivityUnreadCou
         // or removal occurred. sortEpoch is the cheap invalidation signal.
         sortEpoch: state.sortEpoch,
         worktreesByRepo: state.worktreesByRepo,
-        // Why the mode branch: same reason as the Dock badge — a vertical tab's unread
-        // is unreachable and unclearable with the flag off.
-        folderWorkspaces: isTerminalMode(state.settings)
-          ? state.folderWorkspaces
-          : selectClassicFolderWorkspaces(state),
+        // Why gated on mode: only `sidebar-badge` counts workspace unread, so the
+        // titlebar consumer must not re-render on every folder-workspace write.
+        folderWorkspaces:
+          mode === 'sidebar-badge'
+            ? selectBadgeCountableFolderWorkspaces(state)
+            : EMPTY_FOLDER_WORKSPACES,
         migrationUnsupportedByPtyId: state.migrationUnsupportedByPtyId,
         retainedAgentsByPaneKey: state.retainedAgentsByPaneKey,
         acknowledgedAgentsByPaneKey: state.acknowledgedAgentsByPaneKey

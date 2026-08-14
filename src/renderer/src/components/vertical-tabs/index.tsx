@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 import { useTerminalModeHostOptions } from './use-terminal-mode-host-options'
 import { getVerticalTabHostId } from '@/store/slices/vertical-tabs'
 import NewVerticalTabButton from './NewVerticalTabButton'
@@ -45,7 +46,7 @@ function VerticalTabsSidebar(): React.JSX.Element {
     () => (hosts.length > 1 ? new Map(hosts.map((host) => [host.id, host.label])) : null),
     [hosts]
   )
-  const statusByTabId = useVerticalTabStatuses(tabs)
+  const statusByWorkspaceKey = useVerticalTabStatuses(tabs)
   const folderWorkspaces = useAppStore((s) => s.folderWorkspaces)
   const projectGroups = useAppStore((s) => s.projectGroups)
   const hostLabelByTabId = useMemo(() => {
@@ -108,7 +109,7 @@ function VerticalTabsSidebar(): React.JSX.Element {
               name={resolveVerticalTabDisplayName(tab, pwdByTabId[tab.id])}
               folderPath={tab.folderPath}
               hostLabel={hostLabelByTabId[tab.id]}
-              status={statusByTabId.get(tab.id) ?? 'inactive'}
+              status={statusByWorkspaceKey.get(folderWorkspaceKey(tab.id)) ?? 'inactive'}
               active={tab.id === activeTabId}
               onActivate={activateVerticalTab}
               onRename={renameVerticalTab}

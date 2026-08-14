@@ -19,10 +19,12 @@ import {
   isExplicitAgentStatusFresh
 } from '@/lib/agent-status'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
-import { activateAndRevealWorktree } from '@/lib/worktree-activation'
+import { activateAndRevealWorkspace } from '@/lib/worktree-activation'
 import { useAppStore } from '@/store'
 import type { RetainedAgentEntry } from '@/store/slices/agent-status'
-import { getRepoMapFromState, getWorktreeMapFromState } from '@/store/selectors'
+import { getRepoMapFromState } from '@/store/selectors'
+import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
+import { selectActivityWorktreeMap } from './activity-workspace-rows'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
 import { Button } from '@/components/ui/button'
 import { RepoBadgeMark } from '@/components/repo/RepoBadgeLabel'
@@ -1435,7 +1437,7 @@ export default function ActivityPrototypePage(): React.JSX.Element {
       migrationUnsupportedByPtyId: s.migrationUnsupportedByPtyId,
       retainedAgentsByPaneKey: s.retainedAgentsByPaneKey,
       tabsByWorktree: s.tabsByWorktree,
-      worktreeMap: getWorktreeMapFromState(s),
+      worktreeMap: selectActivityWorktreeMap(s),
       repoMap: getRepoMapFromState(s),
       acknowledgedAgentsByPaneKey: s.acknowledgedAgentsByPaneKey,
       acknowledgeAgents: s.acknowledgeAgents,
@@ -1673,21 +1675,30 @@ export default function ActivityPrototypePage(): React.JSX.Element {
 
   const activateThreadTerminal = (thread: AgentPaneThread): void => {
     const state = useAppStore.getState()
-    const worktree = getWorktreeMapFromState(state).get(thread.worktree.id)
+    const worktree = selectActivityWorktreeMap(state).get(thread.worktree.id)
     if (!worktree) {
       return
     }
+    const folderWorkspaceScope = parseWorkspaceKey(worktree.id)
     // Why: retained-agent threads can outlive their tab; without a live tab, reorienting the workspace and focusing a dead tab id would just confuse the user.
     const liveTabs = state.tabsByWorktree[worktree.id] ?? []
     const hasLiveTab = liveTabs.some((t) => t.id === thread.tab.id)
     if (!hasLiveTab) {
       return
     }
-    if (state.activeRepoId !== worktree.repoId) {
-      state.setActiveRepo(worktree.repoId)
-    }
-    if (state.activeWorktreeId !== worktree.id) {
-      state.setActiveWorktree(worktree.id)
+    // Why the branch: a vertical tab's `repoId` is a synthetic `folder-workspace:` stamp with
+    // no repo behind it, and `setActiveWorktree` cannot take a `folder:` key.
+    if (folderWorkspaceScope?.type === 'folder') {
+      if (state.activeWorktreeId !== worktree.id) {
+        state.setActiveFolderWorkspace(folderWorkspaceScope.folderWorkspaceId)
+      }
+    } else {
+      if (state.activeRepoId !== worktree.repoId) {
+        state.setActiveRepo(worktree.repoId)
+      }
+      if (state.activeWorktreeId !== worktree.id) {
+        state.setActiveWorktree(worktree.id)
+      }
     }
     state.setActiveTabType('terminal')
     const parsed = parsePaneKey(thread.paneKey)
@@ -1731,11 +1742,13 @@ export default function ActivityPrototypePage(): React.JSX.Element {
 
   const jumpToWorkspace = (thread: AgentPaneThread): void => {
     const state = useAppStore.getState()
-    if (!getWorktreeMapFromState(state).has(thread.worktree.id)) {
+    if (!selectActivityWorktreeMap(state).has(thread.worktree.id)) {
       return
     }
     markThreadRead(thread)
-    activateAndRevealWorktree(thread.worktree.id)
+    // Why the workspace form: a vertical tab's id is a `folder:` key, and only this
+    // dispatcher routes that shape (it also enforces the folder path-status gate).
+    activateAndRevealWorkspace(thread.worktree.id)
   }
 
   const hasUnreadThreads = allThreads.some((thread) => thread.unread)

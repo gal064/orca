@@ -25,6 +25,7 @@ import { buildWindowsPtyCompatibilityOptions } from '@/lib/pane-manager/windows-
 import { buildTerminalKeyboardProtocolOptions } from '@/lib/pane-manager/terminal-keyboard-protocol'
 import { resolvePaneKeyboardProtocolAgent } from './terminal-keyboard-protocol-pane-agent'
 import { useAppStore } from '@/store'
+import { resolveMountedTabStartCwd } from '@/lib/terminal-tab-start-cwd'
 import type { DirectSshPaneRetryAttemptId } from '@/store/slices/direct-ssh-terminal-recovery'
 import {
   createFilePathLinkProvider,
@@ -716,7 +717,17 @@ export function useTerminalPaneLifecycle({
         .find((candidate) => candidate.id === worktreeId)?.path ??
       cwd ??
       ''
-    const defaultTabCwd = cwd ?? worktreePath
+    // Why read from the store and not from a prop: terminal mode rewrites the
+    // tab's restored pwd as the user `cd`s, and this effect owns the PaneManager
+    // — a mutable `cwd` prop would tear it down and rebuild it on every `cd`.
+    // Read once per mount/`generation`, which is exactly the respawn boundary.
+    // Adds nothing for a tab with no restored pwd, which is every classic one.
+    const defaultTabCwd = resolveMountedTabStartCwd(
+      useAppStore.getState().tabsByWorktree,
+      worktreeId,
+      tabId,
+      cwd ?? worktreePath
+    )
     const initialCwdResolution = resolveQueuedInitialCwd(
       queuedInitialCwdRef.current,
       () => useAppStore.getState().consumeTabInitialCwd(tabId),

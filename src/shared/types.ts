@@ -910,6 +910,12 @@ export type TerminalTab = {
   /** Why: explorer-created terminals can start below the workspace root while
    *  still belonging to that workspace for tab/session ownership. */
   startupCwd?: string
+  /** Last directory a shell of this tab was corroborated to be in, so a restart
+   *  relaunches it there instead of its creation folder
+   *  (docs/terminal-mode-spec.md §4). Written by terminal mode only; absent on
+   *  every classic tab and on builds that predate it, which fall back to
+   *  `startupCwd` exactly as before. */
+  lastCwd?: string
   /** Why: the coding-harness agent Orca launched in this tab. Lets the tab bar
    *  show the provider icon immediately, before the agent emits its first hook
    *  event (a freshly-launched, idle agent reports no live status yet). Live

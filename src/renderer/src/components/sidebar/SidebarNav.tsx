@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 import SidebarAgentsButton from './SidebarAgentsButton'
+import { shouldShowAgentsButton } from './agents-button-visibility'
 import type { GlobalSettings } from '../../../../shared/types'
 import { useActivityUnreadCount } from '@/components/activity/useActivityUnreadCount'
 import { useShortcutKeyComboDetails } from '@/hooks/useShortcutLabel'
@@ -19,12 +20,6 @@ import { translate } from '@/i18n/i18n'
 import { lazyWithRetry } from '@/lib/lazy-with-retry'
 
 export { getSetupGuideSidebarEntryReady, shouldShowSetupGuideEntry } from './SetupGuideSidebarEntry'
-
-export function shouldShowAgentsButton(
-  settings: Pick<GlobalSettings, 'experimentalActivity'> | null | undefined
-): boolean {
-  return settings?.experimentalActivity === true
-}
 
 export function shouldShowAgentDashboardButton(
   settings: Pick<GlobalSettings, 'experimentalAgentDashboardPopout'> | null | undefined

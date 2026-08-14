@@ -8,6 +8,7 @@ import VerticalTabCloseConfirmDialog from './VerticalTabCloseConfirmDialog'
 import { useTerminalCwdTracking } from './use-terminal-cwd-tracking'
 import { useTerminalModePanelScope } from './use-terminal-mode-panel-scope'
 import { useTerminalModeAutoTitlePersistence } from './use-terminal-mode-auto-title'
+import { useTerminalModeLastCwdPersistence } from './use-terminal-mode-last-cwd'
 
 const EMPTY_AGENTS: readonly ClosingAgent[] = []
 
@@ -21,6 +22,7 @@ function TerminalModeSidebarHost(): React.JSX.Element {
   useTerminalCwdTracking()
   useTerminalModePanelScope()
   useTerminalModeAutoTitlePersistence()
+  useTerminalModeLastCwdPersistence()
   const closeVerticalTab = useAppStore((s) => s.closeVerticalTab)
   const requestVerticalTabClose = useAppStore((s) => s.requestVerticalTabClose)
   const pendingCloseId = useAppStore((s) => s.verticalTabPendingCloseId)

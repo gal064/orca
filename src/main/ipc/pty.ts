@@ -672,6 +672,39 @@ function resolvePersistedStablePaneOwner(
   }
 }
 
+/**
+ * The tab's own creation folder, when the spawn being served is terminal mode
+ * reopening that tab at its restored pwd (`lastCwd`) — the next candidate if
+ * that directory is gone (terminal-mode-spec.md §4).
+ *
+ * Read from the session rather than sent by the renderer because the renderer
+ * sends one cwd per spawn and the fallback only matters on the machine that can
+ * probe the filesystem. Gated on the request *being* the restored pwd so no
+ * classic spawn — split-pane inheritance, "open terminal here" — changes which
+ * directory it recovers to. **Local partition only**: the sole caller is gated
+ * on `!connectionId && !sessionId`, so there is no SSH partition to consult.
+ */
+function resolveRestoredTabFallbackCwd(
+  store: Store | undefined,
+  worktreeId: string | undefined,
+  tabId: string | undefined,
+  requestedCwd: string | undefined
+): string | undefined {
+  const requested = requestedCwd?.trim()
+  if (!store || typeof store.getWorkspaceSession !== 'function' || !worktreeId || !tabId) {
+    return undefined
+  }
+  const tab = store
+    .getWorkspaceSession()
+    .tabsByWorktree?.[worktreeId]?.find(
+      (candidate) => candidate.id === tabId && candidate.worktreeId === worktreeId
+    )
+  if (!tab?.lastCwd || tab.lastCwd.trim() !== requested) {
+    return undefined
+  }
+  return tab.startupCwd?.trim() || undefined
+}
+
 function resolveStablePaneOwner(
   runtime: OrcaRuntimeService | undefined,
   store: Store | undefined,
@@ -5741,6 +5774,12 @@ export function registerPtyHandlers(
         allowMissingCwdFallback
           ? {
               directoryExists: localStartupCwdDirectoryExists,
+              fallbackCwd: resolveRestoredTabFallbackCwd(
+                store,
+                args.worktreeId,
+                args.tabId,
+                args.cwd
+              ),
               onFallbackToWorkspaceRoot: () => {
                 didFallbackToWorkspaceRootCwd = true
               }

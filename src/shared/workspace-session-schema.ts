@@ -89,6 +89,12 @@ const terminalTabSchema = z.object({
   createdAt: z.number(),
   generation: z.number().optional(),
   startupCwd: z.string().min(1).optional(),
+  // Why parsed here: unlisted keys are stripped, so terminal mode's restored
+  // pwd would never survive a reload. Optional in both directions — an older
+  // session simply has none and the tab restarts at `startupCwd`. `.catch` for
+  // the same reason `launchAgent` has it: this value is machine-written from an
+  // external read, and one bad string must not reset every tab in the session.
+  lastCwd: z.string().min(1).optional().catch(undefined),
   // Why: persist the launched agent so a restored idle agent tab keeps its
   // provider icon before any hook fires. `.catch(undefined)` keeps a stale or
   // unknown agent id from failing the whole-session parse (which would reset

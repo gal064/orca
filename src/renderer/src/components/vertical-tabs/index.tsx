@@ -128,9 +128,7 @@ function VerticalTabsSidebar(): React.JSX.Element {
         )}
       </div>
 
-      <div className="shrink-0 pb-2">
-        <VerticalTabsAgentsEntry />
-      </div>
+      <VerticalTabsAgentsEntry />
     </div>
   )
 }

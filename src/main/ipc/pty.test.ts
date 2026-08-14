@@ -12021,6 +12021,26 @@ describe('registerPtyHandlers', () => {
     }
   })
 
+  /** Register the handlers with a session store holding one persisted tab. */
+  function registerRestoredPwdTabStore(tab: {
+    id: string
+    worktreeId: string
+    startupCwd?: string
+    lastCwd?: string
+  }): void {
+    const store = {
+      getWorkspaceSession: () => ({ tabsByWorktree: { [tab.worktreeId]: [tab] } })
+    }
+    registerPtyHandlers(
+      mainWindow as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      store as never
+    )
+  }
+
   it('falls back to the worktree root when a saved local cwd no longer exists', async () => {
     registerPtyHandlers(mainWindow as never)
     // Why: issue #7239 reproduced in a Japanese-named worktree; the fallback must return the selected worktree path verbatim.
@@ -12044,6 +12064,67 @@ describe('registerPtyHandlers', () => {
     const [, , options] = spawnMock.mock.calls.at(-1) as [string, string[], { cwd: string }]
     expect(options.cwd).toBe(worktreePath)
     expect(result.startupCwdFallback).toEqual({ kind: 'worktree', cwd: worktreePath })
+  })
+
+  it("prefers the tab's own start folder when its restored pwd is gone", async () => {
+    // Terminal mode spawns a restored tab at its last-known pwd; a `cd` target
+    // deleted between sessions must not cost the tab its own directory.
+    registerRestoredPwdTabStore({
+      id: 'tab-1',
+      worktreeId: 'repo-1::/repo/app',
+      startupCwd: '/repo/app/packages/web',
+      lastCwd: '/tmp/gone'
+    })
+    statSyncMock.mockImplementation((target: string) => {
+      if (target === '/tmp/gone') {
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      }
+      return { isDirectory: () => true, mode: 0o755 }
+    })
+
+    const result = (await handlers.get('pty:spawn')!(null, {
+      cols: 80,
+      rows: 24,
+      cwd: '/tmp/gone',
+      cwdFallback: 'worktree',
+      worktreeId: 'repo-1::/repo/app',
+      tabId: 'tab-1'
+    })) as { startupCwdFallback?: unknown }
+
+    const [, , options] = spawnMock.mock.calls.at(-1) as [string, string[], { cwd: string }]
+    expect(options.cwd).toBe('/repo/app/packages/web')
+    // Not the workspace-root notice — the tab opened where it was created.
+    expect(result.startupCwdFallback).toBeUndefined()
+  })
+
+  it('keeps the workspace-root recovery for a spawn that is not a restored pwd', async () => {
+    // Classic split-pane / "open terminal here" cwds also differ from the tab's
+    // `startupCwd`; they must keep landing at the workspace root, with its notice.
+    registerRestoredPwdTabStore({
+      id: 'tab-1',
+      worktreeId: 'repo-1::/repo/app',
+      startupCwd: '/repo/app/packages/web',
+      lastCwd: '/tmp/elsewhere'
+    })
+    statSyncMock.mockImplementation((target: string) => {
+      if (target === '/repo/app/deleted-folder') {
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      }
+      return { isDirectory: () => true, mode: 0o755 }
+    })
+
+    const result = (await handlers.get('pty:spawn')!(null, {
+      cols: 80,
+      rows: 24,
+      cwd: '/repo/app/deleted-folder',
+      cwdFallback: 'worktree',
+      worktreeId: 'repo-1::/repo/app',
+      tabId: 'tab-1'
+    })) as { startupCwdFallback?: { kind: string; cwd: string } }
+
+    const [, , options] = spawnMock.mock.calls.at(-1) as [string, string[], { cwd: string }]
+    expect(options.cwd).toBe('/repo/app')
+    expect(result.startupCwdFallback).toEqual({ kind: 'worktree', cwd: '/repo/app' })
   })
 
   it('keeps a missing cwd unchanged without the fallback flag', async () => {

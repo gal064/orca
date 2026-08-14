@@ -425,6 +425,49 @@ Every upstream-file edit must be a small, clearly-marked branch. Expected set:
      `{ forceConfirm }`, because `Mod+Shift+W` (item 7) must not inherit
      `skipDeleteWorktreeConfirm`, which the user opted into for the sidebar action.
 
+15. **Restored pwd on respawn (macOS acceptance fix, done).** §4's "local shells restart
+   in last-known pwd" needed a durable per-tab directory; the renderer tracked one but
+   only `startupCwd` was ever persisted. Five upstream edits, plus four upstream test files
+   (`src/main/ipc/pty.test.ts`, `src/renderer/src/lib/session-write-subscriber.test.ts`,
+   `src/shared/terminal-startup-cwd.test.ts`, `src/shared/workspace-session-terminal-schema.test.ts`)
+   and one new file in an upstream directory (`src/renderer/src/lib/terminal-tab-start-cwd.ts`):
+   - `src/shared/types.ts` — one field: `TerminalTab.lastCwd?: string` (additive optional,
+     so it rides `tabsByWorktree` and inherits its host partitioning; a build that predates
+     it drops the key and restarts at `startupCwd` exactly as before).
+   - `src/shared/workspace-session-schema.ts` — one field on `terminalTabSchema`; the
+     schema strips unlisted keys, so without it the value could never survive a reload.
+   - `src/shared/terminal-startup-cwd.ts` — ~20 lines: `missingDirFallback.fallbackCwd`,
+     tried between the requested cwd and the workspace root, so a deleted `cd` target
+     degrades to the tab's own start folder before the vtab root.
+   - `src/main/ipc/pty.ts` — a 30-line `resolveRestoredTabFallbackCwd` plus its call site:
+     the local fresh-spawn branch fills that candidate from the persisted tab, and only
+     when the requested cwd *is* that tab's `lastCwd`, so no classic spawn (split-pane
+     inheritance, "open terminal here") changes which directory it recovers to. Reading
+     the session there is what keeps a second cwd out of TerminalPane → lifecycle →
+     transport → IPC.
+   - `components/terminal-pane/use-terminal-pane-lifecycle.ts` — one substitution in the
+     PaneManager effect's `defaultTabCwd`: `resolveMountedTabStartCwd`
+     (`lib/terminal-tab-start-cwd.ts`) reads the tab from the store *snapshot*. Not the
+     `cwd` prop: that prop is a dependency of the effect that owns the PaneManager, so a
+     value that changes with each `cd` would tear the terminal down and rebuild it. The
+     helper adds `lastCwd` and nothing else, so every pane without one — classic, floating,
+     tab-group overlay — resolves to the cwd its call site already computed.
+   Terminal-mode-owned: `store/slices/terminal-cwd.ts` (`recordTerminalTabLastCwd`,
+   `resolveTabTerminalPtyId`) and `vertical-tabs/terminal-mode-last-cwd.ts` +
+   `use-terminal-mode-last-cwd.ts`, mounted by `TerminalModeSidebarHost`. The value
+   persisted is the one **main read on the tab's host** through `pty.getCwd`, never the
+   raw OSC 7 path, and only for **local** PTYs — see the design doc's Phase 7 notes for
+   why, for the classic-mode scope decision, and for why remote-runtime and SSH PTYs are
+   excluded.
+16. **Agents entry gate (macOS acceptance fix, done).** `vertical-tabs/VerticalTabsAgentsEntry.tsx`
+   now answers `shouldShowAgentsButton`, so both sidebars hide the row when
+   `experimentalActivity` is off instead of showing one that badges and does nothing. The
+   predicate moved out of `components/sidebar/SidebarNav.tsx` (which now imports it) into
+   `components/sidebar/agents-button-visibility.ts`, so terminal mode shares the policy
+   without importing the classic nav component and the surfaces it lazy-loads.
+   `SidebarNav.test.tsx` renders *both* rows in both flag states, so the shared gate is a
+   conclusion rather than an assumption.
+
 **Merge dry-run (Phase 6, against `v1.4.182`, 252 commits past the merged `v1.4.180`).**
 27 files conflicted; **12** of them are files terminal mode touches, and 10 of those 12 were
 already in this list (`daemon/shell-ready.ts`, `runtime/orca-runtime.ts`,

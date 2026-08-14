@@ -144,6 +144,54 @@ describe('resolveTerminalStartupCwd', () => {
     expect(onFallbackToWorkspaceRoot).not.toHaveBeenCalled()
   })
 
+  it('prefers the tab start folder over the workspace root for a missing cwd', () => {
+    // Terminal mode restores a tab in its last-known pwd; when that directory is
+    // gone the tab's own creation folder is closer than the workspace root.
+    const onFallbackToWorkspaceRoot = vi.fn()
+    expect(
+      resolveTerminalStartupCwd('/home/dev', '/tmp/gone', {
+        directoryExists: (path) => path !== '/tmp/gone',
+        fallbackCwd: '/home/dev/repo/src',
+        onFallbackToWorkspaceRoot
+      })
+    ).toBe('/home/dev/repo/src')
+    // Not the workspace-root notice: nothing surprising happened to the user.
+    expect(onFallbackToWorkspaceRoot).not.toHaveBeenCalled()
+  })
+
+  it('falls through to the workspace root when the tab start folder is gone too', () => {
+    const onFallbackToWorkspaceRoot = vi.fn()
+    expect(
+      resolveTerminalStartupCwd('/home/dev', '/tmp/gone', {
+        directoryExists: (path) => path === '/home/dev',
+        fallbackCwd: '/home/dev/repo/src',
+        onFallbackToWorkspaceRoot
+      })
+    ).toBe('/home/dev')
+    expect(onFallbackToWorkspaceRoot).toHaveBeenCalledWith('/tmp/gone')
+  })
+
+  it('ignores a tab start folder equal to the missing cwd', () => {
+    const directoryExists = vi.fn((path: string) => path === '/home/dev')
+    expect(
+      resolveTerminalStartupCwd('/home/dev', '/tmp/gone', {
+        directoryExists,
+        fallbackCwd: ' /tmp/gone '
+      })
+    ).toBe('/home/dev')
+  })
+
+  it('keeps an existing cwd without consulting the tab start folder', () => {
+    const directoryExists = vi.fn(() => true)
+    expect(
+      resolveTerminalStartupCwd('/home/dev', '/tmp/keep', {
+        directoryExists,
+        fallbackCwd: '/home/dev/repo/src'
+      })
+    ).toBe('/tmp/keep')
+    expect(directoryExists).toHaveBeenCalledTimes(1)
+  })
+
   it('does not probe when the requested cwd resolves to the workspace root', () => {
     const directoryExists = vi.fn(() => false)
     expect(

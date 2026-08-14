@@ -7,6 +7,10 @@ export type TerminalStartupCwdMissingDirFallback = {
   // Why: only local callers can probe the filesystem — SSH/remote worktree
   // paths live on another host — so the existence check is injected.
   directoryExists: (path: string) => boolean
+  /** Tried before the workspace root. Terminal mode restarts a tab in its
+   *  last-known pwd (terminal-mode-spec.md §4); when that directory is gone the
+   *  tab's own creation folder is a closer answer than the workspace root. */
+  fallbackCwd?: string
   onFallbackToWorkspaceRoot?: (missingCwd: string) => void
 }
 
@@ -24,11 +28,26 @@ export function resolveTerminalStartupCwd(
   // or splitting a terminal outside it (e.g. after `cd ..`) is allowed. (#7685)
   const resolvedCwd = resolveRuntimePath(worktreePath, trimmedCwd)
   if (
-    missingDirFallback &&
-    resolvedCwd !== worktreePath &&
-    !missingDirFallback.directoryExists(resolvedCwd) &&
-    missingDirFallback.directoryExists(worktreePath)
+    !missingDirFallback ||
+    resolvedCwd === worktreePath ||
+    missingDirFallback.directoryExists(resolvedCwd)
   ) {
+    return resolvedCwd
+  }
+  const fallbackCwd = missingDirFallback.fallbackCwd?.trim()
+  const resolvedFallbackCwd = fallbackCwd
+    ? resolveRuntimePath(worktreePath, fallbackCwd)
+    : undefined
+  if (
+    resolvedFallbackCwd &&
+    resolvedFallbackCwd !== resolvedCwd &&
+    missingDirFallback.directoryExists(resolvedFallbackCwd)
+  ) {
+    // No notice: reopening a tab at its own start folder is not the surprise
+    // that landing at the workspace root is.
+    return resolvedFallbackCwd
+  }
+  if (missingDirFallback.directoryExists(worktreePath)) {
     // Why: a persisted/inherited startup folder can be deleted later; spawning
     // into it fails on every retry and bricks terminal creation for that tab
     // (#7239), so recover at the workspace root. If the root is missing too

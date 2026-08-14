@@ -501,6 +501,30 @@ describe('createSessionWriteSubscriber', () => {
     cleanup()
   })
 
+  it("carries a tab's restored pwd on the debounced write, one write per cd", () => {
+    // Terminal mode records the pwd on the tab record precisely so this writer
+    // batches it — there is no second write path and no disk write per `cd`.
+    const persist = vi.fn<(payload: WorkspaceSessionWrite) => void>()
+    useAppStore.setState(makeTerminalSessionState('Terminal 1'))
+    const cleanup = createSessionWriteSubscriber({ store: useAppStore, persist })
+
+    useAppStore.setState({ workspaceSessionReady: true, hydrationSucceeded: true })
+    vi.advanceTimersByTime(200)
+    persist.mockClear()
+
+    useAppStore.getState().recordTerminalTabLastCwd('wt-1', 'tab-1', '/tmp/work')
+    useAppStore.getState().recordTerminalTabLastCwd('wt-1', 'tab-1', '/tmp/work/deeper')
+    expect(persist).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(200)
+
+    expect(persist).toHaveBeenCalledTimes(1)
+    expect(persist.mock.calls[0][0].patch.tabsByWorktree?.['wt-1'][0].lastCwd).toBe(
+      '/tmp/work/deeper'
+    )
+    cleanup()
+  })
+
   it('writes when live PTY bindings change without terminal tab changes', () => {
     const persist = vi.fn<(payload: WorkspaceSessionWrite) => void>()
     const cleanup = createSessionWriteSubscriber({ store: useAppStore, persist })

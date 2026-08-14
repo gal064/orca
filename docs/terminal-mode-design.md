@@ -784,6 +784,169 @@ was verified still running.
 
 ---
 
+## Phase 7 — macOS acceptance fixes (recorded 2026-08-14)
+
+Two defects from the user's macOS pass: restored local shells respawned in their creation
+directory rather than their last-known pwd (a §4 violation), and terminal mode's Agents row
+rendered without the `experimentalActivity` gate the classic sidebar applies — with the flag
+off it collected an unread badge and did nothing on click.
+
+### Restored pwd
+
+- **The field rides `tabsByWorktree`, it is not a new session field.** A tab record is
+  already `worktreeKeyed` in `workspace-session-host-field-ownership.ts`, already split per
+  host by `buildHostIdByWorktreeId`, already sanitized into every write path (the debounced
+  patch *and* the full `beforeunload` snapshot) and already hydrated wholesale. A parallel
+  `lastCwdByTabId` map would have needed an ownership entry, a `SESSION_RELEVANT_FIELDS`
+  entry, a patch-builder branch and its own hydration — four places to disagree with the tab
+  it describes. The one non-obvious consequence is that `terminalTabSchema` strips unlisted
+  keys, so the field had to be declared there or it would never have survived a reload.
+- **What is persisted is what main read on the tab's host, not the reported OSC 7 path.**
+  Phase 2 recorded the foreign-OSC 7 gap: a local shell inside `ssh`/`tmux`/`docker` reports
+  the *remote* shell's directory, and `cwdByPtyId` holds it un-adopted. Restoring into such a
+  path opens the tab somewhere unrelated on a good day, and on an SSH host the relay's
+  `pty.spawn` throws `ENOENT` with no missing-directory fallback — a dead pane. So the
+  recorder corroborates before writing: it calls `pty.getCwd`, which resolves the shell
+  process on the machine that owns it (`/proc`/libproc locally, over the relay for SSH), and
+  persists that. It also answers the symlink case (a logical `$PWD` resolves to its physical
+  path) and it re-arms main's own observed-cwd corroboration set for the filesystem grant,
+  because `pty:getCwd` records there too. A `'poll'`-sourced value skips the round trip — it
+  already came from that call.
+- **The probe is debounced and marked, not polled.** OSC 7 fires once per prompt but
+  `setPtyCwd` ignores unchanged directories, so a candidate only appears on a real `cd`;
+  a quiet window then buys one probe per tab that moved. The per-PTY marker is what keeps a
+  corroborated value that legitimately differs from the tracked one (the symlink case) from
+  re-probing every window, and it is set only on an answer — a failed probe is retried.
+  The window (2.5 s) is deliberately **longer than main's 1.5 s per-pid `getCwd` cache**:
+  another reader of the same PTY (the Checks panel polls this call too) can seed that cache
+  from a read taken just before the `cd`, and a probe inside the window would be served the
+  pre-`cd` directory. The constant carries that as a "do not lower" note.
+- **Two `getCwd` callers, deliberately.** `useTerminalCwdTracking`'s poll is a *periodic*
+  fallback for shells that report nothing at all: bounded to the focused pane of the active tab,
+  window-visibility gated, retired the moment OSC 7 arrives. The recorder is *edge-triggered* by a
+  settled `cd` in any vertical tab — a background tab that moved still has to be restorable — and
+  costs nothing while nothing moves. Folding both into one scheduler was considered and rejected:
+  it would rewrite Phase 2's live-pwd path (whose visibility gating exists to keep `lsof` off the
+  hot path on macOS) to serve a durable-write concern with different timing requirements.
+- **One tab, one directory.** A split tab persists its *focused* pane's pwd and restores every
+  pane there. Before this change every pane restored at the tab's `startupCwd`, so this is
+  uniform before and after; §4's contract is per-tab and the layout carries no per-leaf cwd.
+- **Persistence piggybacks the existing session writer.** The recorder writes the store; the
+  150 ms `session-write-subscriber` debounce turns a burst of `cd`s into one patch. There is
+  no second write path, and nothing new runs at quit.
+- **Classic mode: deliberately out of scope.** The candidate list is built from
+  `selectTerminalModeWorkspaceKeys` (the catalog choke point), so only vertical tabs ever gain
+  the field. Two cheaper gates were rejected: "wherever a cwd is tracked" would have changed
+  *classic worktree* restarts whenever the flag happened to be on (the OSC 7 observer is
+  global), and a `folder:` key test would have caught classic folder workspaces. With the flag
+  off the recorder is not mounted at all, so flag-off behavior is byte-identical rather than
+  merely equivalent.
+- **Remote reattach is untouched by construction.** Remote-runtime PTYs are excluded from the
+  candidate list: their restart story is reattach to a live host session that already holds
+  the real directory, `pty.getCwd` has no local process to read for them, and never writing
+  the field means nothing on the reattach path can consult it.
+- **SSH is excluded too — a deliberate scope reduction.** An SSH tab's cwd *can* be
+  corroborated (the provider's `getCwd` answers over the relay), but the spawn side cannot
+  recover: `resolveTerminalStartupCwd`'s existence probe is injected by local callers only,
+  and the relay's `pty.spawn` throws `ENOENT` for a missing directory. Since nothing clears
+  `lastCwd` after a failed spawn, a directory deleted between sessions would fail every retry
+  and leave the tab unusable — and `lastCwd` (any directory the user `cd`'d into: a build
+  output, a `mktemp -d`, a pruned worktree) is far more volatile than the creation folder that
+  risk previously applied to. Spec §4 mandates the restored pwd for **local** shells; SSH gets
+  it when the spawn path can probe the host, either by an existence check before the spawn or
+  by clearing `lastCwd` on a failed one.
+- **The restored pwd is read at mount, never through a prop.** `TerminalPane`'s `cwd` prop is
+  a dependency of the effect that *owns the PaneManager* — before this change it was immutable
+  for a tab's lifetime, because `startupCwd` is written once at tab creation. Feeding a value
+  that changes on every `cd` through it destroys and rebuilds every pane, transport and xterm
+  instance in the tab about a second after the user types the most common shell command. So
+  the prop stays exactly what it was and the lifecycle resolves `resolveMountedTabStartCwd`
+  from `useAppStore.getState()` inside that effect, next to the `consumeTabInitialCwd` read
+  that already works this way. The effect re-runs on mount and on a `generation` bump, which
+  is precisely Orca's existing "this tab respawns" boundary. That helper adds exactly one
+  thing to the caller's own answer — `lastCwd` — so "flag off ⇒ byte identical" is a property
+  of the expression rather than an argument about call sites: a classic, floating or overlay
+  pane has no restored pwd and keeps the cwd it was given.
+- **The fallback chain lives where the filesystem is.** `resolveMountedTabStartCwd` picks
+  `lastCwd ?? the caller's own answer` (which is `startupCwd ?? workspace root`); existence can
+  only be judged at spawn time on the spawning host, so the missing-directory step is main's:
+  `resolveTerminalStartupCwd`
+  gained an optional `fallbackCwd`, and the local branch of `pty:spawn` fills it from the
+  persisted tab's own `startupCwd` — **only when the requested cwd is that tab's `lastCwd`**.
+  That gate is what keeps classic provably untouched: split-pane inheritance and "open terminal
+  here" also send a cwd that differs from `startupCwd`, and they must keep recovering at the
+  workspace root *with* its notice. Reading the session in main keeps a second cwd from being
+  threaded through TerminalPane → lifecycle → transport → IPC for a case that only matters on
+  restore. Only the workspace-root step keeps the user-visible notice; landing in the tab's own
+  start folder is not a surprise worth a banner.
+- **One respawn path is deliberately left on `startupCwd`:**
+  `terminal-pane/codex-detached-pane-restart.ts`. A detached agent pane is restarted to resume
+  a provider session, and a resumed agent belongs in the directory it was launched in, not
+  wherever the tab's shell wandered afterwards.
+- **A directory deleted under the shell is never persisted.** Linux's `/proc/<pid>/cwd` resolves
+  to `"<path> (deleted)"` for an unlinked cwd, and nothing upstream filters that, so the recorder
+  refuses it in both arms. Refusing rather than marking also means the tab keeps its previous
+  restored pwd instead of acquiring a path that can never be reopened.
+- **Wire compatibility.** No new opcode, no new RPC, no new IPC parameter. The per-host
+  session partitions are the *client's* own `orca-data.json` (`session:get/patch` is
+  preload↔main; there is no `session.*` RPC), so the primary cross-version surface is the JSON
+  on disk, where the field is optional in both directions
+  (`docs/reference/remote-wire-compatibility.md` Rule 1) — an older build strips the key at
+  the schema and restarts at `startupCwd`. One session *does* cross a wire, though:
+  `remoteWorkspace:setForConnectedTargets` pushes a projection to connected SSH targets, and
+  `tabToRemote` spreads whole tab records. That projection is keyed by *worktree path*
+  (`worktreePathFromId`), so a vertical tab's `folder:` key is skipped and no `lastCwd` is
+  reachable there today; if one ever were, it is an additive optional field an old host
+  stores-or-strips, and a stripped value is simply re-established by the next probe.
+
+### Residual risks, recorded rather than fixed
+
+- **A restored pwd deleted between sessions costs one transient error toast** before the
+  recovery. The pane's *first* attempt is a cold restore, which carries a session id, and the
+  renderer deliberately suppresses `cwdFallback` for those (`pty-transport.ts`: reattach needs an
+  exact cwd), so the daemon answers `Working directory "…" does not exist`. The pane then spawns
+  fresh, the missing-directory fallback applies, and the terminal opens at the workspace root with
+  its own explanatory notice — verified in app QA. Clearing the toast for this case means relaxing
+  the reattach-exactness rule in two upstream files for a self-recovering path; recorded instead.
+- **The probe is not window-visibility gated**, unlike the fallback poll. It runs once per settled
+  `cd` per tab — a user-driven rate — so a background vertical tab costs a probe only when something
+  in it actually changes directory.
+- **On Windows the feature is a no-op**: `resolveProcessCwd` returns `''` there, so nothing is ever
+  corroborated. Terminal mode is unsupported on Windows (the toggle is hidden), so this is the
+  correct outcome rather than a gap.
+- **Moving a folder workspace out of the hidden group** (possible only through
+  `folderWorkspace.update`) would carry an already-written `lastCwd` into classic mode. The reader is
+  deliberately not flag-gated — a flag toggle must not change where a live tab's shell restarts.
+
+### App QA (executed 2026-08-14, Linux/Xvfb `:99`, isolated profile `/tmp/orca-p7c`)
+
+Driven over CDP against a build of this code; the machine's production serve (`~/orca-src`, :6768)
+and `~/.config/orca-dev` were untouched and verified alive afterwards.
+
+| Check | Result |
+| --- | --- |
+| Three vertical tabs created in distinct directories (`~`, `/tmp`, repo), each `cd`'d elsewhere, app **and its terminal daemon** killed, relaunched | **Pass — the defect's scenario.** Every shell came back with a **new pid** (2748333/2748889/2747527 vs 2740912/2742382/2743819, so a real respawn rather than a warm reattach) and in its last-known pwd: `/home/gal`→`/tmp`, `/tmp`→`repo/src`, `repo/src`→`/home/gal`. The `vtab-active-pwd` badge agreed in every tab, and the on-disk session carried `lastCwd` per tab in the **local** partition with no host partitions. |
+| Restored pwd deleted between sessions | **Pass with one transient toast.** The tab reopened at the vertical tab's own root with the existing notice ("Orca opened this terminal at the workspace root…"); the failed cold-restore attempt surfaced one `Working directory "/tmp/gone-p7" does not exist` error first (recorded above). |
+| Agents entry, `experimentalActivity` **off** | **Pass.** Row absent from the strip. |
+| Agents entry, `experimentalActivity` **on** | **Pass.** Row present; clicking it opens the Activity page (`activeView === 'activity'`). |
+| Terminal mode **off** | **Pass.** No vertical strip; classic sidebar renders normally. Classic restart behavior is covered by the repo's own `terminal-restart-persistence.spec.ts` (5 tests, all green on this code). |
+| Remote non-regression | **Pass.** `paired-remote-terminal-materialization-reconnect.spec.ts` — a client reconnecting to a paired host materializes its stopped terminal — green on this code. |
+
+### Agents entry
+
+- **One gate, one owner.** `shouldShowAgentsButton` already existed in `SidebarNav.tsx` and
+  both sidebars already share `SidebarAgentsButton`; terminal mode now reads the same
+  predicate rather than growing a second copy of the policy. The unread hook is passed the
+  same value, so a hidden row cannot keep counting a badge nothing can clear. The row's
+  padding wrapper moved into the entry component — hidden has to mean hidden, not an empty
+  8 px strip.
+- **The parity test renders both sidebars.** Asserting the terminal-mode row against the
+  predicate it calls would pass even if the classic nav stopped calling it — which is the
+  drift the fix exists to prevent — so the assertion lives in `SidebarNav.test.tsx`, whose
+  harness already mounts the classic nav, and counts Agents rows across both.
+
+---
+
 ## Phase 2 implementation notes (recorded 2026-08-13)
 
 - **The cwd fact is emitted from `recordOsc7MetadataForPty`, not from the

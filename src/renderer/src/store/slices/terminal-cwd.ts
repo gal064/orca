@@ -42,6 +42,10 @@ export type TerminalCwdSlice = {
   /** Drop a dead PTY's directory. Orca reuses PTY ids across incarnations, so a
    *  retained entry would show the previous shell's directory in the new one. */
   clearPtyCwd: (ptyId: string) => void
+  /** Stamp the directory a restarted shell of this tab should reopen in. Writes
+   *  the durable tab record, so the existing debounced session writer carries it
+   *  to disk — see `useTerminalModeLastCwdPersistence`. */
+  recordTerminalTabLastCwd: (workspaceKey: string, tabId: string, cwd: string) => void
 }
 
 /** The last terminal tab the user focused, else the last tab in strip order that
@@ -82,9 +86,15 @@ export function resolveWorkspaceTerminalPtyId(
   // active tab, and it owns no PTY — the spec's sticky rule says the panels keep
   // following the last terminal instead of snapping back to the start directory.
   const tabId = activeHasPty ? activeTabId : findFallbackTerminalTabId(state, workspaceKey)
-  if (!tabId) {
-    return null
-  }
+  return tabId ? resolveTabTerminalPtyId(state, tabId) : null
+}
+
+/** The PTY whose directory represents a tab: its focused split pane, else any
+ *  pane the layout still lists, else the newest PTY the tab owns. */
+export function resolveTabTerminalPtyId(
+  state: Pick<TerminalPtyResolutionState, 'ptyIdsByTabId' | 'terminalLayoutsByTabId'>,
+  tabId: string
+): string | null {
   const livePtyIds = state.ptyIdsByTabId[tabId] ?? []
   if (livePtyIds.length === 0) {
     return null
@@ -195,6 +205,24 @@ export const createTerminalCwdSlice: StateCreator<AppState, [], [], TerminalCwdS
       }
       const { [ptyId]: _dropped, ...rest } = state.cwdByPtyId
       return { cwdByPtyId: rest }
+    })
+  },
+
+  recordTerminalTabLastCwd: (workspaceKey, tabId, cwd) => {
+    const trimmed = cwd.trim()
+    if (!workspaceKey || !tabId || !trimmed) {
+      return
+    }
+    set((state) => {
+      const tabs = state.tabsByWorktree[workspaceKey]
+      const index = tabs?.findIndex((tab) => tab.id === tabId) ?? -1
+      const existing = tabs && index >= 0 ? tabs[index] : undefined
+      if (!tabs || !existing || existing.lastCwd === trimmed) {
+        return state
+      }
+      const nextTabs = [...tabs]
+      nextTabs[index] = { ...existing, lastCwd: trimmed }
+      return { tabsByWorktree: { ...state.tabsByWorktree, [workspaceKey]: nextTabs } }
     })
   }
 })

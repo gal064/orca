@@ -89,12 +89,13 @@ vi.mock('@/components/ui/context-menu', () => ({
 import SidebarNav, {
   getSetupGuideSidebarEntryReady,
   shouldShowAgentDashboardButton,
-  shouldShowAgentsButton,
   shouldShowAutomationsButton,
   shouldShowArtifactsButton,
   shouldShowMobileButton,
   shouldShowSetupGuideEntry
 } from './SidebarNav'
+import { shouldShowAgentsButton } from './agents-button-visibility'
+import VerticalTabsAgentsEntry from '@/components/vertical-tabs/VerticalTabsAgentsEntry'
 
 function gitRepo(): Repo {
   return {
@@ -239,6 +240,32 @@ describe('SidebarNav', () => {
         experimentalActivity: true
       })
     ).toBe(true)
+  })
+
+  it('shows the terminal-mode Agents row exactly when the classic one is shown', async () => {
+    // The two sidebars own separate markup; this renders both so the shared gate
+    // is a conclusion rather than an assumption. A row nothing can open would
+    // still collect an unread badge nothing can clear.
+    for (const experimentalActivity of [false, true]) {
+      setSidebarState({ settings: { ...getDefaultSettings('/tmp'), experimentalActivity } })
+      const container = document.createElement('div')
+      document.body.appendChild(container)
+      const root = createRoot(container)
+      mountedRoots.push(root)
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <SidebarNav />
+            <VerticalTabsAgentsEntry />
+          </TooltipProvider>
+        )
+      })
+
+      const agentsRows = Array.from(container.querySelectorAll('button')).filter(
+        (button) => button.textContent?.trim() === 'Agents'
+      )
+      expect(agentsRows.length).toBe(experimentalActivity ? 2 : 0)
+    }
   })
 
   it('shows the Agent Dashboard entry only when its experiment is enabled', () => {

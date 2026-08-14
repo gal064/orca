@@ -96,17 +96,43 @@ describe('VerticalTabsSidebar', () => {
   })
 
   it('renders the Agents entry with an unread badge the vertical tabs feed', () => {
-    // Why the setting: an unread vertical tab is only reachable — and so only
+    // Why the settings: an unread vertical tab is only reachable — and so only
     // countable — in terminal mode. With the flag off the badge must stay empty.
+    // `experimentalActivity` is the Activity surface's own gate (below).
     useAppStore.setState({
       projectGroups: [hidden],
       folderWorkspaces: [{ ...vtab('first', 1), isUnread: true }],
-      settings: { ...useAppStore.getState().settings, experimentalTerminalMode: true } as never
+      settings: {
+        ...useAppStore.getState().settings,
+        experimentalTerminalMode: true,
+        experimentalActivity: true
+      } as never
     })
     const view = renderSidebar()
 
     expect(view.getByTestId('vertical-tabs-agents-entry')).toBeTruthy()
     expect(view.getByTestId('vertical-tabs-agents-entry-unread').textContent).toBe('1')
+  })
+
+  it('hides the Agents entry when the Activity experiment is off', () => {
+    // Classic parity is asserted in SidebarNav.test.tsx, which renders both rows;
+    // this is the terminal-mode half: with the flag off the Activity page cannot
+    // be opened, so a row here would badge and do nothing.
+    for (const experimentalActivity of [false, true]) {
+      useAppStore.setState({
+        projectGroups: [hidden],
+        folderWorkspaces: [{ ...vtab('first', 1), isUnread: true }],
+        settings: {
+          ...useAppStore.getState().settings,
+          experimentalTerminalMode: true,
+          experimentalActivity
+        } as never
+      })
+      const view = renderSidebar()
+
+      expect(view.queryByTestId('vertical-tabs-agents-entry') !== null).toBe(experimentalActivity)
+      cleanup()
+    }
   })
 
   it('rolls a working agent up to the row status dot', () => {

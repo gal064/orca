@@ -22,6 +22,7 @@ import type {
   NotificationSoundDataResult
 } from '../../shared/types'
 import { getRepoIdFromWorktreeId } from '../../shared/worktree-id'
+import { parseWorkspaceKey } from '../../shared/workspace-scope'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { buildNotificationOptions } from './notification-options'
 import { readNotificationAuthorizationStatus } from './notification-authorization-status'
@@ -507,9 +508,13 @@ export function registerNotificationHandlers(store: Store, runtime?: OrcaRuntime
         }
         notification.on('failed', failedHandler)
 
-        // Why: worktreeId is formatted "repoId::worktreePath"; without the separator we can't extract a repoId, so skip the click-to-navigate binding.
-        if (args.worktreeId && args.worktreeId.includes('::')) {
-          const repoId = getRepoIdFromWorktreeId(args.worktreeId)
+        // Why: worktreeId is formatted "repoId::worktreePath"; without the separator we
+        // can't extract a repoId, so skip the click-to-navigate binding — *unless* it is
+        // a terminal-mode vertical tab, whose `folder:` key carries no repo and needs
+        // none: the renderer resolves it through `getKnownWorktreeById` (docs/terminal-mode-spec.md §3.3).
+        const folderWorkspaceTarget = parseWorkspaceKey(args.worktreeId ?? '')?.type === 'folder'
+        if (args.worktreeId && (folderWorkspaceTarget || args.worktreeId.includes('::'))) {
+          const repoId = folderWorkspaceTarget ? null : getRepoIdFromWorktreeId(args.worktreeId)
           clickHandler = () => {
             release()
             const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())

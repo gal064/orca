@@ -71,6 +71,10 @@ const ALLOWED: Record<string, string> = {
   'hooks/remote-workspace-snapshot-apply.ts': 'remote snapshot apply, keyed by workspace',
   'hooks/remote-workspace-target-sync.ts': 'remote target sync, keyed by workspace',
   'hooks/useEditorExternalWatch.ts': 'watches the active workspace',
+  'hooks/useUnreadDockBadge.ts':
+    'reads the raw catalog only in terminal mode; classic mode goes through the choke point so an unclearable vtab badge cannot stick',
+  'components/activity/useActivityUnreadCount.ts':
+    'same mode branch as the Dock badge — raw catalog in terminal mode, choke point in classic',
 
   'components/Terminal.tsx': 'mounts a terminal surface per workspace — must include vtabs',
   'components/quick-open-file-list.ts': 'routes a file operation for one workspace',

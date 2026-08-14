@@ -15127,7 +15127,8 @@
         "VerticalTabsSidebar": {
           "title": "Terminals",
           "newTab": "New terminal tab",
-          "empty": "No terminal tabs"
+          "empty": "No terminal tabs",
+          "emptyAction": "No terminal tabs — create one"
         },
         "VerticalTabCloseConfirmDialog": {
           "title": "Close terminal tab?",
@@ -15141,6 +15142,9 @@
         "NewVerticalTabButton": {
           "chooseHost": "New terminal tab on…",
           "hostNeedsUpdate": "Server update needed"
+        },
+        "VerticalTabsAgentsEntry": {
+          "agents": "Agents"
         }
       }
     },

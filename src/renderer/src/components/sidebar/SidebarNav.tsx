@@ -1,8 +1,9 @@
 import React from 'react'
-import { Bell, CalendarClock, EyeOff, Files, Search, Smartphone } from 'lucide-react'
+import { CalendarClock, EyeOff, Files, Search, Smartphone } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
+import SidebarAgentsButton from './SidebarAgentsButton'
 import type { GlobalSettings } from '../../../../shared/types'
 import { useActivityUnreadCount } from '@/components/activity/useActivityUnreadCount'
 import { useShortcutKeyComboDetails } from '@/hooks/useShortcutLabel'
@@ -160,33 +161,11 @@ const SidebarNav = React.memo(function SidebarNav() {
         </React.Suspense>
       ) : null}
       {showAgentsButton ? (
-        <button
-          type="button"
+        <SidebarAgentsButton
+          active={activityActive}
+          unreadCount={activityUnreadCount}
           onClick={openActivityPage}
-          aria-current={activityActive ? 'page' : undefined}
-          className={cn(
-            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium tracking-tight transition-colors',
-            activityActive
-              ? 'bg-worktree-sidebar-accent text-worktree-sidebar-accent-foreground'
-              : 'text-worktree-sidebar-foreground/60 hover:bg-worktree-sidebar-foreground/8'
-          )}
-        >
-          <Bell
-            className={cn(
-              'size-4 shrink-0',
-              !activityActive && 'text-worktree-sidebar-foreground/30'
-            )}
-            strokeWidth={activityActive ? 2.25 : 1.75}
-          />
-          <span className="flex-1">
-            {translate('auto.components.sidebar.SidebarNav.9c95e1ce91', 'Agents')}
-          </span>
-          {activityUnreadCount > 0 ? (
-            <span className="rounded-full bg-primary px-1.5 py-px text-[10px] font-semibold text-primary-foreground">
-              {activityUnreadCount}
-            </span>
-          ) : null}
-        </button>
+        />
       ) : null}
       {showMobileButton ? (
         <ContextMenu>

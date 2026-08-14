@@ -220,6 +220,14 @@ export type IpcPtyTransportOptions = {
   onPtySpawn?: (ptyId: string) => void
   /** Rebind an existing pane after its provider replaces the PTY identity. */
   onPtyRebind?: (ptyId: string, replacedPtyId: string) => void
+  /**
+   * The persisted session this pane tried to attach to is gone for good — the host
+   * restarted, or it was closed while this client was away. Distinct from
+   * `onPtyExit`, which retires a PTY that *was* live and whose death may legitimately
+   * close the tab: this one never ran here, so the pane's answer is to drop the stale
+   * id and spawn a replacement, exactly as the synchronous attach-failure path does.
+   */
+  onPtySessionLost?: (ptyId: string) => void
   onBell?: () => void
   onAgentBecameIdle?: (title: string) => void
   onAgentBecameWorking?: () => void

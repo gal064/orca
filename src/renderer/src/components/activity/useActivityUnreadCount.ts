@@ -5,6 +5,8 @@ import { migrationUnsupportedToAgentStatusEntry } from '@/lib/migration-unsuppor
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import type { AgentStatusEntry, AgentStatusState } from '../../../../shared/agent-status-types'
+import { isTerminalMode } from '@/lib/terminal-mode'
+import { selectClassicFolderWorkspaces } from '@/store/classic-workspace-catalog'
 
 type ActivityUnreadCountSource = Pick<
   AppState,
@@ -13,7 +15,11 @@ type ActivityUnreadCountSource = Pick<
   | 'migrationUnsupportedByPtyId'
   | 'retainedAgentsByPaneKey'
   | 'worktreesByRepo'
->
+> & {
+  /** Folder workspaces carry `isUnread` too, and a terminal-mode vertical tab is one —
+   *  without them the badge on the sidebar's own Agents row cannot see a vertical tab. */
+  folderWorkspaces?: readonly AppState['folderWorkspaces'][number][]
+}
 
 type ActivityUnreadCountMode = 'agent-events' | 'sidebar-badge'
 
@@ -22,9 +28,12 @@ const EMPTY_MIGRATION_UNSUPPORTED: AppState['migrationUnsupportedByPtyId'] = {}
 const EMPTY_RETAINED_AGENTS: AppState['retainedAgentsByPaneKey'] = {}
 const EMPTY_ACKNOWLEDGED_AGENTS: AppState['acknowledgedAgentsByPaneKey'] = {}
 
+const EMPTY_FOLDER_WORKSPACES: readonly AppState['folderWorkspaces'][number][] = []
+
 const DISABLED_ACTIVITY_UNREAD_INPUTS = {
   sortEpoch: 0,
   worktreesByRepo: EMPTY_WORKTREES_BY_REPO,
+  folderWorkspaces: EMPTY_FOLDER_WORKSPACES,
   migrationUnsupportedByPtyId: EMPTY_MIGRATION_UNSUPPORTED,
   retainedAgentsByPaneKey: EMPTY_RETAINED_AGENTS,
   acknowledgedAgentsByPaneKey: EMPTY_ACKNOWLEDGED_AGENTS
@@ -46,6 +55,11 @@ export function countActivityUnread(
         if (worktree.createdAt && worktree.isUnread) {
           count += 1
         }
+      }
+    }
+    for (const workspace of source.folderWorkspaces ?? EMPTY_FOLDER_WORKSPACES) {
+      if (workspace.isUnread) {
+        count += 1
       }
     }
   }
@@ -102,6 +116,7 @@ export function useActivityUnreadCount(enabled: boolean, mode: ActivityUnreadCou
   const {
     sortEpoch,
     worktreesByRepo,
+    folderWorkspaces,
     migrationUnsupportedByPtyId,
     retainedAgentsByPaneKey,
     acknowledgedAgentsByPaneKey
@@ -116,6 +131,11 @@ export function useActivityUnreadCount(enabled: boolean, mode: ActivityUnreadCou
         // or removal occurred. sortEpoch is the cheap invalidation signal.
         sortEpoch: state.sortEpoch,
         worktreesByRepo: state.worktreesByRepo,
+        // Why the mode branch: same reason as the Dock badge — a vertical tab's unread
+        // is unreachable and unclearable with the flag off.
+        folderWorkspaces: isTerminalMode(state.settings)
+          ? state.folderWorkspaces
+          : selectClassicFolderWorkspaces(state),
         migrationUnsupportedByPtyId: state.migrationUnsupportedByPtyId,
         retainedAgentsByPaneKey: state.retainedAgentsByPaneKey,
         acknowledgedAgentsByPaneKey: state.acknowledgedAgentsByPaneKey
@@ -134,6 +154,7 @@ export function useActivityUnreadCount(enabled: boolean, mode: ActivityUnreadCou
         migrationUnsupportedByPtyId,
         retainedAgentsByPaneKey,
         worktreesByRepo,
+        folderWorkspaces,
         acknowledgedAgentsByPaneKey
       },
       mode
@@ -143,6 +164,7 @@ export function useActivityUnreadCount(enabled: boolean, mode: ActivityUnreadCou
     enabled,
     migrationUnsupportedByPtyId,
     mode,
+    folderWorkspaces,
     retainedAgentsByPaneKey,
     sortEpoch,
     worktreesByRepo

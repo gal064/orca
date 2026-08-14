@@ -159,6 +159,7 @@ export function createRemoteRuntimePtyTransport(
     onPtyExit,
     onPtySpawn,
     onPtyRebind,
+    onPtySessionLost,
     onTitleChange,
     onBell,
     onAgentBecameIdle,
@@ -769,7 +770,10 @@ export function createRemoteRuntimePtyTransport(
     options: { cols?: number; rows?: number },
     notifySpawn = true,
     expectedAttachGeneration?: number,
-    expectedLifecycleEpoch?: number
+    expectedLifecycleEpoch?: number,
+    /** Only the attach path has one: the persisted id whose loss the pane must recover
+     *  from. `connect` is creating a session, so it has nothing to report. */
+    lostPtyId?: string
   ): Promise<PtyConnectResult | undefined> {
     if (!tabId || !isWebTerminalSurfaceTabId(tabId)) {
       return undefined
@@ -785,11 +789,17 @@ export function createRemoteRuntimePtyTransport(
     }
     if (hostHandle === null) {
       surfaceErrorMessage('Remote terminal was closed.')
+      if (lostPtyId && isCurrent()) {
+        reportLostRemoteSession(lostPtyId)
+      }
       return undefined
     }
     if (!hostHandle || !isCurrent()) {
       if (isCurrent()) {
         surfaceErrorMessage('Remote terminal was closed.')
+        if (lostPtyId) {
+          reportLostRemoteSession(lostPtyId)
+        }
       }
       return undefined
     }
@@ -1362,7 +1372,9 @@ export function createRemoteRuntimePtyTransport(
     )
   }
 
-  function retireRemoteTerminalId(): void {
+  /** Full teardown, shared by the two ways a remote terminal can end. Returns the id
+   *  it was holding so the caller can name it in whichever signal it owns. */
+  function tearDownRemoteTerminal(): string | null {
     recovery.cancel()
     resetRecoveryReplacementPolicy()
     resetSameHandleEndReuse()
@@ -1378,9 +1390,31 @@ export function createRemoteRuntimePtyTransport(
     closeMultiplexedStream()
     setAttachmentUnavailable()
     emitRecoveryState()
+    return stalePtyId
+  }
+
+  function retireRemoteTerminalId(): void {
+    const stalePtyId = tearDownRemoteTerminal()
     if (stalePtyId) {
       onPtyExit?.(stalePtyId)
     }
+  }
+
+  /**
+   * The persisted session this pane was attaching to is gone for good. Same teardown
+   * as a retire — leaving `handle` set and `terminalEnded` false stranded attachment
+   * waiters on their 15 s timeout — but the signal is `onPtySessionLost`, because
+   * `onPtyExit` retires a PTY that *was* live and closes the tab when it is the pane's
+   * only one. A server restart must not delete the user's terminal.
+   */
+  function reportLostRemoteSession(lostPtyId: string): void {
+    if (destroyed) {
+      // Why: the pane is unmounting, so respawning into it would create a PTY nobody
+      // owns. Every other late callback in this transport carries the same guard.
+      return
+    }
+    tearDownRemoteTerminal()
+    onPtySessionLost?.(lostPtyId)
   }
 
   function rebindRemoteTerminalHandle(nextHandle: string): void {
@@ -2213,7 +2247,13 @@ export function createRemoteRuntimePtyTransport(
       const persistedHandle = nextHandle
       void (async () => {
         if (isWebTerminalSurfaceTabId(tabId ?? '')) {
-          await attachHostSessionMirror(options, false, generation, attachLifecycleEpoch)
+          await attachHostSessionMirror(
+            options,
+            false,
+            generation,
+            attachLifecycleEpoch,
+            options.existingPtyId
+          )
           return
         }
         if (!tabId || !leafId || !worktreeId) {
@@ -2256,6 +2296,11 @@ export function createRemoteRuntimePtyTransport(
         }
         if (!resolved) {
           surfaceErrorMessage('Remote terminal was closed.')
+          // Why a signal and not a throw: `attach` is fire-and-forget, so throwing here
+          // reaches this IIFE's own `.catch`, never the caller's synchronous one — which
+          // is why the pane used to sit on a dead id forever, re-reading it from the
+          // session on every later launch. The pane owns the recovery.
+          reportLostRemoteSession(options.existingPtyId)
           return
         }
         await adoptResolvedHostPane(resolved, options, false, generation)

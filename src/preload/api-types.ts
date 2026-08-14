@@ -3245,7 +3245,9 @@ export type PreloadApi = {
     onEditableContextPaste: (callback: (data: { plainTextOnly: boolean }) => void) => () => void
     onActivateWorktree: (
       callback: (data: {
-        repoId: string
+        /** Null for a terminal-mode vertical tab: a `folder:` key carries no repo, and
+         *  the renderer resolves it from the folder-workspace catalog instead. */
+        repoId: string | null
         worktreeId: string
         setup?: WorktreeSetupLaunch
         startup?: WorktreeStartupLaunch

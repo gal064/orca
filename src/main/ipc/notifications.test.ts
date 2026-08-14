@@ -452,6 +452,53 @@ describe('registerNotificationHandlers', () => {
     }
   })
 
+  it('routes a click for a terminal-mode vertical tab, which has no repo id', async () => {
+    // A `folder:` key has no `::`, so the click binding used to be skipped entirely and
+    // the notification did nothing at all (docs/terminal-mode-design.md Phase 5 task 2).
+    const webContentsSend = vi.fn()
+    getAllWindowsMock.mockReturnValue([
+      {
+        isDestroyed: () => false,
+        isFocused: () => false,
+        isMinimized: () => false,
+        restore: vi.fn(),
+        focus: vi.fn(),
+        webContents: { send: webContentsSend }
+      } as never
+    ])
+    registerNotificationHandlers({
+      getSettings: () => ({
+        notifications: {
+          enabled: true,
+          agentTaskComplete: true,
+          terminalBell: true,
+          suppressWhenFocused: true
+        }
+      })
+    } as never)
+
+    const paneKey = 'tab-9:22222222-2222-4222-8222-222222222222'
+    const handler = getDispatchHandler()
+    expect(
+      await handler({}, { source: 'agent-task-complete', worktreeId: 'folder:vtab-1', paneKey })
+    ).toEqual({ delivered: true })
+
+    getNotificationEventHandler('click')()
+
+    expect(webContentsSend).toHaveBeenCalledWith('ui:activateWorktree', {
+      repoId: null,
+      worktreeId: 'folder:vtab-1'
+    })
+    expect(webContentsSend).toHaveBeenCalledWith('ui:focusTerminal', {
+      tabId: 'tab-9',
+      worktreeId: 'folder:vtab-1',
+      leafId: '22222222-2222-4222-8222-222222222222',
+      ackPaneKeyOnSuccess: paneKey,
+      flashFocusedPane: true,
+      scrollToBottomIfOutputSinceLastView: true
+    })
+  })
+
   it('focuses the originating terminal pane when a notification with paneKey is clicked', async () => {
     const webContentsSend = vi.fn()
     const restore = vi.fn()

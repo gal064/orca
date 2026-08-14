@@ -6,7 +6,9 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
+import StatusIndicator from '@/components/sidebar/StatusIndicator'
 import { WorktreeTitleInlineRename } from '@/components/sidebar/WorktreeTitleInlineRename'
+import type { WorktreeStatus } from '@/lib/worktree-status'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 
@@ -16,6 +18,8 @@ export type VerticalTabRowProps = {
   folderPath: string
   /** Non-local host this tab's terminals run on; absent for local tabs. */
   hostLabel?: string
+  /** Rolled-up agent state for the tab (spec §2: status dots roll up to the vtab). */
+  status: WorktreeStatus
   active: boolean
   onActivate: (id: string) => void
   onRename: (id: string, name: string) => void | Promise<void>
@@ -27,6 +31,7 @@ function VerticalTabRow({
   name,
   folderPath,
   hostLabel,
+  status,
   active,
   onActivate,
   onRename,
@@ -79,6 +84,7 @@ function VerticalTabRow({
           onClick={handleActivate}
           onKeyDown={handleKeyDown}
         >
+          <StatusIndicator status={status} aria-hidden="true" />
           <WorktreeTitleInlineRename
             className="flex-1 text-[13px]"
             displayName={name}

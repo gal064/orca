@@ -244,6 +244,12 @@ export const createVerticalTabsSlice: StateCreator<AppState, [], [], VerticalTab
   },
 
   requestVerticalTabClose: (folderWorkspaceId) => {
+    // Why it always asks: closing a vertical tab *deletes the folder workspace* and
+    // kills every process in it — irreversible, and one key away from Ctrl+W. The
+    // "confirmations stop being read" argument is for reversible actions. What Phase 5
+    // adds is not a skip but an answer to "what dies": the dialog names the agents
+    // (spec §4, "lists the running agent(s) it would kill"), and a build or a `top`
+    // still gets its prompt because the dialog never claims the list is exhaustive.
     set({ verticalTabPendingCloseId: folderWorkspaceId })
   },
 

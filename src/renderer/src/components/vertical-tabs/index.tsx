@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
@@ -6,7 +6,9 @@ import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import { useTerminalModeHostOptions } from './use-terminal-mode-host-options'
 import { getVerticalTabHostId } from '@/store/slices/vertical-tabs'
 import NewVerticalTabButton from './NewVerticalTabButton'
+import VerticalTabsAgentsEntry from './VerticalTabsAgentsEntry'
 import VerticalTabRow from './VerticalTabRow'
+import { useVerticalTabStatuses } from './use-vertical-tab-statuses'
 import { useActiveVerticalTabId, useVerticalTabs } from './use-vertical-tabs'
 import { useActiveVerticalTabPwd } from './use-active-vertical-tab-pwd'
 import { useVerticalTabPwds } from './use-terminal-mode-auto-title'
@@ -29,6 +31,10 @@ function VerticalTabsSidebar(): React.JSX.Element {
   // Auto-title: a tab is named after its focused terminal's directory until renamed.
   const pwdByTabId = useVerticalTabPwds()
   const activateVerticalTab = useAppStore((s) => s.activateVerticalTab)
+  const createVerticalTab = useAppStore((s) => s.createVerticalTab)
+  const handleCreateFirstTab = useCallback(() => {
+    void createVerticalTab()
+  }, [createVerticalTab])
   const renameVerticalTab = useAppStore((s) => s.renameVerticalTab)
   const requestVerticalTabClose = useAppStore((s) => s.requestVerticalTabClose)
 
@@ -39,6 +45,7 @@ function VerticalTabsSidebar(): React.JSX.Element {
     () => (hosts.length > 1 ? new Map(hosts.map((host) => [host.id, host.label])) : null),
     [hosts]
   )
+  const statusByTabId = useVerticalTabStatuses(tabs)
   const folderWorkspaces = useAppStore((s) => s.folderWorkspaces)
   const projectGroups = useAppStore((s) => s.projectGroups)
   const hostLabelByTabId = useMemo(() => {
@@ -80,12 +87,19 @@ function VerticalTabsSidebar(): React.JSX.Element {
         data-testid="vertical-tabs-list"
       >
         {tabs.length === 0 ? (
-          <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+          // Why a button and not a label: an empty strip is the one state where the
+          // user has nothing to click, and the "+" is a 14px target in the header.
+          <button
+            type="button"
+            className="mx-2 rounded-md px-2 py-6 text-center text-xs text-muted-foreground hover:bg-worktree-sidebar-accent/60 hover:text-foreground"
+            data-testid="vertical-tabs-empty-create"
+            onClick={handleCreateFirstTab}
+          >
             {translate(
-              'auto.components.verticalTabs.VerticalTabsSidebar.empty',
-              'No terminal tabs'
+              'auto.components.verticalTabs.VerticalTabsSidebar.emptyAction',
+              'No terminal tabs — create one'
             )}
-          </p>
+          </button>
         ) : (
           tabs.map((tab) => (
             <VerticalTabRow
@@ -94,6 +108,7 @@ function VerticalTabsSidebar(): React.JSX.Element {
               name={resolveVerticalTabDisplayName(tab, pwdByTabId[tab.id])}
               folderPath={tab.folderPath}
               hostLabel={hostLabelByTabId[tab.id]}
+              status={statusByTabId.get(tab.id) ?? 'inactive'}
               active={tab.id === activeTabId}
               onActivate={activateVerticalTab}
               onRename={renameVerticalTab}
@@ -101,6 +116,10 @@ function VerticalTabsSidebar(): React.JSX.Element {
             />
           ))
         )}
+      </div>
+
+      <div className="shrink-0 pb-2">
+        <VerticalTabsAgentsEntry />
       </div>
     </div>
   )

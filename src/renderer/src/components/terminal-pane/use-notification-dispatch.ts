@@ -185,7 +185,14 @@ export function dispatchTerminalNotification(
   // construction; coupling the notification dispatcher to it would silently
   // drop the repo label if that format ever changes. The worktree object
   // itself is the source of truth for its owning repo.
-  const worktree = getWorktreeMapFromState(state).get(worktreeId)
+  // Why the fallback: the index is built from `worktreesByRepo`, which has no folder
+  // workspaces — so a terminal-mode vertical tab would title its notification with the
+  // raw `folder:<uuid>` key. `getKnownWorktreeById` resolves those from the folder
+  // catalog; it carries no real repo, which is exactly right for a vertical tab.
+  const worktree =
+    getWorktreeMapFromState(state).get(worktreeId) ??
+    state.getKnownWorktreeById?.(worktreeId) ??
+    undefined
   const repo = worktree ? getRepoMapFromState(state).get(worktree.repoId) : null
   const customSoundId = state.settings?.notifications?.customSoundId ?? 'system'
   const customSoundVolume = state.settings?.notifications?.customSoundVolume ?? null

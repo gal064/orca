@@ -3076,6 +3076,19 @@ export function connectPanePty(
     // replace its stale store identity without fresh-spawn exit semantics.
     bindActivePanePty(ptyId, { replacePtyId: replacedPtyId })
   }
+  // Why a holder: the respawn lives in the connect scope, several closures below,
+  // while the transport's callbacks are built out here. Assigned once that scope
+  // exists; until then a lost session simply clears its stale id.
+  let respawnAfterLostSession: (() => void) | null = null
+  const onPtySessionLost = (ptyId: string): void => {
+    // The same recovery the synchronous attach-failure path runs, reached from a
+    // transport that could only learn the session was gone asynchronously. Not
+    // routed through onPtyExit on purpose: that retires a PTY that was live and can
+    // close the tab when it is the pane's only one, which would delete the user's
+    // terminal because a server restarted.
+    deps.clearTabPtyId(deps.tabId, ptyId)
+    respawnAfterLostSession?.()
+  }
   // ─── Attention signal: BEL ────────────────────────────────────────────
   //
   // BEL (0x07) is the attention signal. A BEL raises tab- and worktree-level
@@ -3846,6 +3859,7 @@ export function connectPanePty(
     onPtyExit: onExit,
     onPtySpawn,
     onPtyRebind,
+    onPtySessionLost,
     ...(mainSideEffectAuthority
       ? {}
       : {
@@ -9107,6 +9121,13 @@ export function connectPanePty(
       } else {
         // Why: surface synchronous attach failures via reportError so the pane shows a diagnostic instead of a blank surface.
         // On throw, clear the stale ptyId from the tab and fresh-spawn — else the next remount reads the same dead id and loops here.
+        // Why here: the transport can only discover asynchronously that the persisted
+        // session is gone (the host restarted), and its callback was built before this
+        // scope existed. Arming it at the attach that owns that id keeps the respawn
+        // bound to the pane generation that asked for it.
+        respawnAfterLostSession = () => {
+          void startFreshSpawn()
+        }
         try {
           clearPaneMode2031State()
           clearHiddenOutputRestoreState()
@@ -9475,6 +9496,11 @@ export function connectPanePty(
       deferredCommandFinishedStatusDrop = null
       visibleForegroundSamplePending = false
       visibleForegroundSampleSettled = false
+      // Why: the lost-session signal is a late callback on an in-flight `resolvePane`
+      // round trip. Without this, a pane unmounted mid-attach (a remount, or React
+      // StrictMode's mount→dispose→remount) would respawn into a pane nobody owns and
+      // leave an orphan PTY on the host.
+      respawnAfterLostSession = null
       paneForegroundAgentTracker.dispose()
       agentCompletionCoordinator.dispose()
     }

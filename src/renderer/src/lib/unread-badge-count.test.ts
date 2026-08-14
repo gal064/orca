@@ -40,4 +40,39 @@ describe('getUnreadBadgeCount', () => {
       })
     ).toBe(2)
   })
+
+  it('counts an unread folder workspace, which is what a vertical tab is', () => {
+    expect(
+      getUnreadBadgeCount({
+        worktreesByRepo: {},
+        folderWorkspaces: [{ id: 'vtab-1', isUnread: true } as never],
+        tabsByWorktree: {},
+        unreadTerminalTabs: {}
+      })
+    ).toBe(1)
+  })
+
+  it('does not double-count a folder workspace that also has an unread tab', () => {
+    // The folder key is the same one `tabsByWorktree` uses, so the tab sweep dedupes.
+    expect(
+      getUnreadBadgeCount({
+        worktreesByRepo: {},
+        folderWorkspaces: [{ id: 'vtab-1', isUnread: true } as never],
+        tabsByWorktree: { 'folder:vtab-1': [tab('tab-1')] },
+        unreadTerminalTabs: { 'tab-1': true }
+      })
+    ).toBe(1)
+  })
+
+  it('counts nothing when the caller passes no folder workspaces', () => {
+    // The caller decides reachability: classic mode hands over the filtered catalog,
+    // so a vertical tab cannot leave a badge nobody can render or clear.
+    expect(
+      getUnreadBadgeCount({
+        worktreesByRepo: {},
+        tabsByWorktree: {},
+        unreadTerminalTabs: {}
+      })
+    ).toBe(0)
+  })
 })

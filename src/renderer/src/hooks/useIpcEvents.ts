@@ -7,6 +7,7 @@ import { applyWorktreeHeadIdentities } from './worktree-head-identity-apply'
 import { getWorktreeMapFromState, getRepoMapFromState } from '@/store/selectors'
 import { applyUIZoom } from '@/lib/ui-zoom'
 import { activateAndRevealWorktree, activateAndRevealWorkspace } from '@/lib/worktree-activation'
+import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import { buildLinearIssueLinkedWorkItem } from '@/lib/linear-linked-work-item'
 import { runWorktreeDelete } from '@/components/sidebar/delete-worktree-flow'
 import {
@@ -874,7 +875,11 @@ export function useIpcEvents(): void {
         setup,
         startup,
         defaultTabs
-      }: Extract<RuntimeClientEvent, { type: 'activateWorktree' }>,
+      }: Omit<Extract<RuntimeClientEvent, { type: 'activateWorktree' }>, 'repoId'> & {
+        /** Null only on the notification-click path for a terminal-mode vertical tab.
+         *  The runtime event type keeps `repoId` required — nothing on the wire changed. */
+        repoId: string | null
+      },
       options: { allowRuntimeEnvironment: boolean }
     ): Promise<void> => {
       if (!options.allowRuntimeEnvironment && isRuntimeEnvironmentActive()) {
@@ -882,9 +887,22 @@ export function useIpcEvents(): void {
         return
       }
       const existedBeforeFetch = Boolean(useAppStore.getState().getKnownWorktreeById(worktreeId))
-      // Why: fetch first so activation can resolve the CLI-created worktree; it arrived from main, not yet in renderer state.
-      await useAppStore.getState().fetchWorktrees(repoId)
+      // Why the guard: a terminal-mode vertical tab has no repo to fetch — its `folder:`
+      // key resolves out of the folder-workspace catalog, and `repoId` is null for it.
+      if (repoId) {
+        // Why: fetch first so activation can resolve the CLI-created worktree; it arrived from main, not yet in renderer state.
+        await useAppStore.getState().fetchWorktrees(repoId)
+      }
       const existsAfterFetch = Boolean(useAppStore.getState().getKnownWorktreeById(worktreeId))
+      // Why the dispatcher for a folder key: its folder branch is what enforces the
+      // path-status gate, and the worktree path would otherwise activate a missing or
+      // disconnected vertical tab and stamp a synthetic repo id into `activeRepoId`.
+      // Worktree keys keep the richer options; a folder workspace has no setup/startup
+      // launch of its own to carry.
+      if (parseWorkspaceKey(worktreeId)?.type === 'folder') {
+        activateAndRevealWorkspace(worktreeId)
+        return
+      }
       // Why: use the canonical activation path so the CLI switch records a back/forward visit, or the nav buttons ignore it.
       activateAndRevealWorktree(worktreeId, {
         ...(setup ? { setup } : {}),

@@ -773,6 +773,15 @@ run, see the review round above).
 macOS local and macOS client → omarchy remote host remain the user's manual passes; Windows
 stays CI-only (the flag cannot be enabled there).
 
+**Gates on the phase commit:** `pnpm typecheck` clean, `pnpm lint` clean, and the full suite
+at the known baseline — 9 pre-existing failing files, plus one parallel-run flake
+(`useEditorPanelFileLoadRetry.test.tsx`, which passes in isolation and is unrelated to this
+branch). The cross-version harness ran with `ORCA_CROSS_VERSION_BASELINE_REF=c610e175a`.
+
+**Teardown:** the acceptance rig (client `/tmp/orca-p6c`, serve `/tmp/orca-p6s` on :36791,
+their daemons and shells) was killed and both profiles deleted; the production serve on :6768
+was verified still running.
+
 ---
 
 ## Phase 2 implementation notes (recorded 2026-08-13)

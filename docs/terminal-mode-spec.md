@@ -415,6 +415,30 @@ Every upstream-file edit must be a small, clearly-marked branch. Expected set:
      controls show progress for every entry point, including `Mod+T`;
      `store/terminal-mode-host-context.ts` fences the desktop `ensureContext` leg.
 
+14. **Two touch points the merge dry-run found missing from this list** (both landed in
+   earlier phases; recorded in Phase 6):
+   - `main/ipc/notifications.ts` — the click-to-navigate binding was gated on a `::` in the
+     `worktreeId`, so a `folder:` key bound no handler at all. One `parseWorkspaceKey` branch
+     binds it and passes a null `repoId` for a vertical tab (`notifications.test.ts` covers it).
+     §6 flagged this file as a risk; it is an actual edit.
+   - `components/sidebar/delete-worktree-flow.ts` — `runWorktreeDelete` takes
+     `{ forceConfirm }`, because `Mod+Shift+W` (item 7) must not inherit
+     `skipDeleteWorktreeConfirm`, which the user opted into for the sidebar action.
+
+**Merge dry-run (Phase 6, against `v1.4.182`, 252 commits past the merged `v1.4.180`).**
+27 files conflicted; **12** of them are files terminal mode touches, and 10 of those 12 were
+already in this list (`daemon/shell-ready.ts`, `runtime/orca-runtime.ts`,
+`rpc/methods/folder-workspace.ts`, `preload/api-types.ts`, `right-sidebar/FileExplorer.tsx`,
+`sidebar/WorktreeCard.tsx`, `hooks/useComposerState.ts`, `i18n/locales/en.json`,
+`runtime/remote-runtime-terminal-multiplexer.ts`, `shared/folder-workspaces.ts`). The other
+two are item 14 above. The remaining **15** conflicts are not terminal mode's: `package.json`
+and `resources/skills/release-mapping.json` are mechanical, and the rest
+(`main/artifacts/*`, `main/github/client*`, `browser-pane/BrowserPane.tsx`,
+`editor/EditorPanel.tsx`, `terminal-pane/TerminalPane.tsx`, `WorktreeJumpPalette*.test.tsx`,
+`lib/worktree-creation-flow*`, `store/slices/worktree-helpers.ts`) belong to the
+`feat/reuse-checkout-workspace` work this branch is stacked on. The merge was aborted and the
+throwaway branch deleted — the divergence strategy holds.
+
 Rule: if an implementation step wants to edit a big upstream file beyond a
 branch-point, stop and find an additive seam instead.
 

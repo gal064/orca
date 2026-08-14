@@ -13,6 +13,8 @@ vi.mock('fs/promises', () => ({
   readlink: readlinkMock
 }))
 
+const LSOF_OPTIONS = { encoding: 'utf-8' }
+
 describe('resolveProcessCwd', () => {
   beforeEach(() => {
     vi.resetModules()
@@ -63,7 +65,7 @@ describe('resolveProcessCwd', () => {
       expect(execFileMock).toHaveBeenCalledWith(
         'lsof',
         ['-a', '-p', '42', '-d', 'cwd', '-Fn'],
-        { encoding: 'utf-8', timeout: 1500 },
+        LSOF_OPTIONS,
         expect.any(Function)
       )
     )
@@ -94,6 +96,12 @@ describe('resolveProcessCwd', () => {
       )
     }
 
+    /** Every subprocess this module spawned, as `lsof <pid>` / `pgrep <pid>`. */
+    const spawned = (): string[] =>
+      execFileMock.mock.calls.map((call) =>
+        call[0] === 'pgrep' ? `pgrep ${call[1][1]}` : `lsof ${call[1][2]}`
+      )
+
     /** lsof answers with `n<path>` lines; no records at all means no output. */
     const respond = (replies: Record<string, [Error | null, string]>) => {
       execFileMock.mockImplementation(
@@ -108,6 +116,11 @@ describe('resolveProcessCwd', () => {
           return { kill: vi.fn() }
         }
       )
+    }
+
+    /** Past the per-pid result TTL, so the next call re-resolves. */
+    const expireResultCache = (): void => {
+      vi.spyOn(Date, 'now').mockReturnValue(20_000)
     }
 
     let realPlatform: PropertyDescriptor | undefined
@@ -138,27 +151,53 @@ describe('resolveProcessCwd', () => {
       expect(execFileMock).toHaveBeenCalledWith(
         'pgrep',
         ['-P', '5950'],
-        { encoding: 'utf-8', timeout: 500 },
+        { encoding: 'utf-8' },
         expect.any(Function)
       )
       expect(execFileMock).toHaveBeenCalledWith(
         'lsof',
         ['-a', '-p', '5953', '-d', 'cwd', '-Fn'],
-        { encoding: 'utf-8', timeout: 1500 },
+        LSOF_OPTIONS,
         expect.any(Function)
       )
     })
 
-    // A non-zero exit with no output is how lsof reports "nothing readable".
+    // A natural non-zero exit with no output is how lsof reports "nothing readable".
     it('descends when lsof exits non-zero for the pty process', async () => {
       respond({
-        '5950': [new Error('lsof exit 1'), ''],
+        '5950': [Object.assign(new Error('lsof exit 1'), { code: 1 }), ''],
         pgrep: [null, '5953\n'],
         '5953': [null, 'p5953\nfcwd\nn/Users/qa/repo\n']
       })
       const { resolveProcessCwd } = await import('./process-cwd')
 
       await expect(resolveProcessCwd(5950)).resolves.toBe('/Users/qa/repo')
+    })
+
+    // A child we killed reports as an ordinary exec failure; it is not a verdict.
+    it('does not descend when lsof is killed rather than answering', async () => {
+      respond({
+        '5950': [Object.assign(new Error('lsof killed'), { killed: true, code: 'ETIMEDOUT' }), ''],
+        pgrep: [null, '5953\n'],
+        '5953': [null, 'p5953\nfcwd\nn/Users/qa/repo\n']
+      })
+      const { resolveProcessCwd } = await import('./process-cwd')
+
+      await expect(resolveProcessCwd(5950)).resolves.toBe('')
+      expectNoPgrep()
+    })
+
+    // A binary that never started said nothing about the pid's owner either.
+    it('does not descend when lsof is missing', async () => {
+      respond({
+        '5950': [Object.assign(new Error('spawn lsof ENOENT'), { code: 'ENOENT' }), ''],
+        pgrep: [null, '5953\n'],
+        '5953': [null, 'p5953\nfcwd\nn/Users/qa/repo\n']
+      })
+      const { resolveProcessCwd } = await import('./process-cwd')
+
+      await expect(resolveProcessCwd(5950)).resolves.toBe('')
+      expectNoPgrep()
     })
 
     // Why only the first: one lsof over several pids emits unattributed `n`
@@ -191,7 +230,7 @@ describe('resolveProcessCwd', () => {
     })
 
     it('returns empty when pgrep finds no children', async () => {
-      // pgrep exits 1 when nothing matches, which execFile surfaces as an error.
+      // pgrep exits 1 when nothing matches, which the runner surfaces as an error.
       respond({ '4242': [null, ''], pgrep: [new Error('no match'), ''] })
       const { resolveProcessCwd } = await import('./process-cwd')
 
@@ -225,6 +264,46 @@ describe('resolveProcessCwd', () => {
       const spawnsAfterFirst = execFileMock.mock.calls.length
       await expect(resolveProcessCwd(5950)).resolves.toBe('/Users/qa/repo')
       expect(execFileMock).toHaveBeenCalledTimes(spawnsAfterFirst)
+    })
+
+    // The panels poll past the result TTL, so steady state must stay at one lsof.
+    it('polls the memoized shell pid directly once the descent has run', async () => {
+      respond({
+        '5950': [null, ''],
+        pgrep: [null, '5953\n'],
+        '5953': [null, 'p5953\nfcwd\nn/Users/qa/repo\n']
+      })
+      const { resolveProcessCwd } = await import('./process-cwd')
+
+      await expect(resolveProcessCwd(5950)).resolves.toBe('/Users/qa/repo')
+      expect(spawned()).toEqual(['lsof 5950', 'pgrep 5950', 'lsof 5953'])
+
+      execFileMock.mockClear()
+      expireResultCache()
+      await expect(resolveProcessCwd(5950)).resolves.toBe('/Users/qa/repo')
+      expect(spawned()).toEqual(['lsof 5953'])
+    })
+
+    it('re-probes when the memoized shell pid stops answering', async () => {
+      respond({
+        '5950': [null, ''],
+        pgrep: [null, '5953\n'],
+        '5953': [null, 'p5953\nfcwd\nn/Users/qa/repo\n']
+      })
+      const { resolveProcessCwd } = await import('./process-cwd')
+      await expect(resolveProcessCwd(5950)).resolves.toBe('/Users/qa/repo')
+
+      // The old shell is gone and a fresh pty took the same pid.
+      respond({
+        '5950': [null, ''],
+        pgrep: [null, '5999\n'],
+        '5999': [null, 'p5999\nfcwd\nn/Users/qa/moved\n']
+      })
+      execFileMock.mockClear()
+      expireResultCache()
+
+      await expect(resolveProcessCwd(5950)).resolves.toBe('/Users/qa/moved')
+      expect(spawned()).toEqual(['lsof 5953', 'lsof 5950', 'pgrep 5950', 'lsof 5999'])
     })
 
     it('coalesces concurrent callers onto one descent', async () => {

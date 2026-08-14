@@ -132,7 +132,9 @@ describe('file RPC methods', () => {
         'id:wt-1',
         expect.any(Function),
         expect.any(Function),
-        expect.any(AbortSignal)
+        expect.any(AbortSignal),
+        // Terminal mode's optional directory; undefined for every classic watch.
+        undefined
       )
       expect(replies[0]).toMatchObject({
         ok: true,

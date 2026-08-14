@@ -1,8 +1,7 @@
-import { homedir } from 'node:os'
 import { ipcMain } from 'electron'
 import type { Store } from '../persistence'
 import type { ProjectGroup } from '../../shared/types'
-import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID, toSshExecutionHostId } from '../../shared/execution-host'
 import {
   TERMINAL_MODE_GROUP_NAME,
   findTerminalModeGroupForHost,
@@ -11,9 +10,19 @@ import {
 
 type TerminalModeGroupStore = Pick<Store, 'getProjectGroups' | 'createProjectGroup'>
 
-/** Idempotent: the local hidden group is created once and reused for every vtab. */
-export function ensureLocalTerminalModeGroup(store: TerminalModeGroupStore): ProjectGroup {
-  const existing = findTerminalModeGroupForHost(store.getProjectGroups(), LOCAL_EXECUTION_HOST_ID)
+/**
+ * Idempotent, one hidden group per host: a vertical tab must be created where its
+ * ptys live, and a folder workspace's execution host is resolved from its group
+ * (docs/terminal-mode-design.md Phase 1 notes). `connectionId` is the SSH target
+ * for an SSH-backed tab and null for the local host; a remote `orca serve` host
+ * ensures its own local group through the `terminalMode.ensureContext` RPC.
+ */
+export function ensureTerminalModeGroup(
+  store: TerminalModeGroupStore,
+  connectionId: string | null = null
+): ProjectGroup {
+  const hostId = connectionId ? toSshExecutionHostId(connectionId) : LOCAL_EXECUTION_HOST_ID
+  const existing = findTerminalModeGroupForHost(store.getProjectGroups(), hostId)
   if (existing) {
     return existing
   }
@@ -24,22 +33,28 @@ export function ensureLocalTerminalModeGroup(store: TerminalModeGroupStore): Pro
     // migration and the path-status probe a directory the user never opened.
     // normalizeFolderWorkspaces() keeps terminal-mode workspaces without one.
     parentPath: null,
-    connectionId: null,
+    connectionId,
     parentGroupId: null,
     createdFrom: 'manual',
     allowReservedName: true
   })
 }
 
-export function registerTerminalModeHandlers(store: TerminalModeGroupStore): void {
+export function registerTerminalModeHandlers(
+  store: TerminalModeGroupStore,
+  resolveHomeDir: (connectionId: string | null) => Promise<string>
+): void {
   // Re-registered on macOS window re-activation, same as the repo handlers.
-  ipcMain.removeHandler('terminalMode:ensureLocalContext')
+  ipcMain.removeHandler('terminalMode:ensureContext')
 
   ipcMain.handle(
-    'terminalMode:ensureLocalContext',
-    (): TerminalModeLocalContext => ({
-      projectGroup: ensureLocalTerminalModeGroup(store),
-      homeDir: homedir()
-    })
+    'terminalMode:ensureContext',
+    async (_event, args?: { connectionId?: string | null }): Promise<TerminalModeLocalContext> => {
+      const connectionId = args?.connectionId?.trim() || null
+      return {
+        projectGroup: ensureTerminalModeGroup(store, connectionId),
+        homeDir: await resolveHomeDir(connectionId)
+      }
+    }
   )
 }

@@ -1,4 +1,5 @@
 /* oxlint-disable max-lines -- Why: file RPC routing coverage stays together so the dispatcher contract for read, write, mutation, and watch methods is easy to audit. */
+import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { defineMethod, defineStreamingMethod, type RpcAnyMethod } from '../core'
 import { runFileWatchStream } from './file-watch-stream-lifecycle'
@@ -102,6 +103,11 @@ const FileOpenDiff = FileOpen.extend({
   staged: z.boolean().optional()
 })
 
+/** Why the absolute check: a relative value would be resolved against the *host
+ *  process cwd* by the allow-list fallback, which is exactly the anchor
+ *  `normalizeScopeRoot` refuses for a declared scope. */
+const AbsoluteScopePath = z.string().min(1).refine(isAbsolute, 'Path must be absolute').optional()
+
 const FileTreePath = WorktreeSelector.extend({
   relativePath: z
     .unknown()
@@ -110,7 +116,15 @@ const FileTreePath = WorktreeSelector.extend({
   /** Terminal mode: a directory outside the selector's workspace root. Only sent by
    *  clients that saw `terminal-mode.absolute-path-scope.v1` — an older host strips
    *  it and silently answers for the workspace root, which is why the gate is hard. */
-  absolutePath: z.string().min(1).optional()
+  absolutePath: AbsoluteScopePath
+})
+
+/** Terminal mode: watch the vertical tab's pwd instead of the workspace root. Gated
+ *  on `terminal-mode.absolute-path-scope.v1` exactly like the read schema above —
+ *  an older host strips it and watches the workspace root, which is the pre-Phase-4
+ *  behavior the client clamps to. */
+const FileWatch = WorktreeSelector.extend({
+  absolutePath: AbsoluteScopePath
 })
 
 const ServerDirectoryBrowse = z.object({
@@ -490,17 +504,19 @@ export const FILE_METHODS: RpcAnyMethod[] = [
   }),
   defineStreamingMethod({
     name: 'files.watch',
-    params: WorktreeSelector,
-    handler: async (params, { runtime, connectionId, signal }, emit) => {
+    params: FileWatch,
+    handler: async (params, { runtime, connectionId, signal, clientKind }, emit) => {
       const seq = ++filesWatchSubscriptionSeq
       const subscriptionId = `files-watch-${connectionId ?? 'inproc'}-${seq}`
+      const absolutePath = assertAbsolutePathScopeAllowed(params.absolutePath, clientKind)
       await runFileWatchStream({
         runtime,
         worktree: params.worktree,
         connectionId,
         signal,
         subscriptionId,
-        emit
+        emit,
+        ...(absolutePath ? { absolutePath } : {})
       })
     }
   }),

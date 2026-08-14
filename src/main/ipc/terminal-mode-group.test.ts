@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ProjectGroup } from '../../shared/types'
 import { TERMINAL_MODE_GROUP_NAME } from '../../shared/terminal-mode-group'
-import { ensureLocalTerminalModeGroup } from './terminal-mode-group'
+import { ensureTerminalModeGroup } from './terminal-mode-group'
 
 vi.mock('electron', () => ({ ipcMain: { handle: vi.fn(), removeHandler: vi.fn() } }))
 
@@ -49,12 +49,12 @@ function makeStore(initial: ProjectGroup[] = []): {
   return store
 }
 
-describe('ensureLocalTerminalModeGroup', () => {
+describe('ensureTerminalModeGroup', () => {
   it('creates the hidden group once and reuses it', () => {
     const store = makeStore()
 
-    const first = ensureLocalTerminalModeGroup(store)
-    const second = ensureLocalTerminalModeGroup(store)
+    const first = ensureTerminalModeGroup(store)
+    const second = ensureTerminalModeGroup(store)
 
     expect(first.name).toBe(TERMINAL_MODE_GROUP_NAME)
     expect(second.id).toBe(first.id)
@@ -65,7 +65,7 @@ describe('ensureLocalTerminalModeGroup', () => {
     // A fabricated parentPath would feed the authorized-filesystem scope and the
     // connection-id migration a directory the user never opened.
     const store = makeStore()
-    expect(ensureLocalTerminalModeGroup(store).parentPath).toBeNull()
+    expect(ensureTerminalModeGroup(store).parentPath).toBeNull()
   })
 
   it('never reuses another host’s hidden group', () => {
@@ -86,10 +86,27 @@ describe('ensureLocalTerminalModeGroup', () => {
       }
     ])
 
-    const local = ensureLocalTerminalModeGroup(store)
+    const local = ensureTerminalModeGroup(store)
 
     expect(local.id).not.toBe('ssh-group')
     expect(store.created).toBe(1)
+  })
+
+  it('keeps one hidden group per host, and never crosses them', () => {
+    // A vertical tab's terminals live on its group's host, so a group minted for
+    // one host must never be handed to another (docs/terminal-mode-design.md Phase 1).
+    const store = makeStore()
+
+    const local = ensureTerminalModeGroup(store, null)
+    const ssh = ensureTerminalModeGroup(store, 'box')
+    const sshAgain = ensureTerminalModeGroup(store, 'box')
+    const otherSsh = ensureTerminalModeGroup(store, 'other')
+
+    expect(local.connectionId).toBeNull()
+    expect(ssh.connectionId).toBe('box')
+    expect(sshAgain.id).toBe(ssh.id)
+    expect(new Set([local.id, ssh.id, otherSsh.id]).size).toBe(3)
+    expect(store.created).toBe(3)
   })
 
   it('does not adopt a classic group that merely exists locally', () => {
@@ -110,6 +127,6 @@ describe('ensureLocalTerminalModeGroup', () => {
       }
     ])
 
-    expect(ensureLocalTerminalModeGroup(store).id).not.toBe('classic')
+    expect(ensureTerminalModeGroup(store).id).not.toBe('classic')
   })
 })

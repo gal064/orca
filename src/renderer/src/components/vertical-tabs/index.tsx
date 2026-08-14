@@ -1,10 +1,11 @@
-import React, { useCallback } from 'react'
-import { Plus } from 'lucide-react'
+import React, { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { useTerminalModeHostOptions } from './use-terminal-mode-host-options'
+import { getVerticalTabHostId } from '@/store/slices/vertical-tabs'
+import NewVerticalTabButton from './NewVerticalTabButton'
 import VerticalTabRow from './VerticalTabRow'
 import { useActiveVerticalTabId, useVerticalTabs } from './use-vertical-tabs'
 import { useActiveVerticalTabPwd } from './use-active-vertical-tab-pwd'
@@ -27,14 +28,33 @@ function VerticalTabsSidebar(): React.JSX.Element {
   const activePwd = useActiveVerticalTabPwd()
   // Auto-title: a tab is named after its focused terminal's directory until renamed.
   const pwdByTabId = useVerticalTabPwds()
-  const createVerticalTab = useAppStore((s) => s.createVerticalTab)
   const activateVerticalTab = useAppStore((s) => s.activateVerticalTab)
   const renameVerticalTab = useAppStore((s) => s.renameVerticalTab)
   const requestVerticalTabClose = useAppStore((s) => s.requestVerticalTabClose)
 
-  const handleCreate = useCallback(() => {
-    void createVerticalTab()
-  }, [createVerticalTab])
+  // Host badge: only meaningful once more than one host exists, and the label has
+  // to come from the same registry the picker uses so the two never disagree.
+  const hosts = useTerminalModeHostOptions()
+  const hostLabelById = useMemo(
+    () => (hosts.length > 1 ? new Map(hosts.map((host) => [host.id, host.label])) : null),
+    [hosts]
+  )
+  const folderWorkspaces = useAppStore((s) => s.folderWorkspaces)
+  const projectGroups = useAppStore((s) => s.projectGroups)
+  const hostLabelByTabId = useMemo(() => {
+    if (!hostLabelById) {
+      return {}
+    }
+    const labels: Record<string, string> = {}
+    for (const tab of tabs) {
+      const hostId = getVerticalTabHostId({ folderWorkspaces, projectGroups }, tab.id)
+      const label = hostId === LOCAL_EXECUTION_HOST_ID ? null : hostLabelById.get(hostId)
+      if (label) {
+        labels[tab.id] = label
+      }
+    }
+    return labels
+  }, [folderWorkspaces, hostLabelById, projectGroups, tabs])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="vertical-tabs-sidebar">
@@ -42,29 +62,7 @@ function VerticalTabsSidebar(): React.JSX.Element {
         <span className="pl-2 pr-0.5 text-xs font-semibold text-muted-foreground/80 select-none">
           {translate('auto.components.verticalTabs.VerticalTabsSidebar.title', 'Terminals')}
         </span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="text-muted-foreground"
-              aria-label={translate(
-                'auto.components.verticalTabs.VerticalTabsSidebar.newTab',
-                'New terminal tab'
-              )}
-              data-testid="vertical-tabs-new-tab"
-              onClick={handleCreate}
-            >
-              <Plus className="size-3.5" strokeWidth={2.25} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6}>
-            {translate(
-              'auto.components.verticalTabs.VerticalTabsSidebar.newTab',
-              'New terminal tab'
-            )}
-          </TooltipContent>
-        </Tooltip>
+        <NewVerticalTabButton />
       </div>
 
       {activePwd ? (
@@ -95,6 +93,7 @@ function VerticalTabsSidebar(): React.JSX.Element {
               id={tab.id}
               name={resolveVerticalTabDisplayName(tab, pwdByTabId[tab.id])}
               folderPath={tab.folderPath}
+              hostLabel={hostLabelByTabId[tab.id]}
               active={tab.id === activeTabId}
               onActivate={activateVerticalTab}
               onRename={renameVerticalTab}

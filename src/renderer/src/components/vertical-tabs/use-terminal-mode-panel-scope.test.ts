@@ -10,6 +10,7 @@ const setPathScope = vi.fn()
 const statRuntimePath = vi.fn()
 const getRuntimeRepoRootForPath = vi.fn()
 const runtimeEnvironmentSupportsCapability = vi.fn()
+const declareRemoteTerminalModePathScope = vi.fn()
 const activePwd = { current: null as string | null }
 const owner = { current: { kind: 'local' } as Record<string, unknown> }
 
@@ -40,6 +41,9 @@ vi.mock('@/store', () => ({
 vi.mock('@/runtime/runtime-file-client', () => ({ statRuntimePath }))
 vi.mock('@/runtime/runtime-repo-root-client', () => ({ getRuntimeRepoRootForPath }))
 vi.mock('@/runtime/runtime-rpc-client', () => ({ runtimeEnvironmentSupportsCapability }))
+vi.mock('@/runtime/terminal-mode-host-scope-client', () => ({
+  declareRemoteTerminalModePathScope
+}))
 vi.mock('./use-active-vertical-tab-pwd', () => ({
   useActiveVerticalTabPwd: () => activePwd.current
 }))
@@ -61,6 +65,7 @@ beforeEach(() => {
   statRuntimePath.mockReset()
   getRuntimeRepoRootForPath.mockReset()
   runtimeEnvironmentSupportsCapability.mockReset()
+  declareRemoteTerminalModePathScope.mockReset()
   activePwd.current = '/start/sub'
   owner.current = { kind: 'local' }
   storeState.activeWorkspaceKey = 'folder:vtab-1'
@@ -124,6 +129,11 @@ describe('remote vertical tab', () => {
     owner.current = { kind: 'runtime', environmentId: 'env-1' }
     statRuntimePath.mockResolvedValue({ isDirectory: true })
     getRuntimeRepoRootForPath.mockResolvedValue(null)
+    declareRemoteTerminalModePathScope.mockResolvedValue({
+      supported: true,
+      accepted: true,
+      repoRoot: null
+    })
   })
 
   it('follows a pwd outside the start folder when the host advertises the capability', async () => {
@@ -136,10 +146,10 @@ describe('remote vertical tab', () => {
       addressing: 'absolute',
       clampedToWorkspaceRoot: false
     })
-    expect(statRuntimePath).toHaveBeenCalledWith(
-      expect.objectContaining({ absolutePathScope: true }),
-      '/elsewhere'
-    )
+    expect(declareRemoteTerminalModePathScope).toHaveBeenCalledWith('env-1', {
+      workspaceKey: 'folder:vtab-1',
+      root: '/elsewhere'
+    })
   })
 
   it('clamps to the start folder and never sends the param to an old host', async () => {
@@ -157,16 +167,20 @@ describe('remote vertical tab', () => {
     }
   })
 
-  it('clamps a subdirectory pwd too, because relative paths are computed against the shown root', async () => {
-    runtimeEnvironmentSupportsCapability.mockResolvedValue(false)
+  it('follows a subdirectory pwd against the workspace root, with no capability needed', async () => {
     activePwd.current = '/start/sub'
     renderHook(() => useTerminalModePanelScope())
     await waitFor(() => expect(lastScope()).not.toBeNull())
     expect(lastScope()).toMatchObject({
-      root: '/start',
+      root: '/start/sub',
+      workspaceRoot: '/start',
       addressing: 'relative',
-      clampedToWorkspaceRoot: true
+      clampedToWorkspaceRoot: false
     })
+    expect(runtimeEnvironmentSupportsCapability).not.toHaveBeenCalled()
+    // …and no grant is declared for it: the relative contract already addresses it, so a
+    // host that refused corroboration would clamp a directory it can serve.
+    expect(declareRemoteTerminalModePathScope).not.toHaveBeenCalled()
   })
 
   it('stays on the start folder without probing when the shell never moved', async () => {
@@ -177,8 +191,45 @@ describe('remote vertical tab', () => {
     expect(runtimeEnvironmentSupportsCapability).not.toHaveBeenCalled()
   })
 
+  it('keeps the last valid root when the host refuses the reported pwd', async () => {
+    runtimeEnvironmentSupportsCapability.mockResolvedValue(true)
+    declareRemoteTerminalModePathScope.mockImplementation(
+      async (_env: string, scope: { root: string | null }) =>
+        scope.root === '/start'
+          ? { supported: true, accepted: true, repoRoot: null }
+          : { supported: true, accepted: false, repoRoot: null }
+    )
+    activePwd.current = '/elsewhere/foreign'
+    renderHook(() => useTerminalModePanelScope())
+    await waitFor(() => expect(lastScope()).not.toBeNull())
+    expect(lastScope()).toMatchObject({ root: '/start', repoRoot: null })
+  })
+
+  it('revokes the host grant on unmount', async () => {
+    runtimeEnvironmentSupportsCapability.mockResolvedValue(true)
+    activePwd.current = '/elsewhere'
+    const view = renderHook(() => useTerminalModePanelScope())
+    await waitFor(() => expect(lastScope()).not.toBeNull())
+    view.unmount()
+    expect(declareRemoteTerminalModePathScope).toHaveBeenLastCalledWith('env-1', {
+      workspaceKey: 'folder:vtab-1',
+      root: null
+    })
+  })
+
+  it('degrades to the Phase-3 probe against a host without the method', async () => {
+    runtimeEnvironmentSupportsCapability.mockResolvedValue(false)
+    declareRemoteTerminalModePathScope.mockResolvedValue({ supported: false })
+    activePwd.current = '/elsewhere'
+    renderHook(() => useTerminalModePanelScope())
+    await waitFor(() => expect(lastScope()).not.toBeNull())
+    expect(lastScope()).toMatchObject({ root: '/start', clampedToWorkspaceRoot: true })
+    expect(statRuntimePath).toHaveBeenCalled()
+  })
+
   it('reports no repository when the host cannot answer the repo-root probe', async () => {
     runtimeEnvironmentSupportsCapability.mockResolvedValue(true)
+    declareRemoteTerminalModePathScope.mockResolvedValue({ supported: false })
     getRuntimeRepoRootForPath.mockResolvedValue('unsupported')
     renderHook(() => useTerminalModePanelScope())
     await waitFor(() => expect(lastScope()).not.toBeNull())

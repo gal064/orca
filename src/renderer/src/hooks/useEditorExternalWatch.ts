@@ -38,6 +38,7 @@ import {
   selectTerminalModePanelScopeForWorkspace,
   selectTerminalModeWatchRoots
 } from '@/store/slices/terminal-mode-panels'
+import { terminalModeAbsoluteWatchPath } from '@/runtime/terminal-mode-file-scope'
 
 // Why: atomic writes burst same-path events; one reload dispatch each fans out into N EditorPanel rebuilds that can wedge the renderer (issue #826), so debounce per (worktreeId+path).
 const EXTERNAL_RELOAD_DEBOUNCE_MS = 75
@@ -351,7 +352,8 @@ export function useEditorExternalWatch(): void {
             connectionId: target.connectionId
           },
           (payload) => fsChangedHandlerRef.current?.(payload, target.runtimeEnvironmentId),
-          (err) => warnExternalWatchFailure(target, err)
+          (err) => warnExternalWatchFailure(target, err),
+          terminalModeAbsoluteWatchPath(target.worktreeId, target.worktreePath)
         )
           .then((unsubscribe) => {
             if (cancelled) {

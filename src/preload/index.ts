@@ -756,7 +756,7 @@ const api = {
   } satisfies PreloadApi['folderWorkspaces'],
 
   terminalMode: {
-    ensureLocalContext: () => ipcRenderer.invoke('terminalMode:ensureLocalContext'),
+    ensureContext: (args) => ipcRenderer.invoke('terminalMode:ensureContext', args),
     setPathScope: (args: { scope: { workspaceKey: string; root: string } | null }) =>
       ipcRenderer.invoke('terminalMode:setPathScope', args)
   } satisfies PreloadApi['terminalMode'],

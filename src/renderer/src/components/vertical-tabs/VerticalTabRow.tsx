@@ -14,6 +14,8 @@ export type VerticalTabRowProps = {
   id: string
   name: string
   folderPath: string
+  /** Non-local host this tab's terminals run on; absent for local tabs. */
+  hostLabel?: string
   active: boolean
   onActivate: (id: string) => void
   onRename: (id: string, name: string) => void | Promise<void>
@@ -24,6 +26,7 @@ function VerticalTabRow({
   id,
   name,
   folderPath,
+  hostLabel,
   active,
   onActivate,
   onRename,
@@ -81,6 +84,15 @@ function VerticalTabRow({
             displayName={name}
             onRename={handleRename}
           />
+          {hostLabel ? (
+            <span
+              className="max-w-20 shrink-0 truncate rounded-sm bg-muted px-1 text-[10px] leading-4 text-muted-foreground"
+              data-testid="vertical-tab-host-badge"
+              title={hostLabel}
+            >
+              {hostLabel}
+            </span>
+          ) : null}
           <button
             type="button"
             aria-label={translate(

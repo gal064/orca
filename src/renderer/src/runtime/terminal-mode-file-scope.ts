@@ -30,3 +30,19 @@ export function terminalModeFileScopeArgs(
     ? { worktreePath: scope.workspaceRoot, absolutePathScope: true }
     : { worktreePath: scope.workspaceRoot }
 }
+
+/**
+ * Directory a terminal-mode watch should follow on a remote host, or `undefined`
+ * when the relative contract still holds (classic mode, a workspace terminal mode
+ * does not own, or a pwd inside the workspace root, which the selector already
+ * covers). `files.watch` watches the selector's workspace root without it, so
+ * sending it is the only way a remote tab sees changes under a pwd outside.
+ */
+export function terminalModeAbsoluteWatchPath(
+  worktreeId: string | null | undefined,
+  watchPath: string | null | undefined,
+  state: Pick<AppState, 'terminalModePanelScope'> = useAppStore.getState()
+): string | undefined {
+  const scope = selectTerminalModePanelScopeForWorkspace(state, worktreeId)
+  return scope?.addressing === 'absolute' && watchPath ? watchPath : undefined
+}

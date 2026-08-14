@@ -34,12 +34,9 @@ function stubWindow(): void {
 /** Status response for a host that predates the absolute-path scope. The token is
  *  not in RUNTIME_CAPABILITIES yet (see protocol-version.ts), so the default
  *  fixture already describes such a host; this names the intent. */
+/** A host that predates terminal mode: protocol-compatible, token withheld. Phase 4
+ *  put the token in RUNTIME_CAPABILITIES, so "legacy" has to subtract it explicitly. */
 function legacyStatusResponse(): ReturnType<typeof createCompatibleRuntimeStatusResponse> {
-  return createCompatibleRuntimeStatusResponse()
-}
-
-/** Status response for the host Phase 4 will ship: one that advertises the token. */
-function absoluteScopeStatusResponse(): ReturnType<typeof createCompatibleRuntimeStatusResponse> {
   const response = createCompatibleRuntimeStatusResponse()
   if (!response.ok) {
     return response
@@ -48,9 +45,16 @@ function absoluteScopeStatusResponse(): ReturnType<typeof createCompatibleRuntim
     ...response,
     result: {
       ...response.result,
-      capabilities: [...RUNTIME_CAPABILITIES, ABSOLUTE_PATH_SCOPE_RUNTIME_CAPABILITY]
+      capabilities: RUNTIME_CAPABILITIES.filter(
+        (capability) => capability !== ABSOLUTE_PATH_SCOPE_RUNTIME_CAPABILITY
+      )
     }
   }
+}
+
+/** The host Phase 4 ships: the token is advertised. */
+function absoluteScopeStatusResponse(): ReturnType<typeof createCompatibleRuntimeStatusResponse> {
+  return createCompatibleRuntimeStatusResponse()
 }
 
 beforeEach(() => {

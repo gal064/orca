@@ -70,12 +70,11 @@ export function resolveTerminalModePanelRoot(
  * Only remote-runtime workspaces address files through a worktree selector, so
  * only they need the host to accept an absolute path.
  *
- * Note it is required for *any* remote pwd other than the workspace root, not just
- * one outside it: the explorer's mutation and file-open paths compute their
- * worktree-relative path against the root the explorer is showing, so a remote tab
- * rooted at a subdirectory would address the wrong file. Until Phase 4 threads the
- * workspace root through those paths, a remote tab whose shell moves at all clamps
- * back to its start folder — which is what the hint says.
+ * A pwd *inside* the workspace root needs nothing: Phase 4 threaded the workspace
+ * root through every explorer call site, so each one computes its relative path
+ * against the root the host resolves rather than against whatever the explorer is
+ * showing. Only a pwd outside the root is unaddressable relatively, and that is
+ * what the capability buys.
  */
 export function requiresAbsolutePathScope(
   ownerKind: PanelOwnerKind,
@@ -85,7 +84,7 @@ export function requiresAbsolutePathScope(
   if (ownerKind !== 'runtime' || !pwd) {
     return false
   }
-  return workspaceRoot === null || pwd !== workspaceRoot
+  return !isPathInsideWorkspaceRoot(workspaceRoot, pwd)
 }
 
 /**

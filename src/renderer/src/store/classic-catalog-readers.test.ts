@@ -35,6 +35,7 @@ const ALLOWED: Record<string, string> = {
   'store/classic-workspace-catalog.ts': 'the choke point',
   'store/slices/vertical-tabs.ts': 'owns vertical tabs',
   'components/vertical-tabs/use-vertical-tabs.ts': 'renders vertical tabs',
+  'components/vertical-tabs/index.tsx': 'renders vertical tabs, incl. their host badge',
   'components/vertical-tabs/use-terminal-mode-panel-scope.ts':
     'resolves the active vertical tab start directory — vtabs only',
   'components/vertical-tabs/use-terminal-mode-auto-title.ts':

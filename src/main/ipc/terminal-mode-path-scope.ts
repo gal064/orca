@@ -94,6 +94,15 @@ export function clearTerminalModePathScopeStateForTests(): void {
   observedWorkspaceCwds.clear()
 }
 
+/** Has main itself seen a PTY of `workspaceKey` sitting in `root`? */
+export function isObservedTerminalModeCwd(workspaceKey: string, root: string): boolean {
+  return observedWorkspaceCwds.has(observedKey(workspaceKey, root))
+}
+
+export function normalizeTerminalModeScopeRoot(root: string): string | null {
+  return normalizeScopeRoot(root)
+}
+
 function normalizeScopeRoot(root: string): string | null {
   const trimmed = root.trim()
   // Why reject relative/NUL paths: `resolve()` would silently anchor a relative
@@ -104,6 +113,31 @@ function normalizeScopeRoot(root: string): string | null {
   const resolved = resolve(trimmed)
   // A filesystem root would authorize everything; no product state needs it.
   return dirname(resolved) === resolved ? null : resolved
+}
+
+/**
+ * Shared with the host-side twin (`runtime/terminal-mode-host-path-scope.ts`): both
+ * grants accept only a directory that exists *now* on the machine that will serve it.
+ * A reported pwd that does not resolve is a foreign one (a shell inside `ssh`/`docker`)
+ * or a directory removed under the shell.
+ */
+export async function isExistingScopeDirectory(root: string): Promise<boolean> {
+  try {
+    return (await stat(root)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Repository enclosing a granted directory, bounded away from `$HOME`. Shared with the
+ * host twin so the two grants can never disagree about what the git panel may see.
+ */
+export async function resolveBoundedScopeRepoRoot(root: string): Promise<string | null> {
+  const resolved = await lookupRepoRootForPath('local', root, (candidate) =>
+    resolveLocalRepoRootForPath(candidate)
+  )
+  return resolved ? boundedRepoRoot(resolved) : null
 }
 
 /**
@@ -155,12 +189,19 @@ function isCorroboratedScopeRoot(
   workspaceKey: string,
   root: string
 ): boolean {
-  if (observedWorkspaceCwds.has(observedKey(workspaceKey, root))) {
-    return true
-  }
-  if (currentScope?.workspaceKey === workspaceKey && currentScope.root === root) {
-    return true
-  }
+  return (
+    isObservedTerminalModeCwd(workspaceKey, root) ||
+    (currentScope?.workspaceKey === workspaceKey && currentScope.root === root) ||
+    isTerminalModeWorkspaceStartFolder(store, workspaceKey, root)
+  )
+}
+
+/** The vertical tab's own start directory, which is already an allowed root. */
+export function isTerminalModeWorkspaceStartFolder(
+  store: TerminalModePathScopeStore,
+  workspaceKey: string,
+  root: string
+): boolean {
   const workspaceScope = parseWorkspaceKey(workspaceKey)
   if (workspaceScope?.type !== 'folder') {
     return false
@@ -253,13 +294,7 @@ export async function applyTerminalModePathScope(
   // main ends up granting a directory the panels have already left.
   scopeSequence += 1
   const sequence = scopeSequence
-  try {
-    if (!(await stat(root)).isDirectory()) {
-      return { accepted: false, repoRoot: null }
-    }
-  } catch {
-    // The reported pwd does not exist on this host — foreign OSC 7, or a
-    // directory that was removed under the shell.
+  if (!(await isExistingScopeDirectory(root))) {
     return { accepted: false, repoRoot: null }
   }
   if (sequence !== scopeSequence) {
@@ -268,13 +303,10 @@ export async function applyTerminalModePathScope(
   // Recorded before the repo lookup: `git rev-parse` runs in `root`, and the
   // grant is what makes reading it legitimate.
   currentScope = { workspaceKey, root, repoRoot: null }
-  const resolvedRepoRoot = await lookupRepoRootForPath('local', root, (candidate) =>
-    resolveLocalRepoRootForPath(candidate)
-  )
+  const repoRoot = await resolveBoundedScopeRepoRoot(root)
   if (sequence !== scopeSequence) {
     return { accepted: false, repoRoot: null }
   }
-  const repoRoot = resolvedRepoRoot ? boundedRepoRoot(resolvedRepoRoot) : null
   currentScope = { workspaceKey, root, repoRoot }
   return { accepted: true, repoRoot }
 }

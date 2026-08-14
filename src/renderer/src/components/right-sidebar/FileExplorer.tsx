@@ -59,6 +59,7 @@ import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner
 import { createNewTerminalTab } from '@/components/terminal/terminal-tab-create'
 import { useTerminalModePanelRoot } from './use-terminal-mode-panels'
 import { TerminalModeExplorerClampNotice } from './TerminalModeExplorerClampNotice'
+import { terminalModeFileScopeArgs } from '@/runtime/terminal-mode-file-scope'
 
 function FileExplorerFiles(): React.JSX.Element {
   const explorerView = useAppStore((s) => s.rightSidebarExplorerView)
@@ -124,7 +125,8 @@ function FileExplorerFiles(): React.JSX.Element {
             settings: { activeRuntimeEnvironmentId },
             worktreeId: activeWorktreeId,
             worktreePath,
-            connectionId: activeRepo?.connectionId ?? undefined
+            connectionId: activeRepo?.connectionId ?? undefined,
+            ...terminalModeFileScopeArgs(activeWorktreeId)
           }
         : null,
     [activeRepo?.connectionId, activeRuntimeEnvironmentId, activeWorktreeId, worktreePath]

@@ -25,12 +25,14 @@ describe('remote terminal Metadata cwd decoding', () => {
   let streamId = 0
   let toClient: (bytes: Uint8Array<ArrayBufferLike>) => void
   let clientFrames: { opcode: TerminalStreamOpcode; payload: Uint8Array }[]
+  let snapshotExtras: Record<string, unknown>
   const cwdEvents: string[] = []
 
   beforeEach(() => {
     vi.clearAllMocks()
     cwdEvents.length = 0
     clientFrames = []
+    snapshotExtras = {}
     resetRemoteRuntimeTerminalMultiplexersForTests()
     replaceRuntimeEnvironmentRevisions([])
 
@@ -49,7 +51,7 @@ describe('remote terminal Metadata cwd decoding', () => {
             streamId = decodeTerminalStreamJson<{ streamId: number }>(frame.payload)?.streamId ?? 0
             send(
               TerminalStreamOpcode.SnapshotStart,
-              encodeTerminalStreamJson({ cols: 80, rows: 24 })
+              encodeTerminalStreamJson({ cols: 80, rows: 24, ...snapshotExtras })
             )
             send(TerminalStreamOpcode.SnapshotEnd, new Uint8Array())
           }
@@ -110,6 +112,25 @@ describe('remote terminal Metadata cwd decoding', () => {
     send(TerminalStreamOpcode.Metadata, encodeTerminalStreamJson({ cwd: 42 }))
     send(TerminalStreamOpcode.Metadata, encodeTerminalStreamText('not json'))
 
+    expect(cwdEvents).toEqual([])
+  })
+
+  it('seeds the cwd from the snapshot the host sends on (re)attach', async () => {
+    // The reattach oracle: a restored remote pane learns its directory from the
+    // SnapshotStart the host already ships, before any shell prints a new prompt.
+    snapshotExtras = { cwd: '/srv/project/deep' }
+    await subscribeTerminal()
+
+    expect(cwdEvents).toEqual(['/srv/project/deep'])
+  })
+
+  it('ignores a snapshot with no cwd, as an older host sends', async () => {
+    snapshotExtras = {}
+    await subscribeTerminal()
+    expect(cwdEvents).toEqual([])
+    snapshotExtras = { cwd: 42 }
+    resetRemoteRuntimeTerminalMultiplexersForTests()
+    await subscribeTerminal()
     expect(cwdEvents).toEqual([])
   })
 

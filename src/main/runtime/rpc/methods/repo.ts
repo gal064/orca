@@ -4,6 +4,7 @@ import { OptionalFiniteNumber, OptionalString, requiredString } from '../schemas
 import { PROJECT_RUNTIME_METHODS } from './project-runtime-rpc-methods'
 import { FOLDER_WORKSPACE_METHODS } from './folder-workspace'
 import { createRepoUpdateSchema } from './repo-update-schema'
+import { clientOwnsTerminalModeCatalog } from './terminal-mode-catalog-gate'
 
 const RepoSelector = z.object({
   repo: requiredString('Missing repo selector')
@@ -117,7 +118,11 @@ export const REPO_METHODS: RpcMethod[] = [
   defineMethod({
     name: 'projectGroup.list',
     params: null,
-    handler: (_params, { runtime }) => ({ groups: runtime.listProjectGroups() })
+    handler: (_params, ctx) => ({
+      groups: ctx.runtime.listProjectGroups({
+        includeTerminalMode: clientOwnsTerminalModeCatalog(ctx)
+      })
+    })
   }),
   defineMethod({
     name: 'projectGroup.create',

@@ -2,13 +2,21 @@ import type { StateCreator } from 'zustand'
 import { toast } from 'sonner'
 import type { AppState } from '../types'
 import type { FolderWorkspace, ProjectGroup } from '../../../../shared/types'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import {
+  LOCAL_EXECUTION_HOST_ID,
+  getProjectGroupExecutionHostId,
+  normalizeExecutionHostId,
+  type ExecutionHostId
+} from '../../../../shared/execution-host'
 import { getRuntimePathBasename } from '../../../../shared/cross-platform-path'
 import { getTerminalModeGroupIds } from '../../../../shared/terminal-mode-group'
 import { folderWorkspaceKey, parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import { getActivePwdForVtab } from './terminal-cwd'
 import { translate } from '@/i18n/i18n'
 import { isTerminalMode } from '@/lib/terminal-mode'
+import { getTerminalModeHostRoute, resolveNewVerticalTabHostId } from '@/lib/terminal-mode-hosts'
+import { ensureTerminalModeHostContext } from '../terminal-mode-host-context'
+import { selectTerminalModeHostOptions } from '@/lib/terminal-mode-host-options'
 
 const NO_VERTICAL_TABS: readonly FolderWorkspace[] = Object.freeze([])
 
@@ -64,6 +72,42 @@ export function getVerticalTabAutoName(folderPath: string): string {
   return getRuntimePathBasename(folderPath) || folderPath
 }
 
+type VerticalTabHostState = Pick<AppState, 'folderWorkspaces' | 'projectGroups'>
+
+/**
+ * A vertical tab's execution host is its hidden group's, never a path heuristic
+ * (docs/terminal-mode-design.md Phase 1 notes) — the owner the catalog fetch stamped
+ * on the workspace wins, and the group answers for a tab this client created before
+ * its host's catalog came back. Local for an unknown tab, so every caller has a host
+ * to route with.
+ */
+export function getVerticalTabHostId(
+  state: VerticalTabHostState,
+  folderWorkspaceId: string
+): ExecutionHostId {
+  const workspace = state.folderWorkspaces.find((candidate) => candidate.id === folderWorkspaceId)
+  if (!workspace) {
+    return LOCAL_EXECUTION_HOST_ID
+  }
+  const explicitHostId = normalizeExecutionHostId(workspace.executionHostId)
+  if (explicitHostId) {
+    return explicitHostId
+  }
+  const group = state.projectGroups.find((entry) => entry.id === workspace.projectGroupId)
+  return group
+    ? getProjectGroupExecutionHostId(group, LOCAL_EXECUTION_HOST_ID)
+    : LOCAL_EXECUTION_HOST_ID
+}
+
+/** Host of the active vertical tab, or null when the active workspace is not one. */
+export function getActiveVerticalTabHostId(
+  state: VerticalTabHostState & Pick<AppState, 'activeWorkspaceKey'>
+): ExecutionHostId | null {
+  const tabs = selectVerticalTabs(state.folderWorkspaces, state.projectGroups)
+  const activeId = resolveActiveVerticalTabId(state.activeWorkspaceKey, tabs)
+  return activeId ? getVerticalTabHostId(state, activeId) : null
+}
+
 export type VerticalTabsSlice = {
   /** Folder-workspace id awaiting the close confirmation dialog. */
   verticalTabPendingCloseId: string | null
@@ -72,7 +116,11 @@ export type VerticalTabsSlice = {
    * terminal mode is on and the workspace is a vertical tab.
    */
   closeVerticalTabIfEmptied: (workspaceKey: string, options?: { wasActive?: boolean }) => void
-  createVerticalTab: (options?: { startDir?: string }) => Promise<string | null>
+  createVerticalTab: (options?: {
+    startDir?: string
+    /** Explicit pick from the "+" dropdown; omitted means inherit, then the default-host setting. */
+    hostId?: ExecutionHostId | null
+  }) => Promise<string | null>
   activateVerticalTab: (folderWorkspaceId: string) => void
   renameVerticalTab: (folderWorkspaceId: string, name: string) => Promise<void>
   requestVerticalTabClose: (folderWorkspaceId: string | null) => void
@@ -110,40 +158,46 @@ export const createVerticalTabsSlice: StateCreator<AppState, [], [], VerticalTab
 
   createVerticalTab: async (options) => {
     try {
-      if (!window.api.terminalMode?.ensureLocalContext) {
-        // Paired web clients have no local host to create a vertical tab on.
-        throw new Error(
-          translate(
-            'auto.store.slices.verticalTabs.unsupportedHost',
-            'Terminal tabs are only available on the desktop app.'
-          )
-        )
-      }
-      const context = await window.api.terminalMode.ensureLocalContext()
-      // Why: the group is created lazily on the host, so the renderer catalog has
-      // not seen it yet and createFolderWorkspace resolves its owner from there.
-      set((state) =>
-        state.projectGroups.some((group) => group.id === context.projectGroup.id)
-          ? state
-          : { projectGroups: [...state.projectGroups, context.projectGroup] }
+      const state = get()
+      const inheritedHostId = getActiveVerticalTabHostId(state)
+      const hostId = resolveNewVerticalTabHostId({
+        requestedHostId: options?.hostId ?? null,
+        inheritedHostId,
+        defaultHostId: state.settings?.terminalModeDefaultHost ?? null,
+        availableHosts: selectTerminalModeHostOptions(state)
+      })
+      const context = await ensureTerminalModeHostContext(hostId)
+      const route = getTerminalModeHostRoute(hostId)
+      // Why the owner is stamped here: the group was created on `hostId`, but the
+      // renderer catalog has not fetched it yet, and every host resolution for the
+      // new workspace reads it from this record.
+      const projectGroup = { ...context.projectGroup, executionHostId: hostId }
+      set((current) =>
+        current.projectGroups.some((group) => group.id === projectGroup.id)
+          ? {
+              projectGroups: current.projectGroups.map((group) =>
+                group.id === projectGroup.id ? projectGroup : group
+              )
+            }
+          : { projectGroups: [...current.projectGroups, projectGroup] }
       )
-      // Ghostty-style inheritance: a new tab opens where the focused terminal
-      // is, and only falls back to the host home when nothing is focused.
-      const focusedState = get()
-      const focusedPwd = focusedState.activeWorkspaceKey
-        ? getActivePwdForVtab(focusedState, focusedState.activeWorkspaceKey)
-        : null
+      // Ghostty-style inheritance: a new tab opens where the focused terminal is —
+      // but only when it runs on the same host, since a pwd is a path on one machine.
+      const focusedPwd =
+        inheritedHostId === hostId && state.activeWorkspaceKey
+          ? getActivePwdForVtab(state, state.activeWorkspaceKey)
+          : null
       const startDir = options?.startDir?.trim() || focusedPwd?.trim() || context.homeDir
       const workspace = await get().createFolderWorkspace(
         {
-          projectGroupId: context.projectGroup.id,
+          projectGroupId: projectGroup.id,
           name: getVerticalTabAutoName(startDir),
           folderPath: startDir,
-          connectionId: null
+          connectionId: route.kind === 'ssh' ? route.connectionId : null
         },
-        // Why explicit: creation otherwise follows the focused runtime host, and the
-        // hidden group we just ensured is local. Remote vtabs arrive in Phase 4.
-        { runtimeEnvironmentId: null }
+        // Why explicit: creation otherwise follows whichever runtime happens to be
+        // focused, and the hidden group we just ensured lives on `hostId`.
+        { runtimeEnvironmentId: route.kind === 'runtime' ? route.environmentId : null }
       )
       if (!workspace) {
         return null
@@ -162,7 +216,12 @@ export const createVerticalTabsSlice: StateCreator<AppState, [], [], VerticalTab
 
   activateVerticalTab: (folderWorkspaceId) => {
     get().setActiveView('terminal')
-    get().setActiveFolderWorkspace(folderWorkspaceId, LOCAL_EXECUTION_HOST_ID)
+    // Why the resolved host: `findKnownWorktreeById` disambiguates by execution host,
+    // so a remote tab activated as local silently does nothing.
+    get().setActiveFolderWorkspace(
+      folderWorkspaceId,
+      getVerticalTabHostId(get(), folderWorkspaceId)
+    )
   },
 
   renameVerticalTab: async (folderWorkspaceId, name) => {

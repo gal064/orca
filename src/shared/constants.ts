@@ -10,6 +10,7 @@ import type {
   WorkspaceSessionState,
   AgentActivityDisplayMode
 } from './types'
+import { LOCAL_EXECUTION_HOST_ID } from './execution-host'
 import { EMPTY_CODEX_RESET_CREDIT_ATTEMPT_LEDGER } from './codex-reset-credit-attempt-ledger'
 import { DEFAULT_STATUS_BAR_ITEMS } from './status-bar-defaults'
 import { DEFAULT_TERMINAL_FONT_WEIGHT } from './terminal-fonts'
@@ -368,6 +369,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     experimentalNewWorktreeCardStyle: false,
     experimentalEphemeralVms: false,
     experimentalTerminalMode: false,
+    terminalModeDefaultHost: LOCAL_EXECUTION_HOST_ID,
     compactWorktreeCards: false,
     // Why: local desktop stays the default until the user picks a saved runtime environment.
     activeRuntimeEnvironmentId: null,

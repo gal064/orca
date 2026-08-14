@@ -14,6 +14,7 @@ import {
   captureFileExplorerOperationGuard,
   getFileExplorerOperationOwner
 } from './file-explorer-operation-owner'
+import { terminalModeFileScopeArgs } from '@/runtime/terminal-mode-file-scope'
 
 type UseFileExplorerInlineInputParams = {
   activeWorktreeId: string | null
@@ -141,7 +142,10 @@ export function useFileExplorerInlineInput({
               connectionId: operationRoute.connectionId,
               expectedExecutionHostId: operationRoute.expectedExecutionHostId,
               expectedSshTargetId: operationRoute.expectedSshTargetId,
-              expectedSshConnectionGeneration: operationRoute.expectedSshConnectionGeneration
+              expectedSshConnectionGeneration: operationRoute.expectedSshConnectionGeneration,
+              // Terminal mode: address the host by the *workspace* root, not the pwd
+              // the explorer happens to be showing (docs/terminal-mode-spec.md §3.3).
+              ...terminalModeFileScopeArgs(activeWorktreeId)
             }
             operationGuard.assertCurrent()
             await createRuntimePath(

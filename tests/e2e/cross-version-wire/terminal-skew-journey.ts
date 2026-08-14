@@ -15,6 +15,7 @@ export const JOURNEY_STEPS = [
   'first-snapshot',
   'input-reaches-process',
   'live-output',
+  'cwd-metadata',
   'reveal-snapshot',
   'transport-drop',
   'resubscribe',
@@ -27,6 +28,9 @@ const TERMINAL_HANDLE = 'terminal-journey'
 const FIRST_INPUT = 'echo cross-version\r'
 const SECOND_INPUT = 'echo after-reconnect\r'
 const LIVE_OUTPUT = 'cross-version live output\r\n'
+const CWD_OUTPUT = 'cross-version cwd output\r\n'
+const REPORTED_CWD = '/srv/cross-version/project'
+const SNAPSHOT_CWD = '/srv/cross-version/snapshot'
 const INITIAL_BUFFER = 'initial scrollback\r\n'
 const BARRIER_TIMEOUT_MS = 10_000
 
@@ -45,6 +49,10 @@ export type JourneyRecord = {
   snapshotsRendered: string[]
   /** Live output the client's pane received. */
   dataRendered: string[]
+  /** Host-reported working directories the client decoded from `Metadata` frames. */
+  cwdReported: string[]
+  /** How many `Metadata` frames the host actually sent on this journey. */
+  metadataFrames: number
   /** Exact texts the host wrote to the PTY. */
   inputAtProcess: string[]
   /** Snapshot the reveal step resolved with. */
@@ -90,7 +98,8 @@ export async function runTerminalSkewJourney(args: {
   const { hostBuild, clientBuild } = args
   const hostStub: HostTerminalRuntimeStub = createHostTerminalRuntimeStub({
     terminalHandle: TERMINAL_HANDLE,
-    initialBuffer: INITIAL_BUFFER
+    initialBuffer: INITIAL_BUFFER,
+    snapshotCwd: SNAPSHOT_CWD
   })
   const link = createTerminalWireLink({ hostBuild, clientBuild, hostStub })
 
@@ -104,6 +113,8 @@ export async function runTerminalSkewJourney(args: {
     snapshotStarts: [],
     snapshotsRendered: [],
     dataRendered: [],
+    cwdReported: [],
+    metadataFrames: 0,
     inputAtProcess: hostStub.writtenInput,
     revealSnapshot: null,
     transportCloses: 0,
@@ -121,11 +132,18 @@ export async function runTerminalSkewJourney(args: {
     Object.keys(hostBuild.codec.TerminalStreamOpcode).length
       ? clientBuild
       : hostBuild
+  // Why Metadata is excluded from the strict sequence: whether a host sends it at
+  // all is a per-build property (it predates this harness), so a pairing with an
+  // older host would fail the sequence oracle for a frame that is optional by
+  // construction. It gets its own counted oracle below instead.
+  const metadataOpcodeName = 'Metadata'
   const collectFrameSequence = (): void => {
-    record.frameSequence = link.observed.map(
+    const named = link.observed.map(
       (frame) =>
         `${frame.direction === 'host-to-client' ? 'H>C' : 'C>H'} ${nameOpcode(namingBuild, frame.opcode)}`
     )
+    record.metadataFrames = named.filter((entry) => entry.endsWith(metadataOpcodeName)).length
+    record.frameSequence = named.filter((entry) => !entry.endsWith(metadataOpcodeName))
   }
 
   const snapshotStartOpcode = Number(clientBuild.codec.TerminalStreamOpcode.SnapshotStart)
@@ -144,6 +162,9 @@ export async function runTerminalSkewJourney(args: {
     },
     onSnapshot: (data: string) => {
       record.snapshotsRendered.push(data)
+    },
+    onCwd: (cwd: string) => {
+      record.cwdReported.push(cwd)
     },
     onSubscribed: () => {
       subscribedCount++
@@ -192,6 +213,15 @@ export async function runTerminalSkewJourney(args: {
     )
     record.completed.push('live-output')
 
+    // The host reports a `cd` as a Metadata frame riding the same output batch.
+    // A client that does not know opcode 12 must drop it silently and keep
+    // rendering; a current one decodes the directory and renders neither.
+    hostStub.emitOutput(CWD_OUTPUT, { cwd: REPORTED_CWD })
+    await barrier('cwd-metadata: client never rendered the output carrying the cwd', () =>
+      record.dataRendered.join('').includes(CWD_OUTPUT.trim())
+    )
+    record.completed.push('cwd-metadata')
+
     // Hide/reveal: the pane drops xterm and asks the host to re-publish the buffer.
     const revealed = await terminal.serializeBuffer({ scrollbackRows: 200 })
     if (!revealed) {
@@ -239,5 +269,8 @@ export const JOURNEY_INPUTS = {
   first: FIRST_INPUT,
   second: SECOND_INPUT,
   output: LIVE_OUTPUT,
+  cwdOutput: CWD_OUTPUT,
+  reportedCwd: REPORTED_CWD,
+  snapshotCwd: SNAPSHOT_CWD,
   initialBuffer: INITIAL_BUFFER
 }

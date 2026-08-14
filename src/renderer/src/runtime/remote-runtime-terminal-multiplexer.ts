@@ -206,6 +206,10 @@ type RemoteRuntimeSnapshotInfo = {
   // must write it AFTER the replay reset so the next live chunk completes it
   // instead of rendering literally (#7329).
   pendingEscapeTailAnsi?: string
+  /** Host-tracked cwd at snapshot time. Present on every SnapshotStart the host has
+   *  ever sent; terminal mode reads it so a reattached pane knows its directory
+   *  before the shell next emits OSC 7 (docs/terminal-mode-design.md Phase 4). */
+  cwd?: string
 }
 
 type RemoteRuntimeSnapshotRequest = {
@@ -848,6 +852,12 @@ class RemoteRuntimeTerminalMultiplexer {
     if (frame.opcode === TerminalStreamOpcode.SnapshotStart) {
       clearSnapshot(stream)
       stream.snapshotInfo = decodeSnapshotInfo(frame.payload)
+      // Why here and not on snapshot apply: a reattach delivers the snapshot before
+      // any Metadata frame, and the panels of a restored remote vertical tab would
+      // otherwise sit at the tab's start directory until the user pressed Enter.
+      if (stream.snapshotInfo?.cwd) {
+        stream.callbacks.onCwd?.(stream.snapshotInfo.cwd)
+      }
       const requestId = stream.snapshotInfo?.requestId
       stream.snapshotTarget =
         typeof requestId === 'number' ||
@@ -1547,6 +1557,7 @@ function decodeSnapshotInfo(
     truncated?: unknown
     unavailable?: unknown
     pendingEscapeTailAnsi?: unknown
+    cwd?: unknown
   }>(payload)
   if (!raw) {
     return null
@@ -1560,7 +1571,8 @@ function decodeSnapshotInfo(
     truncated: raw.truncated === true,
     unavailable: parseTerminalSnapshotUnavailableReason(raw.unavailable),
     pendingEscapeTailAnsi:
-      typeof raw.pendingEscapeTailAnsi === 'string' ? raw.pendingEscapeTailAnsi : undefined
+      typeof raw.pendingEscapeTailAnsi === 'string' ? raw.pendingEscapeTailAnsi : undefined,
+    cwd: typeof raw.cwd === 'string' && raw.cwd.length > 0 ? raw.cwd : undefined
   }
 }
 

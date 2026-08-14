@@ -718,7 +718,7 @@ async function createRemoteRepo(
   return { repo: result.repo }
 }
 
-async function resolveRemoteHomePath(connectionId: string, path: string): Promise<string> {
+export async function resolveRemoteHomePath(connectionId: string, path: string): Promise<string> {
   if (path !== '~' && path !== '~/' && !path.startsWith('~/')) {
     return path
   }

@@ -7,6 +7,12 @@ import {
 } from '../../runtime/runtime-compatibility-test-fixture'
 import { clearRuntimeCompatibilityCacheForTests } from '../../runtime/runtime-rpc-client'
 import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
+import { TERMINAL_MODE_GROUP_NAME } from '../../../../shared/terminal-mode-group'
+import {
+  selectClassicFolderWorkspaces,
+  selectClassicProjectGroups
+} from '../classic-workspace-catalog'
+import { getVerticalTabHostId, selectVerticalTabs } from './vertical-tabs'
 
 const localRepo: Repo = {
   id: 'local-repo',
@@ -319,5 +325,60 @@ describe('all-host folder workspace startup catalogs', () => {
     } finally {
       warn.mockRestore()
     }
+  })
+
+  it('brings a remote host’s vertical tabs into the client catalog on connect', async () => {
+    // Design task 4: the hidden terminal-mode group is a pass-through now, so the
+    // ordinary all-hosts fetch is what makes a remote vertical tab appear in the
+    // strip — with its host stamped on it, which is how every route resolves.
+    const remoteHiddenGroup: ProjectGroup = {
+      ...remoteProjectGroup,
+      id: 'remote-terminal-group',
+      name: TERMINAL_MODE_GROUP_NAME,
+      parentPath: null
+    }
+    const remoteVerticalTab: FolderWorkspace = {
+      ...remoteFolderWorkspace,
+      id: 'remote-vtab',
+      projectGroupId: 'remote-terminal-group',
+      folderPath: '/home/host/work'
+    }
+    runtimeEnvironmentCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
+      if (args.method === 'projectGroup.list') {
+        return {
+          id: 'g',
+          ok: true,
+          result: { groups: [remoteProjectGroup, remoteHiddenGroup] },
+          _meta: { runtimeId: 'runtime-remote' }
+        }
+      }
+      if (args.method === 'folderWorkspace.list') {
+        return {
+          id: 'f',
+          ok: true,
+          result: { folderWorkspaces: [remoteFolderWorkspace, remoteVerticalTab] },
+          _meta: { runtimeId: 'runtime-remote' }
+        }
+      }
+      return { id: 'o', ok: true, result: { repos: [] }, _meta: { runtimeId: 'runtime-remote' } }
+    })
+
+    const store = createTestStore()
+    store.setState({ settings: { activeRuntimeEnvironmentId: 'env-1' } as never })
+    await store.getState().fetchProjectGroupsForAllHosts()
+    await store.getState().fetchFolderWorkspacesForAllHosts()
+
+    const state = store.getState()
+    const tabs = selectVerticalTabs(state.folderWorkspaces, state.projectGroups)
+    expect(tabs.map((tab) => tab.id)).toEqual(['remote-vtab'])
+    expect(getVerticalTabHostId(state, 'remote-vtab')).toBe('runtime:env-1')
+    // …and the classic surfaces still never see it.
+    expect(selectClassicFolderWorkspaces(state).map((workspace) => workspace.id)).toEqual([
+      'local-folder',
+      'remote-folder'
+    ])
+    expect(selectClassicProjectGroups(state).map((group) => group.id)).not.toContain(
+      'remote-terminal-group'
+    )
   })
 })

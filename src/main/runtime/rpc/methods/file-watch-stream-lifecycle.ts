@@ -9,6 +9,8 @@ export async function runFileWatchStream(args: {
   signal?: AbortSignal
   subscriptionId: string
   emit: (event: unknown) => void
+  /** Terminal mode: watch this directory instead of the selector's workspace root. */
+  absolutePath?: string
 }): Promise<void> {
   if (args.signal?.aborted) {
     return
@@ -118,7 +120,8 @@ export async function runFileWatchStream(args: {
       args.worktree,
       (events) => eventBatcher.push(events),
       handleTerminalError,
-      setupAbortController.signal
+      setupAbortController.signal,
+      args.absolutePath
     )
     void setupPromise
       .then((nextUnwatch) => {

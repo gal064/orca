@@ -4,6 +4,7 @@ import { basename, dirname, joinPath } from '@/lib/path'
 import type { TreeNode } from './file-explorer-types'
 import { copyRuntimePath, runtimePathExists } from '@/runtime/runtime-file-client'
 import { captureFileExplorerOperationGuard } from './file-explorer-operation-owner'
+import { terminalModeFileScopeArgs } from '@/runtime/terminal-mode-file-scope'
 
 /**
  * Electron's ipcRenderer.invoke wraps errors as:
@@ -55,7 +56,8 @@ export function useFileDuplicate({
           connectionId: operationGuard.route.connectionId,
           expectedExecutionHostId: operationGuard.route.expectedExecutionHostId,
           expectedSshTargetId: operationGuard.route.expectedSshTargetId,
-          expectedSshConnectionGeneration: operationGuard.route.expectedSshConnectionGeneration
+          expectedSshConnectionGeneration: operationGuard.route.expectedSshConnectionGeneration,
+          ...terminalModeFileScopeArgs(activeWorktreeId)
         }
         // Why: generate a unique "stem copy.ext", "stem copy 2.ext", … name
         // so we never collide with an existing file. pathExists checks are

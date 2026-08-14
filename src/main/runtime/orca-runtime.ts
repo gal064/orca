@@ -483,6 +483,7 @@ import {
   RUNTIME_CAPABILITIES,
   RUNTIME_PROTOCOL_VERSION,
   TERMINAL_PAIRED_PARKING_RUNTIME_CAPABILITY,
+  isTerminalModeRuntimeCapability,
   type RuntimeCapability
 } from '../../shared/protocol-version'
 import {
@@ -865,6 +866,13 @@ import {
   resolveAuthorizedPath
 } from '../ipc/filesystem-auth'
 import { recordTerminalModeObservedCwd } from '../ipc/terminal-mode-path-scope'
+import { ensureTerminalModeGroup } from '../ipc/terminal-mode-group'
+import {
+  clearTerminalModeHostPathScope,
+  declareTerminalModeHostPathScope,
+  type TerminalModeHostPathScopeResult
+} from './terminal-mode-host-path-scope'
+import type { TerminalModeLocalContext } from '../../shared/terminal-mode-group'
 import {
   createSetupRunnerScript,
   getDefaultTabCommandTrustContent,
@@ -2832,6 +2840,33 @@ function getSetupRunnerCommandPlatformForLaunch(
   fallbackPlatform: 'windows' | 'posix'
 ): 'windows' | 'posix' {
   return getSetupRunnerCommandPlatformForPath(setup?.runnerScriptPath ?? '', fallbackPlatform)
+}
+
+/**
+ * E2E stand-ins: each switch makes a current host behave like one that predates a
+ * feature, so mixed-version behavior is exercised against a real peer instead of only
+ * in unit tests. A table rather than a conjunction chain, because this list grows once
+ * per feature and a four-deep boolean is where the next one goes wrong.
+ */
+const E2E_SUPPRESSED_CAPABILITIES: readonly [string, (capability: string) => boolean][] = [
+  // The nested-runtime E2E needs a real legacy transport with no old binary fixture.
+  [
+    'ORCA_E2E_DISABLE_RUNTIME_SHARED_CONTROL',
+    (capability) => capability === REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY
+  ],
+  [
+    'ORCA_E2E_DISABLE_PAIRED_TERMINAL_PARKING',
+    (capability) => capability === TERMINAL_PAIRED_PARKING_RUNTIME_CAPABILITY
+  ],
+  // Lets a real host stand in for one that predates terminal mode, so the remote
+  // vertical-tab clamp and the host-picker degradation are exercised end to end.
+  ['ORCA_E2E_DISABLE_TERMINAL_MODE_CAPABILITIES', isTerminalModeRuntimeCapability]
+]
+
+function isE2ESuppressedCapability(capability: string): boolean {
+  return E2E_SUPPRESSED_CAPABILITIES.some(
+    ([envVar, matches]) => process.env[envVar] === '1' && matches(capability)
+  )
 }
 
 export class OrcaRuntimeService {
@@ -4988,11 +5023,7 @@ export class OrcaRuntimeService {
     const capabilities: RuntimeCapability[] = RUNTIME_CAPABILITIES.filter(
       (capability) =>
         (capability !== 'browser.screencast.v1' || canBrowse) &&
-        // Why: the nested-runtime E2E needs a real legacy transport without maintaining an old binary fixture.
-        (process.env.ORCA_E2E_DISABLE_RUNTIME_SHARED_CONTROL !== '1' ||
-          capability !== REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY) &&
-        (process.env.ORCA_E2E_DISABLE_PAIRED_TERMINAL_PARKING !== '1' ||
-          capability !== TERMINAL_PAIRED_PARKING_RUNTIME_CAPABILITY)
+        !isE2ESuppressedCapability(capability)
     )
     if (hasOffscreen) {
       capabilities.push(BROWSER_HEADLESS_RUNTIME_CAPABILITY)
@@ -18612,17 +18643,22 @@ export class OrcaRuntimeService {
     return result
   }
 
-  listProjectGroups(): ProjectGroup[] {
-    // Filtered for the same reason as listFolderWorkspaces below.
-    return [...excludeTerminalModeGroups(this.store?.getProjectGroups?.() ?? [])]
+  /**
+   * `includeTerminalMode` is a CLIENT capability decision, never a host one — see
+   * `TERMINAL_MODE_CATALOG_CLIENT_CAPABILITY`. Default off: the CLI, paired mobile
+   * and every client older than terminal mode have no exclusion of their own, and
+   * the workspace keys they receive are accepted selectors for rename and delete.
+   */
+  listProjectGroups(options: { includeTerminalMode?: boolean } = {}): ProjectGroup[] {
+    const groups = this.store?.getProjectGroups?.() ?? []
+    return options.includeTerminalMode ? [...groups] : [...excludeTerminalModeGroups(groups)]
   }
 
-  listFolderWorkspaces(): FolderWorkspace[] {
+  listFolderWorkspaces(options: { includeTerminalMode?: boolean } = {}): FolderWorkspace[] {
     const workspaces = this.store?.getFolderWorkspaces?.() ?? []
-    // Why filtered: this feeds `folderWorkspace.list` to paired/remote clients, and a
-    // client older than terminal mode has no exclusion of its own — it would render
-    // this host's vertical tabs as ordinary workspaces. Phase 4 (remote vtabs) must
-    // replace this with a capability-gated pass-through.
+    if (options.includeTerminalMode) {
+      return [...workspaces]
+    }
     return [
       ...excludeTerminalModeFolderWorkspaces(workspaces, this.store?.getProjectGroups?.() ?? [])
     ]
@@ -18884,9 +18920,33 @@ export class OrcaRuntimeService {
     await this.teardownFolderWorkspaceTerminals(folderWorkspaceId)
     const deleted = this.store.removeFolderWorkspace(folderWorkspaceId)
     if (deleted) {
+      // The grant outlives the socket that declared it, so the tab going away is
+      // what revokes it — see terminal-mode-host-path-scope.ts.
+      clearTerminalModeHostPathScope(folderWorkspaceKey(folderWorkspaceId))
       this.notifyReposChanged()
     }
     return { deleted }
+  }
+
+  /**
+   * Hidden terminal-mode group on *this* host plus its home directory — what a
+   * client needs before creating a vertical tab here (docs/terminal-mode-design.md
+   * Phase 4, resolved question 2). Not routed through `createProjectGroup`, which
+   * rejects the reserved name for every caller: the bypass belongs in one
+   * purpose-built method, not as a parameter on the general group RPC.
+   */
+  ensureTerminalModeContext(): TerminalModeLocalContext {
+    return {
+      projectGroup: ensureTerminalModeGroup(this.requireStore()),
+      homeDir: homedir()
+    }
+  }
+
+  async setTerminalModePathScope(params: {
+    workspaceKey: string
+    root: string | null
+  }): Promise<TerminalModeHostPathScopeResult> {
+    return declareTerminalModeHostPathScope(this.requireStore(), params)
   }
 
   async scanNestedRepos(path: string): Promise<NestedRepoScanResult> {

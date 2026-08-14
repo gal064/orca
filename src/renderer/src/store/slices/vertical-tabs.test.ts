@@ -1,7 +1,18 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FolderWorkspace, ProjectGroup } from '../../../../shared/types'
 
 vi.mock('@/lib/renderer-app-platform', () => ({ getRendererAppPlatform: () => 'linux' }))
+
+const { ensureTerminalModeHostContext, terminalModeHostOptions } = vi.hoisted(() => ({
+  ensureTerminalModeHostContext: vi.fn(),
+  terminalModeHostOptions: {
+    current: [] as { id: string; label: string; detail: string; supported: boolean }[]
+  }
+}))
+vi.mock('../terminal-mode-host-context', () => ({ ensureTerminalModeHostContext }))
+vi.mock('@/lib/terminal-mode-host-options', () => ({
+  selectTerminalModeHostOptions: () => terminalModeHostOptions.current
+}))
 import { TERMINAL_MODE_GROUP_NAME } from '../../../../shared/terminal-mode-group'
 import {
   createVerticalTabsSlice,
@@ -180,9 +191,11 @@ describe('closeVerticalTabIfEmptied', () => {
   })
 })
 
-describe('createVerticalTab start directory', () => {
+describe('createVerticalTab', () => {
   function makeStore(overrides: Record<string, unknown> = {}) {
     const createFolderWorkspace = vi.fn(async () => ({ id: 'new-vtab' }))
+    const activateVerticalTab = vi.fn()
+    const setState = vi.fn()
     const state: Record<string, unknown> = {
       settings: { experimentalTerminalMode: true },
       projectGroups: [hidden],
@@ -191,32 +204,32 @@ describe('createVerticalTab start directory', () => {
       activeTabIdByWorktree: { 'folder:vtab': 'tab-1' },
       ptyIdsByTabId: { 'tab-1': ['pty-1'] },
       terminalLayoutsByTabId: {},
+      unifiedTabsByWorktree: {},
+      lastTerminalTabIdByWorkspace: {},
       cwdByPtyId: {},
       createFolderWorkspace,
-      activateVerticalTab: vi.fn(),
+      activateVerticalTab,
       ...overrides
     }
     const get = () => state as never
-    const set = () => {}
-    const slice = createVerticalTabsSlice(set as never, get as never, undefined as never)
-    return { slice, createFolderWorkspace }
+    const slice = createVerticalTabsSlice(setState as never, get as never, undefined as never)
+    return { slice, createFolderWorkspace, activateVerticalTab, state }
   }
 
-  const ensureLocalContext = async () => ({
-    projectGroup: hidden,
-    homeDir: '/home/dev'
+  beforeEach(() => {
+    ensureTerminalModeHostContext.mockReset()
+    ensureTerminalModeHostContext.mockResolvedValue({ projectGroup: hidden, homeDir: '/home/dev' })
+    terminalModeHostOptions.current = [
+      { id: 'local', label: 'Local', detail: 'This computer', supported: true },
+      { id: 'runtime:env-1', label: 'Server', detail: 'Orca server', supported: true }
+    ]
   })
 
   it('inherits the focused terminal pwd (ghostty-style)', async () => {
     const { slice, createFolderWorkspace } = makeStore({
       cwdByPtyId: { 'pty-1': { cwd: '/srv/app', source: 'osc7' } }
     })
-    vi.stubGlobal('window', { api: { terminalMode: { ensureLocalContext } } })
-    try {
-      await slice.createVerticalTab()
-    } finally {
-      vi.unstubAllGlobals()
-    }
+    await slice.createVerticalTab()
     expect(createFolderWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ folderPath: '/srv/app', name: 'app' }),
       expect.anything()
@@ -225,12 +238,7 @@ describe('createVerticalTab start directory', () => {
 
   it('falls back to the host home directory when nothing is focused', async () => {
     const { slice, createFolderWorkspace } = makeStore({ activeWorkspaceKey: null })
-    vi.stubGlobal('window', { api: { terminalMode: { ensureLocalContext } } })
-    try {
-      await slice.createVerticalTab()
-    } finally {
-      vi.unstubAllGlobals()
-    }
+    await slice.createVerticalTab()
     expect(createFolderWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ folderPath: '/home/dev' }),
       expect.anything()
@@ -241,15 +249,78 @@ describe('createVerticalTab start directory', () => {
     const { slice, createFolderWorkspace } = makeStore({
       cwdByPtyId: { 'pty-1': { cwd: '/srv/app', source: 'osc7' } }
     })
-    vi.stubGlobal('window', { api: { terminalMode: { ensureLocalContext } } })
-    try {
-      await slice.createVerticalTab({ startDir: '/explicit' })
-    } finally {
-      vi.unstubAllGlobals()
-    }
+    await slice.createVerticalTab({ startDir: '/explicit' })
     expect(createFolderWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ folderPath: '/explicit' }),
       expect.anything()
+    )
+  })
+
+  it('ensures the hidden group on the host before creating the workspace there', async () => {
+    const remoteGroup = { ...group('hidden-remote', TERMINAL_MODE_GROUP_NAME) }
+    ensureTerminalModeHostContext.mockResolvedValue({
+      projectGroup: remoteGroup,
+      homeDir: '/home/remote'
+    })
+    const { slice, createFolderWorkspace } = makeStore({ activeWorkspaceKey: null })
+    await slice.createVerticalTab({ hostId: 'runtime:env-1' })
+    expect(ensureTerminalModeHostContext).toHaveBeenCalledWith('runtime:env-1')
+    // Ordering is the contract: the host hard-fails folderWorkspace.create on a
+    // group it does not have (docs/terminal-mode-design.md, resolved question 2).
+    expect(ensureTerminalModeHostContext.mock.invocationCallOrder[0]).toBeLessThan(
+      createFolderWorkspace.mock.invocationCallOrder[0]
+    )
+    expect(createFolderWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectGroupId: 'hidden-remote',
+        folderPath: '/home/remote',
+        connectionId: null
+      }),
+      { runtimeEnvironmentId: 'env-1' }
+    )
+  })
+
+  it('routes an SSH host through the connection id, not a runtime environment', async () => {
+    terminalModeHostOptions.current = [
+      { id: 'local', label: 'Local', detail: '', supported: true },
+      { id: 'ssh:box', label: 'box', detail: '', supported: true }
+    ]
+    const { slice, createFolderWorkspace } = makeStore({ activeWorkspaceKey: null })
+    await slice.createVerticalTab({ hostId: 'ssh:box' })
+    expect(createFolderWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionId: 'box' }),
+      { runtimeEnvironmentId: null }
+    )
+  })
+
+  it('uses the configured default host when nothing is focused', async () => {
+    const { slice } = makeStore({
+      activeWorkspaceKey: null,
+      settings: { experimentalTerminalMode: true, terminalModeDefaultHost: 'runtime:env-1' }
+    })
+    await slice.createVerticalTab()
+    expect(ensureTerminalModeHostContext).toHaveBeenCalledWith('runtime:env-1')
+  })
+
+  it('falls back to local when the configured default host is gone', async () => {
+    terminalModeHostOptions.current = [{ id: 'local', label: 'Local', detail: '', supported: true }]
+    const { slice } = makeStore({
+      activeWorkspaceKey: null,
+      settings: { experimentalTerminalMode: true, terminalModeDefaultHost: 'runtime:env-gone' }
+    })
+    await slice.createVerticalTab()
+    expect(ensureTerminalModeHostContext).toHaveBeenCalledWith('local')
+  })
+
+  it('never inherits a pwd across hosts', async () => {
+    // /srv/app exists on the focused tab's machine, not on the picked one.
+    const { slice, createFolderWorkspace } = makeStore({
+      cwdByPtyId: { 'pty-1': { cwd: '/srv/app', source: 'osc7' } }
+    })
+    await slice.createVerticalTab({ hostId: 'runtime:env-1' })
+    expect(createFolderWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ folderPath: '/home/dev' }),
+      { runtimeEnvironmentId: 'env-1' }
     )
   })
 })

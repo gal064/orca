@@ -7,6 +7,7 @@ import {
   getFileExplorerOperationOwner
 } from '@/components/right-sidebar/file-explorer-operation-owner'
 import type { FileExplorerOperationOwner } from '@/components/right-sidebar/file-explorer-types'
+import { terminalModeFileScopeArgs } from '@/runtime/terminal-mode-file-scope'
 
 /**
  * Electron's ipcRenderer.invoke wraps errors as:
@@ -66,7 +67,10 @@ export async function renameFileOnDisk(args: RenameFileArgs): Promise<void> {
     connectionId: operationRoute.connectionId,
     expectedExecutionHostId: operationRoute.expectedExecutionHostId,
     expectedSshTargetId: operationRoute.expectedSshTargetId,
-    expectedSshConnectionGeneration: operationRoute.expectedSshConnectionGeneration
+    expectedSshConnectionGeneration: operationRoute.expectedSshConnectionGeneration,
+    // Terminal mode: the remote host resolves relative paths against the workspace
+    // root, not the pwd the explorer is rooted at.
+    ...terminalModeFileScopeArgs(worktreeId)
   }
 
   try {

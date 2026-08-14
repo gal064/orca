@@ -93,13 +93,16 @@ describe('requiresAbsolutePathScope', () => {
     expect(requiresAbsolutePathScope('runtime', '/repo', '/repo')).toBe(false)
   })
 
-  it('is true for any other remote pwd, inside the start folder or not', () => {
-    // A subdirectory needs it too: the explorer's relative paths are computed
-    // against the root it is showing, so a clamp is the only correct answer until
-    // the workspace root is threaded through those paths.
-    expect(requiresAbsolutePathScope('runtime', '/repo', '/repo/src')).toBe(true)
+  it('is false for a remote pwd inside the start folder, which relative paths address', () => {
+    // Phase 4 threaded the workspace root through every explorer call site, so a
+    // subdirectory is addressable with the relative contract every host answers.
+    expect(requiresAbsolutePathScope('runtime', '/repo', '/repo/src')).toBe(false)
+  })
+
+  it('is true for a remote pwd outside the start folder', () => {
     expect(requiresAbsolutePathScope('runtime', '/repo', '/tmp')).toBe(true)
     expect(requiresAbsolutePathScope('runtime', '/repo', '/repo-other')).toBe(true)
+    expect(requiresAbsolutePathScope('runtime', null, '/tmp')).toBe(true)
   })
 })
 

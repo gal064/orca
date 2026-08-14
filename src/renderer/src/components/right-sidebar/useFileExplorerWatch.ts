@@ -23,6 +23,7 @@ export {
   getExternalFileChangeRelativePath,
   resolveCachedDirPath
 } from './file-explorer-watch-path'
+import { terminalModeAbsoluteWatchPath } from '@/runtime/terminal-mode-file-scope'
 
 type FileExplorerWatchOwnerState = Pick<
   FileExplorerOwnerState,
@@ -238,7 +239,8 @@ export function useFileExplorerWatch({
             worktreePath,
             error: err.message
           })
-        }
+        },
+        terminalModeAbsoluteWatchPath(activeWorktreeId, worktreePath)
       )
         .then((unsubscribe) => {
           if (disposed) {

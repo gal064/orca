@@ -5,6 +5,7 @@ import { Label } from '../ui/label'
 import { SearchableSetting } from './SearchableSetting'
 import { SettingsSwitch } from './SettingsFormControls'
 import { getExperimentalSearchEntry } from './experimental-search'
+import { TerminalModeDefaultHostSelect } from './TerminalModeDefaultHostSelect'
 
 type TerminalModeExperimentalSettingProps = {
   settings: GlobalSettings
@@ -42,7 +43,7 @@ export function TerminalModeExperimentalSetting({
           <p className="text-xs text-muted-foreground">
             {translate(
               'auto.components.settings.ExperimentalPane.terminalMode.copy',
-              'Replaces the left sidebar with vertical terminal tabs. Under construction — the tab list is a placeholder until terminal tabs ship. Turning this off restores the worktree sidebar unchanged.'
+              "Replaces the left sidebar with vertical terminal tabs, each pinned to a host. The file explorer and git panel follow the focused terminal's directory. Turning this off restores the worktree sidebar unchanged."
             )}
           </p>
         </div>
@@ -55,6 +56,9 @@ export function TerminalModeExperimentalSetting({
           onChange={() => updateSettings({ experimentalTerminalMode: !enabled })}
         />
       </div>
+      {enabled ? (
+        <TerminalModeDefaultHostSelect settings={settings} updateSettings={updateSettings} />
+      ) : null}
     </SearchableSetting>
   )
 }

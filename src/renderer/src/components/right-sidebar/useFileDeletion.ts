@@ -24,6 +24,7 @@ import {
   writeRuntimeFile
 } from '@/runtime/runtime-file-client'
 import { translate } from '@/i18n/i18n'
+import { terminalModeFileScopeArgs } from '@/runtime/terminal-mode-file-scope'
 
 type UseFileDeletionParams = {
   activeWorktreeId: string | null
@@ -132,7 +133,8 @@ export function useFileDeletion({
           connectionId: operationRoute.connectionId,
           expectedExecutionHostId: operationRoute.expectedExecutionHostId,
           expectedSshTargetId: operationRoute.expectedSshTargetId,
-          expectedSshConnectionGeneration: operationRoute.expectedSshConnectionGeneration
+          expectedSshConnectionGeneration: operationRoute.expectedSshConnectionGeneration,
+          ...terminalModeFileScopeArgs(activeWorktreeId)
         }
 
         const parentDir = dirname(node.path)

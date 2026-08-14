@@ -40,6 +40,7 @@ import { PAIRING_METHODS } from './pairing'
 import { UPDATER_METHODS } from './updater'
 import { AGENT_SESSION_METHODS } from './agent-session'
 import { ARTIFACT_METHODS } from './artifacts'
+import { TERMINAL_MODE_METHODS } from './terminal-mode'
 
 // Why: a flat manifest keeps registration order explicit and provides one
 // grep-point for "what methods does the RPC server expose?" — useful when
@@ -54,6 +55,7 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...AGENT_SESSION_METHODS,
   ...TERMINAL_METHODS,
   ...TERMINAL_ORPHAN_METHODS,
+  ...TERMINAL_MODE_METHODS,
   ...BROWSER_CORE_METHODS,
   ...BROWSER_SCREENCAST_METHODS,
   ...BROWSER_EXTRA_METHODS,

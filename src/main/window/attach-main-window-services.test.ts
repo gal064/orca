@@ -258,7 +258,7 @@ describe('attachMainWindowServices', () => {
     attachMainWindowServices(createMainWindow() as never, store, runtime as never)
 
     expect(setFolderWorkspaceTerminalTeardownMock).toHaveBeenCalledWith(runtime)
-    expect(registerTerminalModeHandlersMock).toHaveBeenCalledWith(store)
+    expect(registerTerminalModeHandlersMock).toHaveBeenCalledWith(store, expect.any(Function))
   })
 
   it('reloads the app renderer through main and marks expected renderer teardown', async () => {

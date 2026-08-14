@@ -5,6 +5,7 @@ import { isTuiAgent } from '../../../../shared/tui-agent-config'
 import { TaskSourceContextSchema } from '../../../../shared/task-source-context-schema'
 import { WorkspaceLinkedItemSchema } from '../../../../shared/workspace-linked-item-schema'
 import { isWorkspaceLinkedItemSourceContextMatch } from '../../../../shared/workspace-linked-item-source-context'
+import { clientOwnsTerminalModeCatalog } from './terminal-mode-catalog-gate'
 
 const FolderWorkspaceLinkedTask = WorkspaceLinkedItemSchema.nullable()
 
@@ -88,8 +89,10 @@ export const FOLDER_WORKSPACE_METHODS: RpcMethod[] = [
   defineMethod({
     name: 'folderWorkspace.list',
     params: null,
-    handler: (_params, { runtime }) => ({
-      folderWorkspaces: runtime.listFolderWorkspaces()
+    handler: (_params, ctx) => ({
+      folderWorkspaces: ctx.runtime.listFolderWorkspaces({
+        includeTerminalMode: clientOwnsTerminalModeCatalog(ctx)
+      })
     })
   }),
   defineMethod({

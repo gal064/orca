@@ -15,6 +15,7 @@ import { executeOpenEditorPathMove } from '@/lib/execute-open-editor-path-move'
 import { commitFileExplorerOp } from './fileExplorerUndoRedo'
 import type { FileExplorerOperationOwner } from './file-explorer-types'
 import { captureFileExplorerOperationGuard } from './file-explorer-operation-owner'
+import { terminalModeFileScopeArgs } from '@/runtime/terminal-mode-file-scope'
 
 function extractIpcErrorMessage(err: unknown, fallback: string): string {
   if (!(err instanceof Error)) {
@@ -222,7 +223,8 @@ export function useFileExplorerDragDrop({
             connectionId: operationRoute.connectionId,
             expectedExecutionHostId: operationRoute.expectedExecutionHostId,
             expectedSshTargetId: operationRoute.expectedSshTargetId,
-            expectedSshConnectionGeneration: operationRoute.expectedSshConnectionGeneration
+            expectedSshConnectionGeneration: operationRoute.expectedSshConnectionGeneration,
+            ...terminalModeFileScopeArgs(activeWorktreeId)
           }
           operationGuard.assertCurrent()
           await executeOpenEditorPathMove({

@@ -12,6 +12,7 @@ import { searchRuntimeFiles } from '@/runtime/runtime-file-client'
 import { useAppStore } from '@/store'
 import type { SearchResult } from '../../../../shared/types'
 import { getRightSidebarWorktreeRuntimeSettings } from './file-explorer-runtime-owner'
+import { terminalModeFileScopeArgs } from '@/runtime/terminal-mode-file-scope'
 
 const SEARCH_DEBOUNCE_MS = 300
 const SEARCH_MAX_RESULTS = 2000
@@ -118,7 +119,8 @@ export function useFileSearchRunner({
               settings: runtimeSettings,
               worktreeId: activeWorktreeId,
               worktreePath,
-              connectionId
+              connectionId,
+              ...terminalModeFileScopeArgs(activeWorktreeId)
             },
             {
               query: query.trim(),

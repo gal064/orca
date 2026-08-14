@@ -35,6 +35,7 @@ export function createHostTerminalRuntimeStub(
     cols?: number
     rows?: number
     initialBuffer?: string
+    snapshotCwd?: string
   } = {}
 ): HostTerminalRuntimeStub {
   const terminalHandle = options.terminalHandle ?? 'terminal-journey'
@@ -89,9 +90,20 @@ export function createHostTerminalRuntimeStub(
     rows: number
     seq: number
     source: 'headless'
+    cwd: string
   }> => {
     stub.serializeCount++
-    return { data: stub.buffer, cols, rows, seq: outputSequence, source: 'headless' }
+    // Why cwd: every host build puts the PTY's tracked directory on SnapshotStart.
+    // A client that reads it re-seeds a reattached pane's panels before the shell
+    // prints another prompt; one that does not must ignore it silently.
+    return {
+      data: stub.buffer,
+      cols,
+      rows,
+      seq: outputSequence,
+      source: 'headless',
+      cwd: options.snapshotCwd ?? '/srv/cross-version/snapshot'
+    }
   }
 
   const runtime: Record<string, unknown> = {

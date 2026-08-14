@@ -3136,6 +3136,9 @@ export type GlobalSettings = {
   /** Experimental: terminal-first mode — vertical terminal tabs replace the worktree sidebar.
    *  Never active on Windows, where the mode is unsupported (docs/terminal-mode-spec.md). */
   experimentalTerminalMode?: boolean
+  /** Terminal mode: host a new vertical tab is pinned to when nothing is focused to
+   *  inherit from (docs/terminal-mode-spec.md §2). Unset means local. */
+  terminalModeDefaultHost?: ExecutionHostId
   /** Compact worktree cards: hide the metadata row when title and branch say the same thing. */
   compactWorktreeCards: boolean
   /** Legacy persisted key from the Experimental rollout; new writes use compactWorktreeCards. */

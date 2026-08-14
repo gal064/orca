@@ -1404,8 +1404,11 @@ export type PreloadApi = {
     delete: (args: { folderWorkspaceId: string }) => Promise<boolean>
   }
   terminalMode: {
-    /** Hidden local project group backing terminal-mode vertical tabs, plus the default start dir. */
-    ensureLocalContext: () => Promise<TerminalModeLocalContext>
+    /** Hidden project group backing terminal-mode vertical tabs on a host this main
+     *  process owns — local (`connectionId: null`) or an SSH target — plus that host's
+     *  home directory, the start dir for a tab with no pwd to inherit. Remote
+     *  `orca serve` hosts answer the `terminalMode.ensureContext` RPC instead. */
+    ensureContext: (args: { connectionId: string | null }) => Promise<TerminalModeLocalContext>
     /** Declares the directory terminal-mode panels are showing so the filesystem
      *  boundary allows it; `null` revokes it. Rejected when the directory does not
      *  resolve on this host, which is how a foreign pwd stays sticky. Returns the

@@ -19,6 +19,11 @@ const SUITE_TIMEOUT_MS = 180_000
  * The frames one journey must produce, named rather than numbered so a diff reads
  * as a protocol change. Any deviation is a change in what a peer publishes or
  * accepts, and needs a human decision against docs/reference/remote-wire-compatibility.md.
+ *
+ * `Metadata` (opcode 12, host-reported cwd) is deliberately not in this list and is
+ * filtered out of `frameSequence`: whether a host sends it is a per-build property
+ * that predates this harness, so it gets the counted oracle in
+ * `expectCwdMetadataCompatible` instead of a positional one.
  */
 const EXPECTED_JOURNEY_FRAMES = [
   'C>H Subscribe',
@@ -26,6 +31,10 @@ const EXPECTED_JOURNEY_FRAMES = [
   'H>C SnapshotChunk',
   'H>C SnapshotEnd',
   'C>H Input',
+  'H>C Output',
+  // The second output crosses the transport's credit threshold; the ack is the
+  // client returning that credit, and its position is part of the contract.
+  'C>H Ack',
   'H>C Output',
   'C>H SnapshotRequest',
   'H>C SnapshotStart',
@@ -81,14 +90,37 @@ function expectWireCompatible(record: JourneyRecord): void {
 
   // Rule 3 — what the host publishes, as the client actually rendered it.
   expect(record.snapshotsRendered[0]).toBe(JOURNEY_INPUTS.initialBuffer)
-  expect(record.dataRendered.join('')).toBe(JOURNEY_INPUTS.output)
+  expect(record.dataRendered.join('')).toBe(`${JOURNEY_INPUTS.output}${JOURNEY_INPUTS.cwdOutput}`)
   expect(record.revealSnapshot?.data).toBe(
-    `${JOURNEY_INPUTS.initialBuffer}${JOURNEY_INPUTS.output}`
+    `${JOURNEY_INPUTS.initialBuffer}${JOURNEY_INPUTS.output}${JOURNEY_INPUTS.cwdOutput}`
   )
   expect(record.revealSnapshot).toMatchObject({ cols: 120, rows: 40 })
   for (const start of record.snapshotStarts) {
     expect(start).toMatchObject({ kind: 'scrollback', cols: 120, rows: 40, source: 'headless' })
   }
+}
+
+/**
+ * The cwd side channel terminal mode's remote panels ride on. Nothing new is sent —
+ * the frame shipped long before this feature — so the contract is: it is never
+ * refused, never rendered as terminal output, and never acknowledged. A client that
+ * predates the decode simply reports no directory.
+ */
+function expectCwdCompatible(record: JourneyRecord, clientReadsCwd: boolean): void {
+  // The host publishes both, on every build: the tracked directory on SnapshotStart
+  // and a live `cd` on a Metadata frame.
+  expect(record.metadataFrames).toBeGreaterThan(0)
+  for (const start of record.snapshotStarts) {
+    expect(start.cwd).toBe(JOURNEY_INPUTS.snapshotCwd)
+  }
+  // Neither may ever reach the pane as terminal output.
+  expect(record.dataRendered.join('')).not.toContain(JOURNEY_INPUTS.reportedCwd)
+  expect(record.dataRendered.join('')).not.toContain(JOURNEY_INPUTS.snapshotCwd)
+  expect(record.snapshotsRendered.join('')).not.toContain(JOURNEY_INPUTS.reportedCwd)
+  // A client that predates the decode reports nothing and must not error.
+  expect(new Set(record.cwdReported)).toEqual(
+    clientReadsCwd ? new Set([JOURNEY_INPUTS.snapshotCwd, JOURNEY_INPUTS.reportedCwd]) : new Set()
+  )
 }
 
 describe('cross-version remote terminal wire', () => {
@@ -108,6 +140,7 @@ describe('cross-version remote terminal wire', () => {
       const record = await runTerminalSkewJourney({ hostBuild: current, clientBuild: current })
       expectJourneyActuallyRan(record)
       expectWireCompatible(record)
+      expectCwdCompatible(record, true)
     },
     SUITE_TIMEOUT_MS
   )
@@ -119,6 +152,8 @@ describe('cross-version remote terminal wire', () => {
       expect(record.clientRevision).toBe(baseline.revision)
       expectJourneyActuallyRan(record)
       expectWireCompatible(record)
+      // The new host still publishes both; an old client must drop them silently.
+      expectCwdCompatible(record, false)
     },
     SUITE_TIMEOUT_MS
   )
@@ -130,6 +165,10 @@ describe('cross-version remote terminal wire', () => {
       expect(record.hostRevision).toBe(baseline.revision)
       expectJourneyActuallyRan(record)
       expectWireCompatible(record)
+      // The baseline only moves forward and both carriers predate this phase, so the
+      // older host publishes them too — and the new client reads them without ever
+      // requiring them.
+      expectCwdCompatible(record, true)
     },
     SUITE_TIMEOUT_MS
   )

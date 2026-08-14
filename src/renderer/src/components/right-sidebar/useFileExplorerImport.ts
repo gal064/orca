@@ -5,6 +5,7 @@ import { importExternalPathsToRuntime } from '@/runtime/runtime-file-client'
 import { translate } from '@/i18n/i18n'
 import type { FileExplorerOperationOwner } from './file-explorer-types'
 import { captureFileExplorerOperationGuard } from './file-explorer-operation-owner'
+import { terminalModeFileScopeArgs } from '@/runtime/terminal-mode-file-scope'
 
 type UseFileExplorerImportParams = {
   worktreePath: string | null
@@ -76,7 +77,8 @@ export function useFileExplorerImport({
               connectionId: operationGuard.route.connectionId,
               expectedExecutionHostId: operationGuard.route.expectedExecutionHostId,
               expectedSshTargetId: operationGuard.route.expectedSshTargetId,
-              expectedSshConnectionGeneration: operationGuard.route.expectedSshConnectionGeneration
+              expectedSshConnectionGeneration: operationGuard.route.expectedSshConnectionGeneration,
+              ...terminalModeFileScopeArgs(wtId)
             },
             paths,
             destinationDir,

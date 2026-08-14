@@ -1077,7 +1077,11 @@ export async function statRuntimePath(
 export async function subscribeRuntimeFileChanges(
   context: RuntimeFileOperationArgs,
   onPayload: (payload: FsChangedPayload) => void,
-  onError?: (error: Error) => void
+  onError?: (error: Error) => void,
+  /** Terminal mode: watch this host directory instead of the workspace root. Only
+   *  set once the host advertised `terminal-mode.absolute-path-scope.v1`, because an
+   *  older one strips it and silently watches the root instead. */
+  absoluteWatchPath?: string
 ): Promise<() => void> {
   const target = getActiveRuntimeTarget(context.settings)
   if (target.kind !== 'environment' || !context.worktreeId || !context.worktreePath) {
@@ -1085,14 +1089,17 @@ export async function subscribeRuntimeFileChanges(
   }
 
   const listener: RuntimeFileWatchListener = { onPayload, onError }
-  const key = getSharedRuntimeFileWatchKey(
-    target.environmentId,
-    context.worktreeId,
-    context.worktreePath
-  )
+  const watchPath = absoluteWatchPath ?? context.worktreePath
+  const key = getSharedRuntimeFileWatchKey(target.environmentId, context.worktreeId, watchPath)
   let shared = sharedRuntimeFileWatches.get(key)
   if (!shared) {
-    shared = createSharedRuntimeFileWatch(key, target, context.worktreeId, context.worktreePath)
+    shared = createSharedRuntimeFileWatch(
+      key,
+      target,
+      context.worktreeId,
+      watchPath,
+      absoluteWatchPath
+    )
     sharedRuntimeFileWatches.set(key, shared)
   }
   shared.listeners.add(listener)
@@ -1119,7 +1126,8 @@ function createSharedRuntimeFileWatch(
   key: string,
   target: { kind: 'environment'; environmentId: string },
   worktreeId: string,
-  worktreePath: string
+  worktreePath: string,
+  absoluteWatchPath?: string
 ): SharedRuntimeFileWatch {
   const shared: SharedRuntimeFileWatch = {
     target,
@@ -1138,7 +1146,10 @@ function createSharedRuntimeFileWatch(
       {
         selector: target.environmentId,
         method: 'files.watch',
-        params: { worktree: toRuntimeWorktreeSelector(worktreeId) },
+        params: {
+          worktree: toRuntimeWorktreeSelector(worktreeId),
+          ...(absoluteWatchPath ? { absolutePath: absoluteWatchPath } : {})
+        },
         timeoutMs: 15_000
       },
       {

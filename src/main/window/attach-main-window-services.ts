@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- Why: this file is the central main-window IPC wiring point; splitting it during the mobile release compatibility rebase would increase release risk. */
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 
 import { app, ipcMain } from 'electron'
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron'
@@ -19,9 +20,12 @@ import {
 } from '../macos-tcc-prompt-notice'
 import {
   registerRepoHandlers,
+  resolveRemoteHomePath,
   setFolderWorkspaceTerminalTeardown,
   setRepoRemoteClientNotifier
 } from '../ipc/repos'
+import { TERMINAL_MODE_CATALOG_CLIENT_CAPABILITY } from '../../shared/protocol-version'
+import { declareRemoteRuntimeClientCapabilities } from '../../shared/remote-runtime-client-capabilities'
 import { registerTerminalModeHandlers } from '../ipc/terminal-mode-group'
 import { registerTerminalModePathScopeHandlers } from '../ipc/terminal-mode-path-scope'
 import { registerWorktreeHandlers } from '../ipc/worktrees'
@@ -118,7 +122,16 @@ export function attachMainWindowServices(
   setRepoRemoteClientNotifier(runtime)
   // Why: deleting a folder workspace has no other path that kills its ptys.
   setFolderWorkspaceTerminalTeardown(runtime)
-  registerTerminalModeHandlers(store)
+  // Why here and not in the shared transport: the same client module is used by the
+  // CLI and by headless `orca serve`, neither of which filters terminal-mode vertical
+  // tabs out of a catalog. A desktop window is exactly the surface that does
+  // (store/classic-workspace-catalog.ts), so it is what may claim the token.
+  declareRemoteRuntimeClientCapabilities([TERMINAL_MODE_CATALOG_CLIENT_CAPABILITY])
+  // Why the resolver: an SSH-backed vertical tab starts in the *remote* home
+  // directory, which only the relay can expand.
+  registerTerminalModeHandlers(store, async (connectionId) =>
+    connectionId ? await resolveRemoteHomePath(connectionId, '~') : homedir()
+  )
   registerTerminalModePathScopeHandlers(store)
   registerWorktreeHandlers(mainWindow, store, runtime, {
     onWorktreeLifecycle: options?.onWorktreeLifecycle

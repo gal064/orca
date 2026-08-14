@@ -89,16 +89,33 @@ export const FILE_MUTATION_OWNERSHIP_UPDATE_REQUIRED_MESSAGE =
 // root instead — wrong data, not an error — so the client must clamp to the
 // workspace root unless the host advertises it.
 //
-// DELIBERATELY NOT IN `RUNTIME_CAPABILITIES` YET. A capability is a promise about
-// behavior, and it is permanent: a host can accept the param today but still
-// denies any path outside its own allow-list, because the terminal-mode grant is
-// declared by a renderer and an `orca serve` host has none. Phase 4 gives the host
-// a scope source of its own and advertises this then; until it does, every remote
-// vertical tab clamps to its start folder, which is the honest answer.
+// Advertised since Phase 4: the host owns a corroborated terminal-mode path scope of
+// its own (`terminalMode.setPathScope`). The promise is precise, because the token is
+// permanent: `absolutePath` is *accepted*, and a directory outside the workspace root
+// is served **subject to a declared scope** for that vertical tab. Without one the host
+// still answers from its ordinary allow-list, so a client must be prepared for a denial
+// — the token means "this host understands the parameter", not "any path works".
 export const ABSOLUTE_PATH_SCOPE_RUNTIME_CAPABILITY =
   'terminal-mode.absolute-path-scope.v1' as const
 export const ABSOLUTE_PATH_SCOPE_UPDATE_REQUIRED_MESSAGE =
   'Update the Orca server to follow cd outside this tab’s start folder.'
+
+// Why: signals the host answers the `terminalMode.*` RPCs — `ensureContext`
+// (hidden group + home directory for a vertical tab created on this host) and
+// `setPathScope` (the corroborated grant above). An older host answers
+// `method_not_found`, so a client must not offer it as a vertical-tab host.
+export const TERMINAL_MODE_VERTICAL_TABS_RUNTIME_CAPABILITY =
+  'terminal-mode.vertical-tabs.v1' as const
+export const TERMINAL_MODE_VERTICAL_TABS_UPDATE_REQUIRED_MESSAGE =
+  'Update the Orca server to open terminal tabs on it.'
+
+// Why: a CLIENT capability, never advertised by a host. The host hides
+// terminal-mode vertical tabs from `projectGroup.list` / `folderWorkspace.list`
+// because a client that has never heard of them renders them as ordinary
+// workspaces — and the keys it receives are accepted selectors for rename and
+// delete. A client advertising this promises it filters them out of every classic
+// surface, so the host passes them through instead.
+export const TERMINAL_MODE_CATALOG_CLIENT_CAPABILITY = 'terminal-mode.catalog.v1' as const
 
 export const RUNTIME_CAPABILITIES = [
   'runtime.status.compat.v1',
@@ -132,10 +149,20 @@ export const RUNTIME_CAPABILITIES = [
   AGENT_SESSION_OMP_RESUME_PATH_RUNTIME_CAPABILITY,
   FILE_MUTATION_OWNERSHIP_RUNTIME_CAPABILITY,
   ACCOUNT_IMPORT_RUNTIME_CAPABILITY,
-  CODEX_RESET_CREDIT_RUNTIME_CAPABILITY
+  CODEX_RESET_CREDIT_RUNTIME_CAPABILITY,
+  TERMINAL_MODE_VERTICAL_TABS_RUNTIME_CAPABILITY,
+  ABSOLUTE_PATH_SCOPE_RUNTIME_CAPABILITY
 ] as const
 
 export type RuntimeCapability = (typeof RUNTIME_CAPABILITIES)[number] | (string & {})
+
+/** The two tokens a host withholds when it is standing in for a pre-terminal-mode build. */
+export function isTerminalModeRuntimeCapability(capability: string): boolean {
+  return (
+    capability === TERMINAL_MODE_VERTICAL_TABS_RUNTIME_CAPABILITY ||
+    capability === ABSOLUTE_PATH_SCOPE_RUNTIME_CAPABILITY
+  )
+}
 
 // COMPAT(mobileProtocolAliases): added 2026-05-15 for mobile builds that
 // still read desktop/mobile names; remove once mobile reads runtime names.

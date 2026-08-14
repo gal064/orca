@@ -55,6 +55,12 @@ import { wslAwareSpawn } from '../git/runner'
 import { parseWslPath, toWindowsWslPath } from '../wsl'
 import { isENOENT, resolveAuthorizedPath } from '../ipc/filesystem-auth'
 import { isTerminalModeWorkspaceSelector } from '../ipc/terminal-mode-path-scope'
+import {
+  isPathInTerminalModeHostScope,
+  resolveTerminalModeHostScopedPath
+} from './terminal-mode-host-path-scope'
+
+export const TERMINAL_MODE_WATCH_SCOPE_REVOKED_MESSAGE = 'terminal_mode_watch_scope_revoked'
 import { listQuickOpenFiles } from '../ipc/filesystem-list-files'
 import { searchWithGitGrep } from '../ipc/filesystem-search-git'
 import { getLocalGitOptionsForRegisteredWorktree } from '../ipc/local-worktree-runtime-options'
@@ -1309,7 +1315,18 @@ export class RuntimeFileCommands {
     if (!isTerminalModeWorkspaceSelector(this.host.requireStore(), target.worktree.id)) {
       throw new Error('absolute_path_scope_requires_terminal_mode_workspace')
     }
-    return resolveAuthorizedPath(absolutePath, this.host.requireStore())
+    // The host's own grant (terminal-mode-host-path-scope.ts) is what lets a remote
+    // vertical tab follow `cd` outside every registered root.
+    const granted = await resolveTerminalModeHostScopedPath(
+      this.host.requireStore(),
+      target.worktree.id,
+      absolutePath
+    )
+    // No grant, or a path outside it: the ordinary allow-list still covers the tab's
+    // own start folder and anything beneath it — which is the whole reach a remote
+    // vertical tab had before this phase, and the only reach it has on a host whose
+    // client never declared a scope.
+    return granted ?? (await resolveAuthorizedPath(absolutePath, this.host.requireStore()))
   }
 
   private async readAuthorizedDir(dirPath: string): Promise<DirEntry[]> {
@@ -1357,9 +1374,41 @@ export class RuntimeFileCommands {
     worktreeSelector: string,
     callback: (events: FsChangeEvent[]) => void,
     onTerminalError: (error: Error) => void = () => undefined,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    absolutePath?: string
   ): Promise<() => Promise<void>> {
-    const target = await this.resolveFileExplorerPath(worktreeSelector, '')
+    const resolved = await this.resolveFileExplorerPath(worktreeSelector, '')
+    // Terminal mode: a remote vertical tab's panels watch the shell's pwd, which the
+    // selector's workspace root does not contain. Same grant, same refusals as the
+    // absolute-path reads — an SSH-backed workspace never reaches this branch.
+    // `resolveAbsoluteScopePath` already canonicalized and contained it, so the
+    // ordinary `resolveAuthorizedPath` below is skipped for it: on an `orca serve`
+    // host the allow-list never holds a terminal-mode grant, and running it would
+    // deny exactly the outside-the-workspace-root watch this parameter exists for.
+    const scopedWatchPath = absolutePath
+      ? await this.resolveAbsoluteScopePath(worktreeSelector, absolutePath)
+      : null
+    const target = scopedWatchPath ? { ...resolved, path: scopedWatchPath } : resolved
+    // Why re-checked per batch: a watcher streams for the life of its subscription, so
+    // authorizing once at subscribe would keep publishing a directory after the tab was
+    // deleted, the grant revoked, or the shell `cd`ed elsewhere — the one surface where
+    // the grant's stated lifetime would otherwise be a lie. Terminating the stream (not
+    // just dropping events) is what makes the client re-subscribe under the new scope.
+    const scopedCallback = scopedWatchPath
+      ? (events: FsChangeEvent[]): void => {
+          if (
+            !isPathInTerminalModeHostScope(
+              this.host.requireStore(),
+              resolved.worktree.id,
+              scopedWatchPath
+            )
+          ) {
+            onTerminalError(new Error(TERMINAL_MODE_WATCH_SCOPE_REVOKED_MESSAGE))
+            return
+          }
+          callback(events)
+        }
+      : callback
     const open = async (): Promise<{
       unsubscribe: () => Promise<void>
       rootPaths: string[]
@@ -1372,12 +1421,15 @@ export class RuntimeFileCommands {
             throw new Error(SSH_FILESYSTEM_PROVIDER_UNAVAILABLE_MESSAGE)
           }
           // Why: the RPC layer already threads AbortSignal for local watches; SSH must cancel the remote fs.watch, not wait it out.
-          const close = await provider.watch(target.path, callback, { signal, onTerminalError })
+          const close = await provider.watch(target.path, scopedCallback, {
+            signal,
+            onTerminalError
+          })
           const rearm = armSshFileExplorerWatchRearm({
             runtimeId: this.host.getRuntimeId(),
             connectionId: target.connectionId,
             rootPath: target.path,
-            callback,
+            callback: scopedCallback,
             onTerminalError,
             signal,
             initialUnwatch: close
@@ -1385,19 +1437,20 @@ export class RuntimeFileCommands {
           return { unsubscribe: rearm.unsubscribe, rootPaths: [target.path] }
         }
 
-        const rootPath = await resolveAuthorizedPath(target.path, this.host.requireStore())
+        const rootPath =
+          scopedWatchPath ?? (await resolveAuthorizedPath(target.path, this.host.requireStore()))
         const rootStats = await stat(rootPath)
         if (!rootStats.isDirectory()) {
           throw new Error('not_a_directory')
         }
         if (process.platform === 'win32') {
-          const close = watchWindowsRuntimeFileExplorer(rootPath, callback, onTerminalError)
+          const close = watchWindowsRuntimeFileExplorer(rootPath, scopedCallback, onTerminalError)
           return { unsubscribe: close, rootPaths: [target.path, rootPath] }
         }
         // Why: the forked watcher keeps the blocking crawl and native faults out of the main/`serve` process (issues #5308, #8212).
         const dispose = await watchFileExplorerInWatcherProcess(
           rootPath,
-          callback,
+          scopedCallback,
           onTerminalError,
           signal
         )

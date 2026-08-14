@@ -6048,8 +6048,10 @@
           },
           "terminalMode": {
             "title": "Terminal mode",
-            "copy": "Replaces the left sidebar with vertical terminal tabs. Under construction — the tab list is a placeholder until terminal tabs ship. Turning this off restores the worktree sidebar unchanged.",
-            "toggleLabel": "Toggle terminal mode"
+            "copy": "Replaces the left sidebar with vertical terminal tabs, each pinned to a host. The file explorer and git panel follow the focused terminal's directory. Turning this off restores the worktree sidebar unchanged.",
+            "toggleLabel": "Toggle terminal mode",
+            "defaultHost": "Default host for new terminal tabs",
+            "hostNeedsUpdate": "{{label}} — server update needed"
           }
         },
         "FloatingWorkspacePane": {
@@ -15135,6 +15137,10 @@
         },
         "VerticalTabRow": {
           "close": "Close terminal tab"
+        },
+        "NewVerticalTabButton": {
+          "chooseHost": "New terminal tab on…",
+          "hostNeedsUpdate": "Server update needed"
         }
       }
     },

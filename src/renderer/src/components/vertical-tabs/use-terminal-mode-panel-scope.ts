@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { statRuntimePath } from '@/runtime/runtime-file-client'
 import { getRuntimeRepoRootForPath } from '@/runtime/runtime-repo-root-client'
+import { declareRemoteTerminalModePathScope } from '@/runtime/terminal-mode-host-scope-client'
 import { runtimeEnvironmentSupportsCapability } from '@/runtime/runtime-rpc-client'
 import { ABSOLUTE_PATH_SCOPE_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
@@ -108,26 +109,77 @@ export function useTerminalModePanelScope(): void {
   /** Last root that resolved on this host — what a foreign pwd falls back to. */
   const lastValidRootRef = useRef<{ workspaceKey: string; root: string } | null>(null)
   const committedRootRef = useRef<{ workspaceKey: string; root: string } | null>(null)
+  // Why remembered: revoking needs the host and tab that were granted, and by the
+  // time the panels close the active workspace has already moved on.
+  const remoteGrantRef = useRef<{ environmentId: string; workspaceKey: string } | null>(null)
+  const revokeRemoteScope = useCallback((): void => {
+    const grant = remoteGrantRef.current
+    remoteGrantRef.current = null
+    if (grant) {
+      void declareRemoteTerminalModePathScope(grant.environmentId, {
+        workspaceKey: grant.workspaceKey,
+        root: null
+      }).catch(() => undefined)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
+
+    const REJECTED: RootValidation = { valid: false, repoRoot: undefined }
+
+    /** Local: main corroborates the directory against a cwd it saw a shell of this
+     *  tab in, grants it, and answers with its repository — one round trip. */
+    const declareLocalScope = async (root: string): Promise<RootValidation> => {
+      const api = window.api?.terminalMode?.setPathScope
+      if (!api || !workspaceKey) {
+        return REJECTED
+      }
+      const result = await api({ scope: { workspaceKey, root } })
+      return { valid: result.accepted, repoRoot: result.accepted ? result.repoRoot : undefined }
+    }
+
+    /** Remote: the same contract over RPC. `null` means the host predates the method,
+     *  which leaves the caller on the Phase-3 probe below. */
+    const declareRemoteScope = async (root: string): Promise<RootValidation | null> => {
+      if (!environmentId || !workspaceKey) {
+        return null
+      }
+      const declared = await declareRemoteTerminalModePathScope(environmentId, {
+        workspaceKey,
+        root
+      })
+      if (!declared.supported) {
+        return null
+      }
+      if (declared.accepted) {
+        remoteGrantRef.current = { environmentId, workspaceKey }
+      }
+      return {
+        valid: declared.accepted,
+        repoRoot: declared.accepted ? declared.repoRoot : undefined
+      }
+    }
 
     const validateRoot = async (
       root: string,
       absolutePathScope: AbsolutePathScopeState
     ): Promise<RootValidation> => {
       if (ownerKind === 'local') {
-        // One round trip: main corroborates the directory against a cwd it saw a
-        // shell of this tab in, grants it, and answers with its repository.
-        const api = window.api?.terminalMode?.setPathScope
-        if (!api || !workspaceKey) {
-          return { valid: false, repoRoot: undefined }
-        }
-        const result = await api({ scope: { workspaceKey, root } })
-        return { valid: result.accepted, repoRoot: result.accepted ? result.repoRoot : undefined }
+        return await declareLocalScope(root)
       }
       if (ownerKind === 'unresolved') {
-        return { valid: false, repoRoot: undefined }
+        return REJECTED
+      }
+      // Why conditional: a pwd inside the workspace root is addressable by the relative
+      // contract every host answers, so declaring a grant for it is a round trip that can
+      // only make things worse — a host whose observed-cwd set was emptied by a restart
+      // would refuse it and clamp the panels back for a directory it can serve.
+      if (ownerKind === 'runtime' && requiresAbsolutePathScope(ownerKind, workspaceRoot, root)) {
+        const declared = await declareRemoteScope(root)
+        if (declared) {
+          return declared
+        }
       }
       const context = {
         settings:
@@ -144,10 +196,10 @@ export function useTerminalModePanelScope(): void {
       }
       try {
         if (!(await statRuntimePath(context, root)).isDirectory) {
-          return { valid: false, repoRoot: undefined }
+          return REJECTED
         }
       } catch {
-        return { valid: false, repoRoot: undefined }
+        return REJECTED
       }
       try {
         const repoRoot = await getRuntimeRepoRootForPath(
@@ -175,6 +227,7 @@ export function useTerminalModePanelScope(): void {
         committedRootRef.current = null
         setTerminalModePanelScope(null)
         void window.api?.terminalMode?.setPathScope?.({ scope: null })
+        revokeRemoteScope()
         return
       }
       const lastValid =
@@ -255,7 +308,14 @@ export function useTerminalModePanelScope(): void {
       })
     }
 
-    void run()
+    // Why caught here: every arm of `run` reaches the network — a dropped transport
+    // or an RPC timeout is routine on the reconnect path this phase exists for, and
+    // an unhandled rejection would leave the panels frozen with no retry.
+    void run().catch((error) => {
+      if (!cancelled) {
+        console.warn('[terminal-mode] panel scope resolution failed', error)
+      }
+    })
     return () => {
       cancelled = true
     }
@@ -265,6 +325,7 @@ export function useTerminalModePanelScope(): void {
     environmentId,
     ownerKind,
     pwd,
+    revokeRemoteScope,
     setTerminalModePanelScope,
     workspaceKey,
     workspaceRoot
@@ -276,7 +337,8 @@ export function useTerminalModePanelScope(): void {
     () => () => {
       setTerminalModePanelScope(null)
       void window.api?.terminalMode?.setPathScope?.({ scope: null })
+      revokeRemoteScope()
     },
-    [setTerminalModePanelScope]
+    [revokeRemoteScope, setTerminalModePanelScope]
   )
 }

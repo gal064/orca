@@ -298,6 +298,49 @@ describe('TabsSlice', () => {
       expect(store.getState().groupsByWorktree[WT][0].activeTabId).toBe(t3.id)
     })
 
+    it('keeps an emptied terminal-mode vertical tab selected, and only that', () => {
+      const VT = 'folder:vt-1'
+      store.setState({
+        settings: { experimentalTerminalMode: true },
+        projectGroups: [{ id: 'g-terminal', name: '__terminal-mode__' }],
+        folderWorkspaces: [{ id: 'vt-1', projectGroupId: 'g-terminal', createdAt: 1 }],
+        activeWorktreeId: VT,
+        activeWorkspaceKey: VT
+      } as never)
+      const tab = store.getState().createUnifiedTab(VT, 'terminal')
+
+      // A shell death, not a user close: the tab goes, the vertical tab stays selected.
+      store.getState().closeUnifiedTab(tab.id, { reason: 'pty-exit' })
+      expect(store.getState().unifiedTabsByWorktree[VT]).toHaveLength(0)
+      expect(store.getState().activeWorktreeId).toBe(VT)
+
+      // A classic workspace in the same state still deactivates.
+      store.setState({ activeWorktreeId: WT, activeWorkspaceKey: WT } as never)
+      const classicTab = store.getState().createUnifiedTab(WT, 'terminal')
+      store.getState().closeUnifiedTab(classicTab.id, { reason: 'pty-exit' })
+      expect(store.getState().activeWorktreeId).toBeNull()
+    })
+
+    it('still hands a user close of the last vertical-tab tab to the vtab teardown', () => {
+      const VT = 'folder:vt-2'
+      const closeVerticalTabIfEmptied = vi.fn()
+      store.setState({
+        settings: { experimentalTerminalMode: true },
+        projectGroups: [{ id: 'g-terminal', name: '__terminal-mode__' }],
+        folderWorkspaces: [{ id: 'vt-2', projectGroupId: 'g-terminal', createdAt: 1 }],
+        activeWorktreeId: VT,
+        activeWorkspaceKey: VT,
+        closeVerticalTabIfEmptied
+      } as never)
+      const tab = store.getState().createUnifiedTab(VT, 'terminal')
+
+      store.getState().closeUnifiedTab(tab.id)
+
+      // `wasActive: true` is what makes closeVerticalTab focus a neighbour; the guard
+      // above must not turn it into a false.
+      expect(closeVerticalTabIfEmptied).toHaveBeenCalledWith(VT, { wasActive: true })
+    })
+
     it('returns null for nonexistent tab', () => {
       const result = store.getState().closeUnifiedTab('nonexistent')
       expect(result).toBeNull()

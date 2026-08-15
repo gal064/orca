@@ -6,8 +6,8 @@ import {
   excludeTerminalModeGroups,
   getTerminalModeGroupIds
 } from '../../../shared/terminal-mode-group'
-import { folderWorkspaceKey } from '../../../shared/workspace-scope'
 import { isTerminalMode } from '@/lib/terminal-mode'
+import { NO_GROUPS, NO_WORKSPACES, cacheByBothSources } from './workspace-catalog-cache'
 
 /**
  * The one place classic UI reads the workspace catalog.
@@ -29,44 +29,8 @@ import { isTerminalMode } from '@/lib/terminal-mode'
  */
 type CatalogState = Pick<AppState, 'projectGroups' | 'folderWorkspaces'>
 
-/**
- * Every result depends on BOTH source arrays, so the cache is keyed on both — a groups
- * update that leaves `folderWorkspaces` identical must not serve a stale, unfiltered
- * array (zustand compares by identity, so nothing would ever correct it).
- */
-function cacheByBothSources<T>(
-  cache: WeakMap<object, WeakMap<object, T>>,
-  groups: object | undefined,
-  workspaces: object | undefined,
-  derive: () => T
-): T {
-  // Why tolerated at runtime while the type stays required: test fixtures cast partial
-  // states through `as unknown as AppState`. Production callers still get a build error.
-  if (!groups || !workspaces) {
-    return derive()
-  }
-  let byWorkspaces = cache.get(groups)
-  if (!byWorkspaces) {
-    byWorkspaces = new WeakMap<object, T>()
-    cache.set(groups, byWorkspaces)
-  }
-  const cached = byWorkspaces.get(workspaces)
-  if (cached !== undefined) {
-    return cached
-  }
-  const derived = derive()
-  byWorkspaces.set(workspaces, derived)
-  return derived
-}
-
-// Why frozen module constants and not `?? []`: a fresh array would hand zustand a new
-// identity on every store update, re-rendering every subscriber.
-const NO_GROUPS: readonly ProjectGroup[] = Object.freeze([])
-const NO_WORKSPACES: readonly FolderWorkspace[] = Object.freeze([])
-
 const classicGroupsCache = new WeakMap<object, WeakMap<object, readonly ProjectGroup[]>>()
 const classicWorkspacesCache = new WeakMap<object, WeakMap<object, readonly FolderWorkspace[]>>()
-const terminalModeKeysCache = new WeakMap<object, WeakMap<object, ReadonlySet<string>>>()
 const terminalModeWorkspacesCache = new WeakMap<
   object,
   WeakMap<object, readonly FolderWorkspace[]>
@@ -132,27 +96,6 @@ export function selectTerminalModeFolderWorkspaces(
       return (state.folderWorkspaces ?? NO_WORKSPACES).filter((workspace) =>
         groupIds.has(workspace.projectGroupId)
       )
-    }
-  )
-}
-
-/** Workspace keys (`folder:<id>`) owned by terminal mode — for surfaces keyed by workspace. */
-export function selectTerminalModeWorkspaceKeys(state: CatalogState): ReadonlySet<string> {
-  return cacheByBothSources(
-    terminalModeKeysCache,
-    state.projectGroups,
-    state.folderWorkspaces,
-    () => {
-      const groupIds = getTerminalModeGroupIds(state.projectGroups ?? NO_GROUPS)
-      const keys = new Set<string>()
-      if (groupIds.size > 0) {
-        for (const workspace of state.folderWorkspaces ?? NO_WORKSPACES) {
-          if (groupIds.has(workspace.projectGroupId)) {
-            keys.add(folderWorkspaceKey(workspace.id))
-          }
-        }
-      }
-      return keys
     }
   )
 }

@@ -10523,6 +10523,12 @@
           "openAutomationsDescription": "Create schedules and inspect recent runs.",
           "title": "Automations",
           "description": "Schedule agent work and choose whether Automations appears in the sidebar."
+        },
+        "notificationTestFeedback": {
+          "sent": "Sent",
+          "blockedWithCard": "Not delivered — see the alert above",
+          "blocked": "Not delivered — your system blocked it",
+          "notSent": "Not sent"
         }
       },
       "right": {
@@ -15158,6 +15164,16 @@
           "chooseHost": "New terminal tab on…",
           "hostNeedsUpdate": "Server update needed",
           "creating": "Opening terminal tab…"
+        },
+        "TerminalModeEmptyPane": {
+          "noTerminals": "No terminals in this tab.",
+          "noTabs": "No terminal tabs.",
+          "openHint": "opens one here",
+          "createHint": "opens a terminal tab",
+          "openAction": "Open terminal",
+          "createAction": "New terminal tab",
+          "noSelection": "No terminal tab selected.",
+          "selectAction": "Open terminal tab"
         }
       }
     },

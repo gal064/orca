@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import type { AppState } from './types'
 import { useAppStore } from '.'
 import { isTerminalMode } from '@/lib/terminal-mode'
-import { selectTerminalModeWorkspaceKeys } from './classic-workspace-catalog'
+import { selectTerminalModeWorkspaceKeys } from './terminal-mode-workspace-keys'
 
 type ActiveVerticalTabFallbackState = Pick<
   AppState,

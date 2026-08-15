@@ -190,9 +190,10 @@ describe('closeVerticalTabIfEmptied', () => {
     expect(state.closeVerticalTab).toHaveBeenCalledWith('vtab', { wasActive: false })
   })
 
-  it('trusts the caller over the store, which already dropped the active workspace', async () => {
-    // closeUnifiedTab nulls activeWorkspaceKey before this runs, so inferring here
-    // would never focus the neighbouring tab after a last-htab close.
+  it('trusts the caller over the store rather than inferring the focused tab', async () => {
+    // The caller reports `wasActive` because only it knows: `closeUnifiedTab` used to
+    // null activeWorkspaceKey before this ran, and since Phase 8 it deliberately does
+    // not for a vertical tab — inferring here would be wrong in one era or the other.
     const { slice, state } = makeStore({ activeWorkspaceKey: null })
     slice.closeVerticalTabIfEmptied('folder:vtab', { wasActive: true })
     await new Promise((resolve) => queueMicrotask(() => resolve(null)))

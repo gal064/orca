@@ -1,5 +1,6 @@
 /* eslint-disable max-lines */
 
+import { isTerminalModeVerticalTabKey } from '@/store/terminal-mode-workspace-keys'
 import React, { useEffect, useCallback, useMemo, useRef, useState, Suspense } from 'react'
 import { lazyWithRetry as lazy } from '@/lib/lazy-with-retry'
 import { createPortal } from 'react-dom'
@@ -1730,7 +1731,9 @@ function Terminal(): React.JSX.Element | null {
             if (terminalTab) {
               setActiveTab(terminalTab.id)
               setActiveTabType('terminal')
-            } else {
+            } else if (!isTerminalModeVerticalTabKey(state, owningWorktreeId)) {
+              // Terminal mode keeps an emptied vertical tab selected — see
+              // store/terminal-mode-workspace-keys.ts.
               setActiveWorktree(null)
             }
           }

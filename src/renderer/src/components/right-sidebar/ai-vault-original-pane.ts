@@ -1,5 +1,5 @@
 import type { AppState } from '@/store/types'
-import { selectTerminalModeWorkspaceKeys } from '@/store/classic-workspace-catalog'
+import { selectTerminalModeWorkspaceKeys } from '@/store/terminal-mode-workspace-keys'
 import { resolveRuntimePaneTitleLeafId } from '@/lib/runtime-pane-title-leaf-id'
 import type { AgentStatusState } from '../../../../shared/agent-status-types'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'

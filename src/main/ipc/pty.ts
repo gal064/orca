@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- Why: PTY IPC is centralized in one main-process module so spawn env scoping, lifecycle cleanup, process inspection, and renderer IPC stay behind one audited boundary. */
 import { join, delimiter } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { statSync } from 'node:fs'
+import { accessSync, constants, statSync } from 'node:fs'
 import {
   type BrowserWindow,
   type IpcMainEvent,
@@ -135,8 +135,12 @@ import {
 import { isValidTerminalTabId } from '../../shared/terminal-tab-id'
 import {
   resolveTerminalStartupCwdForWorkspace,
-  type TerminalStartupCwdMissingDirFallback
+  type TerminalStartupCwdFallbackNotice,
+  type TerminalStartupCwdMissingDirFallback,
+  type TerminalStartupCwdResolution,
+  type TerminalStartupCwdUsability
 } from '../../shared/terminal-startup-cwd'
+import { resolveTerminalModeStartupCwdHome } from './terminal-mode-startup-cwd-home'
 import { isWslUncPath } from '../../shared/wsl-paths'
 import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
 import type { AgentSessionOwnerBinding } from '../../shared/agent-session-host-authority'
@@ -4145,7 +4149,7 @@ export function registerPtyHandlers(
     worktreeId: string | undefined,
     cwd: string | undefined,
     missingDirFallback?: TerminalStartupCwdMissingDirFallback
-  ): string | undefined =>
+  ): TerminalStartupCwdResolution =>
     resolveTerminalStartupCwdForWorkspace({
       workspaceId: worktreeId,
       requestedCwd: cwd,
@@ -4154,15 +4158,31 @@ export function registerPtyHandlers(
         store?.getFolderWorkspace(folderWorkspaceId)?.folderPath
     })
 
-  const localStartupCwdDirectoryExists = (path: string): boolean => {
+  const localStartupCwdUsability = (path: string): TerminalStartupCwdUsability => {
     // Why: Win32 statSync on \\wsl.localhost 9P shares can falsely report ENOENT; defer to the provider's WSL-aware validation.
     if (isWslUncPath(path)) {
-      return true
+      return 'usable'
     }
     try {
-      return statSync(path).isDirectory()
+      if (!statSync(path).isDirectory()) {
+        return 'missing'
+      }
+    } catch (error) {
+      // A locked-down *ancestor* fails the stat itself; that is a permission
+      // problem, not a deleted directory, and the notice says so.
+      return (error as { code?: string } | null)?.code === 'EACCES' ||
+        (error as { code?: string } | null)?.code === 'EPERM'
+        ? 'inaccessible'
+        : 'missing'
+    }
+    try {
+      // X_OK only: chdir needs the traverse bit, and a listable-but-not-enterable
+      // directory does not exist in practice. Requiring R_OK would reject an
+      // 0711 directory the shell can open perfectly well.
+      accessSync(path, constants.X_OK)
+      return 'usable'
     } catch {
-      return false
+      return 'inaccessible'
     }
   }
 
@@ -4422,7 +4442,7 @@ export function registerPtyHandlers(
       if (!preAdoptedStablePane) {
         await assertFolderWorkspacePtyPathUsable(args.worktreeId)
       }
-      const cwd = resolvePtySpawnStartupCwd(args.worktreeId, args.cwd)
+      const cwd = resolvePtySpawnStartupCwd(args.worktreeId, args.cwd).cwd
       const provider = getProvider(args.connectionId)
       const freshSpawnRecovery = preAdoptedStablePane
         ? undefined
@@ -5767,27 +5787,38 @@ export function registerPtyHandlers(
       // Why: honor the fallback only for fresh local spawns — reattach needs exact cwd and SSH can't probe the local filesystem.
       const allowMissingCwdFallback =
         !args.connectionId && !args.sessionId && args.cwdFallback === 'worktree'
-      let didFallbackToWorkspaceRootCwd = false
-      const cwd = resolvePtySpawnStartupCwd(
+      const startupCwd = resolvePtySpawnStartupCwd(
         args.worktreeId,
         args.cwd,
         allowMissingCwdFallback
           ? {
-              directoryExists: localStartupCwdDirectoryExists,
-              fallbackCwd: resolveRestoredTabFallbackCwd(
-                store,
-                args.worktreeId,
-                args.tabId,
-                args.cwd
-              ),
-              onFallbackToWorkspaceRoot: () => {
-                didFallbackToWorkspaceRootCwd = true
-              }
+              directoryUsability: localStartupCwdUsability,
+              fallbackCwd: () =>
+                resolveRestoredTabFallbackCwd(store, args.worktreeId, args.tabId, args.cwd),
+              homeCwd: () => resolveTerminalModeStartupCwdHome(store, args.worktreeId)
             }
           : undefined
       )
-      const startupCwdFallback =
-        didFallbackToWorkspaceRootCwd && cwd ? ({ kind: 'worktree', cwd } as const) : undefined
+      const cwd = startupCwd.cwd
+      // Why logged at all: node-pty spawns fine and the *child* fails its chdir, so
+      // without these lines an unusable start folder leaves no main-side trace. The
+      // rejected path is logged here but never printed into the terminal — see
+      // terminal-pane/startup-cwd-fallback-notice.ts.
+      if (startupCwd.fallback) {
+        console.warn(
+          `[pty] startup cwd ${startupCwd.fallback.reason} (${startupCwd.fallback.rejectedCwd}); opening at the ${startupCwd.fallback.kind} directory instead`
+        )
+      }
+      if (startupCwd.unrecoverable) {
+        console.warn(
+          `[pty] startup cwd ${startupCwd.unrecoverable.reason} (${startupCwd.unrecoverable.rejectedCwd}) with no usable fallback; the shell will exit on chdir`
+        )
+      }
+      const startupCwdFallback: TerminalStartupCwdFallbackNotice | undefined =
+        startupCwd.fallback && cwd
+          ? // Not a spread: `rejectedCwd` is for the main log only, never the notice.
+            { kind: startupCwd.fallback.kind, reason: startupCwd.fallback.reason, cwd }
+          : undefined
       spawnTiming.mark('preflight')
       const earlyLeafId =
         typeof args.leafId === 'string' && isTerminalLeafId(args.leafId) ? args.leafId : null

@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- Why: stateful registration helper + shared mocked IPC/node-pty harness keep spawn-env assertions in one focused file. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
-import { userInfo } from 'node:os'
+import { homedir, tmpdir, userInfo } from 'node:os'
 import { delimiter, join, posix } from 'node:path'
 import { prepareCodexSessionResume } from '../codex/codex-session-resume-preparation'
 import {
@@ -12063,7 +12063,11 @@ describe('registerPtyHandlers', () => {
 
     const [, , options] = spawnMock.mock.calls.at(-1) as [string, string[], { cwd: string }]
     expect(options.cwd).toBe(worktreePath)
-    expect(result.startupCwdFallback).toEqual({ kind: 'worktree', cwd: worktreePath })
+    expect(result.startupCwdFallback).toEqual({
+      kind: 'worktree',
+      reason: 'missing',
+      cwd: worktreePath
+    })
   })
 
   it("prefers the tab's own start folder when its restored pwd is gone", async () => {
@@ -12124,7 +12128,165 @@ describe('registerPtyHandlers', () => {
 
     const [, , options] = spawnMock.mock.calls.at(-1) as [string, string[], { cwd: string }]
     expect(options.cwd).toBe('/repo/app')
-    expect(result.startupCwdFallback).toEqual({ kind: 'worktree', cwd: '/repo/app' })
+    expect(result.startupCwdFallback).toEqual({
+      kind: 'worktree',
+      reason: 'missing',
+      cwd: '/repo/app'
+    })
+  })
+
+  it('falls back to the workspace root when the saved cwd is unreadable', async () => {
+    // A chmod 000 directory stats fine, so only the traverse probe catches it;
+    // without this the child's chdir fails and the pane is blank with no trace.
+    registerPtyHandlers(mainWindow as never)
+    statSyncMock.mockReturnValue({ isDirectory: () => true, mode: 0o755 })
+    accessSyncMock.mockImplementation((target: string) => {
+      if (target === '/repo/app/locked') {
+        throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+      }
+    })
+
+    const result = (await handlers.get('pty:spawn')!(null, {
+      cols: 80,
+      rows: 24,
+      cwd: '/repo/app/locked',
+      cwdFallback: 'worktree',
+      worktreeId: 'repo-1::/repo/app'
+    })) as { startupCwdFallback?: { kind: string; reason?: string; cwd: string } }
+
+    const [, , options] = spawnMock.mock.calls.at(-1) as [string, string[], { cwd: string }]
+    expect(options.cwd).toBe('/repo/app')
+    expect(result.startupCwdFallback).toEqual({
+      kind: 'worktree',
+      reason: 'inaccessible',
+      cwd: '/repo/app'
+    })
+  })
+
+  it('opens a vertical tab at the home directory when its own start folder is unreadable', async () => {
+    // The vertical tab's workspace root IS the folder that just failed, so the
+    // worktree step has nowhere to go; it must not spawn into a dead directory.
+    // A real directory: the folder-workspace path probe uses unmocked fs/promises.
+    const lockedDir = tmpdir()
+    const store = {
+      getFolderWorkspace: (id: string) =>
+        id === 'vt-1' ? { id, projectGroupId: 'g-terminal', folderPath: lockedDir } : undefined,
+      getFolderWorkspaces: () => [
+        { id: 'vt-1', projectGroupId: 'g-terminal', folderPath: lockedDir }
+      ],
+      getProjectGroups: () => [{ id: 'g-terminal', name: '__terminal-mode__' }],
+      getRepos: () => []
+    }
+    registerPtyHandlers(
+      mainWindow as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      store as never
+    )
+    statSyncMock.mockReturnValue({ isDirectory: () => true, mode: 0o755 })
+    accessSyncMock.mockImplementation((target: string) => {
+      if (target === lockedDir) {
+        throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+      }
+    })
+
+    const result = (await handlers.get('pty:spawn')!(null, {
+      cols: 80,
+      rows: 24,
+      cwd: lockedDir,
+      cwdFallback: 'worktree',
+      worktreeId: 'folder:vt-1'
+    })) as { startupCwdFallback?: { kind: string; reason?: string; cwd: string } }
+
+    const [, , options] = spawnMock.mock.calls.at(-1) as [string, string[], { cwd: string }]
+    expect(options.cwd).toBe(homedir())
+    expect(result.startupCwdFallback).toEqual({
+      kind: 'home',
+      reason: 'inaccessible',
+      cwd: homedir()
+    })
+  })
+
+  it('retries the real directory once a vertical tab start folder becomes readable', async () => {
+    // The recovery must not be sticky for the session: the very next spawn has to
+    // land in the tab's own folder again.
+    const lockedDir = tmpdir()
+    const store = {
+      getFolderWorkspace: (id: string) =>
+        id === 'vt-1' ? { id, projectGroupId: 'g-terminal', folderPath: lockedDir } : undefined,
+      getFolderWorkspaces: () => [
+        { id: 'vt-1', projectGroupId: 'g-terminal', folderPath: lockedDir }
+      ],
+      getProjectGroups: () => [{ id: 'g-terminal', name: '__terminal-mode__' }],
+      getRepos: () => []
+    }
+    registerPtyHandlers(
+      mainWindow as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      store as never
+    )
+    statSyncMock.mockReturnValue({ isDirectory: () => true, mode: 0o755 })
+    let locked = true
+    accessSyncMock.mockImplementation((target: string) => {
+      if (locked && target === lockedDir) {
+        throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+      }
+    })
+    const spawnArgs = {
+      cols: 80,
+      rows: 24,
+      cwd: lockedDir,
+      cwdFallback: 'worktree' as const,
+      worktreeId: 'folder:vt-1'
+    }
+
+    await handlers.get('pty:spawn')!(null, spawnArgs)
+    locked = false
+    const result = (await handlers.get('pty:spawn')!(null, spawnArgs)) as {
+      startupCwdFallback?: unknown
+    }
+
+    const [, , options] = spawnMock.mock.calls.at(-1) as [string, string[], { cwd: string }]
+    expect(options.cwd).toBe(lockedDir)
+    expect(result.startupCwdFallback).toBeUndefined()
+  })
+
+  it('logs an unusable startup directory that nothing can recover', async () => {
+    registerPtyHandlers(mainWindow as never)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      statSyncMock.mockReturnValue({ isDirectory: () => true, mode: 0o755 })
+      accessSyncMock.mockImplementation((target: string) => {
+        // Only the directory chain is locked down — the shell probe uses accessSync too.
+        if (target.startsWith('/repo/app')) {
+          throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+        }
+      })
+
+      await handlers.get('pty:spawn')!(null, {
+        cols: 80,
+        rows: 24,
+        cwd: '/repo/app/locked',
+        cwdFallback: 'worktree',
+        worktreeId: 'repo-1::/repo/app'
+      })
+
+      expect(
+        warn.mock.calls.some(
+          (call) =>
+            typeof call[0] === 'string' &&
+            call[0].includes('inaccessible') &&
+            call[0].includes('no usable fallback')
+        )
+      ).toBe(true)
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('keeps a missing cwd unchanged without the fallback flag', async () => {

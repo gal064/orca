@@ -62,7 +62,7 @@ vertical-tabs sidebar; classic mode is untouched.
 3. **Mode predicate.** New file
    `src/renderer/src/lib/terminal-mode.ts` exporting
    `isTerminalMode(settings): boolean` (`settings?.experimentalTerminalMode
-   === true && !isWindows`). Pure function — the repo convention for
+=== true && !isWindows`). Pure function — the repo convention for
    testability (cf. `shouldShowAgentDashboardButton`).
 4. **Sidebar branch.** In `src/renderer/src/components/sidebar/index.tsx`,
    inside the `{sidebarOpen && (…)}` block (~L114-140), branch:
@@ -104,7 +104,7 @@ survives restart.
    calls existing `createFolderWorkspace` (`store/slices/repos.ts:2519`,
    local branch = `window.api.folderWorkspaces.create`) with
    `{ projectGroupId: hiddenGroupId, name: basename(startDir), folderPath:
-   startDir }` → activates via `setActiveFolderWorkspace(id, hostId)`
+startDir }` → activates via `setActiveFolderWorkspace(id, hostId)`
    (`store/slices/worktrees.ts:5984`). `startDir` = focused terminal's pwd
    when known (Phase 2 wires this; until then `os.homedir()` via a preload
    call or the host's home). Add optional field
@@ -393,7 +393,7 @@ shares their code path** (task 0, folded in from Phase 4).
 ### Tasks
 
 0. **Recover a pane whose remote session is gone** (folded in from Phase 4's
-   findings; do this *with* task 3, not before it). Restarting an `orca serve`
+   findings; do this _with_ task 3, not before it). Restarting an `orca serve`
    host while the client is up leaves every remote vertical tab showing
    "Remote terminal was closed." permanently: `remote-runtime-pty-transport.ts`
    `attach` runs in a fire-and-forget IIFE and its dead-session branch `return`s
@@ -436,14 +436,14 @@ shares their code path** (task 0, folded in from Phase 4).
 
 - Unit: agent-status selector for `folder:` keys; notification
   routing for folder keys; close-confirm predicate; task 0's dead-session branch
-  reaching the fresh-spawn recovery (and *not* deleting the vertical tab).
+  reaching the fresh-spawn recovery (and _not_ deleting the vertical tab).
 - Manual: launch Claude in an htab → dot appears; agent hits
   needs-attention → attention state + notification; click notification from
   another vtab → correct vtab + htab focused; close vtab with running agent
   → confirm lists it; without → no dialog.
 - cua-driver (Linux): agent-flow script (spawn agent, wait for attention,
   assert dot + notification click-through).
-- **Task 0:** with a second `orca serve`, restart the *host* while the client is
+- **Task 0:** with a second `orca serve`, restart the _host_ while the client is
   up → the pane respawns a working terminal, the vertical tab survives, and a
   relaunch after that does not resurrect the dead id. Repeat with the flag off
   against a classic remote worktree.
@@ -469,19 +469,19 @@ driven over CDP. The machine's production serve (`~/orca-src`, port 6768,
 `~/.config/orca`) and the shared `~/.config/orca-dev` profile were not touched.
 Screenshots under `scratchpad/p5-qa-shots/` (session-scoped, not in the tree).
 
-| Item | Result |
-| --- | --- |
-| **Task 0 — host restart, panes recover** | **Pass.** Two remote vtabs with live shells; `orca serve` killed and relaunched (new pid). Panes recover on their own: stale `tab.ptyId` is pruned to `null` and a live PTY is rebound, vtabs survive, no permanent "Remote terminal was closed." banner. Verified over **seven** restart cycles; no stale-id recurrence on later launches. |
-| Slow restart (host down ≳1 min) | **Pass with a manual step.** The runtime connection exhausts its retries and the pane shows "Remote runtime disconnected — Automatic retries stopped." with a **Reconnect** button; one click restores the pane, and because the host daemon outlives the serve process the *same shell pid* and full scrollback come back. This is the pre-existing shared remote-terminal disconnect UX, not a dead pane. |
-| Task 0 with the flag **off** (classic remote workspace) | **Pass — no worse than before.** A classic folder workspace on the same host recovers a live shell through the identical restart, no banner. |
-| **Reattach MUST (Phase 4 journey re-run)** | **Pass.** Two remote vtabs + one local vtab, a `nohup` counter loop, markers; client `SIGKILL`; relaunch. Same shell pids everywhere, `jobs` still reports the loop `Running`, scrollback intact through the pre-kill markers, the vtab that had `cd`-ed re-derives its name (`orca-p5qa-work`) and its explorer re-roots to the pwd (showing the loop's `counter.txt`), local and remote vtabs coexist cleanly. |
-| **Agent status dots** | **Pass.** A real `claude` session in a vtab htab drives the row through `Working` → `Done` → `Needs permission`, including while a *different* vtab is active. Agent status resolves for `folder:` keys (`worktreeId: folder:<uuid>` in `agentStatusByPaneKey`). The dot carries an sr-only state label. |
-| **Notifications + click-through** | **Pass (in-app path).** Completion sets `unreadAgentCompletionPanes` and the sidebar Agents row shows its badge. With `experimentalActivity` on, the activity page lists the vertical tab under its own name with a live pane preview (the round-2 fix), and its jump action, invoked from another active vtab, lands on the right vtab **and** its htab (`activeWorkspaceKey` + `activeTabIdByWorktree` both correct, `activeRepoId` left null). The OS banner itself could not be exercised under Xvfb (no notification daemon). |
-| **Agent-aware close** | **Pass.** Close with a running agent lists `claude` in the dialog; Cancel leaves the tab; Close tab deletes the vtab and kills its processes (verified: a `sleep 600` started in the tab was gone after confirming). Close with no agent shows the same dialog with no agent named — the deliberate always-confirm decision recorded below. |
-| **No cry-wolf after a restart** | **Pass.** With the agent process killed while the client was down, the restored entry comes back `done` and the close dialog names nothing. |
-| **SSH vtab smoke** | **Pass.** Loopback `sshd` on port 2222 with a session-scoped host key and its own `authorized_keys` (`~/.ssh/authorized_keys` untouched). Vtab created on the SSH target, shell spawns over SSH (`SSH_CONNECTION` confirms), `cd` re-titles the tab and re-roots the explorer over SFTP. Across a client restart it did **better** than the documented expectation: the same shell pid, scrollback and pwd came back, not just the layout. |
-| **Regression sweep, flag off** | **Pass.** Classic sidebar renders normally and the three vertical tabs are filtered out of it; the classic remote workspace behaves as before. |
-| Typecheck / lint / suite | **Not run — no code was changed by this QA pass** (the one candidate fix was reverted, see below). The tree is identical to `581b4e3be`. |
+| Item                                                    | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task 0 — host restart, panes recover**                | **Pass.** Two remote vtabs with live shells; `orca serve` killed and relaunched (new pid). Panes recover on their own: stale `tab.ptyId` is pruned to `null` and a live PTY is rebound, vtabs survive, no permanent "Remote terminal was closed." banner. Verified over **seven** restart cycles; no stale-id recurrence on later launches.                                                                                                                                                                                        |
+| Slow restart (host down ≳1 min)                         | **Pass with a manual step.** The runtime connection exhausts its retries and the pane shows "Remote runtime disconnected — Automatic retries stopped." with a **Reconnect** button; one click restores the pane, and because the host daemon outlives the serve process the _same shell pid_ and full scrollback come back. This is the pre-existing shared remote-terminal disconnect UX, not a dead pane.                                                                                                                        |
+| Task 0 with the flag **off** (classic remote workspace) | **Pass — no worse than before.** A classic folder workspace on the same host recovers a live shell through the identical restart, no banner.                                                                                                                                                                                                                                                                                                                                                                                       |
+| **Reattach MUST (Phase 4 journey re-run)**              | **Pass.** Two remote vtabs + one local vtab, a `nohup` counter loop, markers; client `SIGKILL`; relaunch. Same shell pids everywhere, `jobs` still reports the loop `Running`, scrollback intact through the pre-kill markers, the vtab that had `cd`-ed re-derives its name (`orca-p5qa-work`) and its explorer re-roots to the pwd (showing the loop's `counter.txt`), local and remote vtabs coexist cleanly.                                                                                                                   |
+| **Agent status dots**                                   | **Pass.** A real `claude` session in a vtab htab drives the row through `Working` → `Done` → `Needs permission`, including while a _different_ vtab is active. Agent status resolves for `folder:` keys (`worktreeId: folder:<uuid>` in `agentStatusByPaneKey`). The dot carries an sr-only state label.                                                                                                                                                                                                                           |
+| **Notifications + click-through**                       | **Pass (in-app path).** Completion sets `unreadAgentCompletionPanes` and the sidebar Agents row shows its badge. With `experimentalActivity` on, the activity page lists the vertical tab under its own name with a live pane preview (the round-2 fix), and its jump action, invoked from another active vtab, lands on the right vtab **and** its htab (`activeWorkspaceKey` + `activeTabIdByWorktree` both correct, `activeRepoId` left null). The OS banner itself could not be exercised under Xvfb (no notification daemon). |
+| **Agent-aware close**                                   | **Pass.** Close with a running agent lists `claude` in the dialog; Cancel leaves the tab; Close tab deletes the vtab and kills its processes (verified: a `sleep 600` started in the tab was gone after confirming). Close with no agent shows the same dialog with no agent named — the deliberate always-confirm decision recorded below.                                                                                                                                                                                        |
+| **No cry-wolf after a restart**                         | **Pass.** With the agent process killed while the client was down, the restored entry comes back `done` and the close dialog names nothing.                                                                                                                                                                                                                                                                                                                                                                                        |
+| **SSH vtab smoke**                                      | **Pass.** Loopback `sshd` on port 2222 with a session-scoped host key and its own `authorized_keys` (`~/.ssh/authorized_keys` untouched). Vtab created on the SSH target, shell spawns over SSH (`SSH_CONNECTION` confirms), `cd` re-titles the tab and re-roots the explorer over SFTP. Across a client restart it did **better** than the documented expectation: the same shell pid, scrollback and pwd came back, not just the layout.                                                                                         |
+| **Regression sweep, flag off**                          | **Pass.** Classic sidebar renders normally and the three vertical tabs are filtered out of it; the classic remote workspace behaves as before.                                                                                                                                                                                                                                                                                                                                                                                     |
+| Typecheck / lint / suite                                | **Not run — no code was changed by this QA pass** (the one candidate fix was reverted, see below). The tree is identical to `581b4e3be`.                                                                                                                                                                                                                                                                                                                                                                                           |
 
 **Defects found (none of them fixed in this pass; see the gap list below):**
 
@@ -503,7 +503,7 @@ the change would have been an unproven behavior change on the classic remote pat
 ## Phase 5 implementation notes (recorded 2026-08-13)
 
 - **The lost-session signal is its own callback, not `onPtyExit`.** `onPtyExit` retires a PTY
-  that *was* live, and for a pane that is its tab's only one that closes the tab. Routing a
+  that _was_ live, and for a pane that is its tab's only one that closes the tab. Routing a
   dead remote session through it would delete a user's terminal because a server restarted, so
   the transport reports `onPtySessionLost` and the pane answers with the same
   `clearTabPtyId` + `startFreshSpawn` its synchronous attach-failure path already ran. The
@@ -518,13 +518,13 @@ the change would have been an unproven behavior change on the classic remote pat
   is `deleteFolderWorkspace`, which is irreversible and kills every process in the tab, and
   `Mod+Shift+W` is one key from `Mod+W`. App QA confirmed the cost — a backgrounded job died
   with no prompt. The "confirmations stop being read" argument applies to reversible actions.
-  What the phase actually adds is the answer to *what dies*: the dialog names the agents. It
+  What the phase actually adds is the answer to _what dies_: the dialog names the agents. It
   deliberately does not claim the list is exhaustive, because there is no signal for "a build
   is running" — `command-finished` (OSC 133;D) exists, but no `command-started` fact does, and
   Phase 2 recorded that the `C` marker doubles per prompt in some shells, which would make a
   "running" flag sticky and the dialog cry wolf. A real foreground-process signal is Phase 6.
 - **The close list cross-checks the row's own dot.** The dialog reads live agent entries, but
-  the status dot attributes through a *different* function (orchestration parents, legacy pane
+  the status dot attributes through a _different_ function (orchestration parents, legacy pane
   keys). When the entries name nothing and the dot still says working/permission, the dialog
   shows one generic row — a dialog saying "no agents" under a spinning dot is the worst
   disagreement available.
@@ -539,7 +539,7 @@ the change would have been an unproven behavior change on the classic remote pat
   hooks: the first version duplicated it and paid for it with two exemptions on the
   isolation tripwire, whose header says not to add them.
 - **Classic folder workspaces now count toward the badges too.** Before Phase 5
-  `getUnreadBadgeCount` had no folder-workspace input at all, so an unread *classic* folder
+  `getUnreadBadgeCount` had no folder-workspace input at all, so an unread _classic_ folder
   workspace contributed nothing to the Dock badge or the Agents badge. Passing the classic
   catalog in the non-terminal arm fixes that. It is an intentional upstream fix, called out
   here because no other document mentions it.
@@ -567,7 +567,7 @@ on top of it.
   `lifecycleEpoch` while `attach()` bumps both it and `attachGeneration`, and the attach
   branch checked generation only. A `connect` landing during an in-flight `resolvePane` was
   therefore invisible, and the stale attach would tear down and respawn the session `connect`
-  had just created — on the *classic* remote-worktree path. The guard now matches the sibling
+  had just created — on the _classic_ remote-worktree path. The guard now matches the sibling
   `.catch`.
 - **The recovery left a permanent lie on screen.** `setTerminalError` is sticky until the user
   dismisses it, so surfacing "Remote terminal was closed." before respawning left that banner
@@ -576,7 +576,7 @@ on top of it.
 - **The close dialog could cry wolf in the direction the fallback missed.**
   `selectLiveAgentStatusEntriesForWorktree` applies no freshness or `restoredUnconfirmed`
   filter, but the summary behind the status dot does. A hydrated-unconfirmed row after a
-  client restart, or any `working` row older than 30 minutes, gave a grey dot *and* a dialog
+  client restart, or any `working` row older than 30 minutes, gave a grey dot _and_ a dialog
   naming an agent. The dialog now applies the same gate.
 
 Two smaller ones: the second attach call site (the pending-spawn branch) never armed the
@@ -594,7 +594,7 @@ which is now localized. The lint gate is green as of the follow-up.
   classic remote folder workspace on the same host). `web-session-tabs-sync.ts`
   `applyActiveSnapshot` calls `shouldRespawnWebRuntimeTerminalAfterWake`, whose conditions
   (`snapshotIsFresh`, `localTerminalCount > 0`, `!hasLiveLocalPty`, host terminal count `0`)
-  are all true for a *few hundred milliseconds* after the host comes back, before the host has
+  are all true for a _few hundred milliseconds_ after the host comes back, before the host has
   republished its own restored terminal for that workspace. The client asks for a terminal, the
   host's restore lands on the original tab, and the workspace ends up with two. It only ever hits
   the **active** workspace, because that predicate is keyed on `activeWorktreeId` — every
@@ -642,7 +642,7 @@ which is now localized. The lint gate is green as of the follow-up.
 - **`allowInTerminal` on `tab.selectByIndex`.** The design doc asked for it; it was implemented
   and reverted because `src/shared/keybindings.test.ts` proved the flag is read by the
   terminal-first context gate — setting it takes `Ctrl+1..9` (macOS) / `Alt+1..9` away from
-  every *classic* user who chose `terminal-first`, to fix a terminal-mode ergonomic. The digit
+  every _classic_ user who chose `terminal-first`, to fix a terminal-mode ergonomic. The digit
   defaults already match the spec's table (`workspace.selectByIndex` = `Mod+1`, which already
   carries `allowInTerminal`), so vertical-tab switching works under any policy; horizontal-tab
   switching under `terminal-first` does not. That is a product call about whose chord wins, and
@@ -659,23 +659,23 @@ which is now localized. The lint gate is green as of the follow-up.
 Carried-in fixes (decided at Phase 5 close, 2026-08-13; user delegated):
 
 0a. **SSH "+" connect UX** — clicking "+" for a disconnected SSH host must show
-    a connecting state on the control and a clean, human-readable failure
-    toast instead of the raw `folder_workspace_path_unavailable:~`. Keep the
-    change inside terminal-mode files (await `connectRegisteredSshTarget`
-    with visible progress; no silent unbounded hang).
+a connecting state on the control and a clean, human-readable failure
+toast instead of the raw `folder_workspace_path_unavailable:~`. Keep the
+change inside terminal-mode files (await `connectRegisteredSshTarget`
+with visible progress; no silent unbounded hang).
 0b. **Cosmetics** — (i) vtab agent threads on the activity page must not
-    group under "UNKNOWN PROJECT" (give them a sensible heading, e.g. the
-    vtab name or "Terminal tabs"); (ii) toggling the flag off must not leave
-    the last vtab's pane rendered — fall back to classic empty/selected
-    state.
+group under "UNKNOWN PROJECT" (give them a sensible heading, e.g. the
+vtab name or "Terminal tabs"); (ii) toggling the flag off must not leave
+the last vtab's pane rendered — fall back to classic empty/selected
+state.
 0c. **Housekeeping** — kill the stale QA leftovers from earlier sessions
-    (orca serve pid 3204275 on :36771 with profile /tmp/orca-p5s; orphan
-    daemons 2172379/2204509 for the deleted /tmp/orca-p4s / /tmp/orca-p4c
-    dirs). Verify against the process list before killing; the production
-    serve (:6768, ~/.config/orca) is untouchable. Then `git add -f` both
-    terminal-mode docs onto the branch (they are the merge contract).
-    Accepted, NOT to be fixed: the upstream duplicate-tab-on-host-restart
-    race and its null-ptyId symptom (documented in "Still open").
+(orca serve pid 3204275 on :36771 with profile /tmp/orca-p5s; orphan
+daemons 2172379/2204509 for the deleted /tmp/orca-p4s / /tmp/orca-p4c
+dirs). Verify against the process list before killing; the production
+serve (:6768, ~/.config/orca) is untouchable. Then `git add -f` both
+terminal-mode docs onto the branch (they are the merge contract).
+Accepted, NOT to be fixed: the upstream duplicate-tab-on-host-restart
+race and its null-ptyId symptom (documented in "Still open").
 
 1. Run the full **daily-driver checklist** from the spec (§5) on Linux via
    the CDP/cua-driver harness: dev client on this machine against an
@@ -703,11 +703,11 @@ Carried-in fixes (decided at Phase 5 close, 2026-08-13; user delegated):
   deleted. The production serve (`~/orca-src`, :6768, `~/.config/orca`) and the shared
   `~/.config/orca-dev` daemon were left running and verified alive afterwards.
 - **The SSH "+" fix is a connect, not a message fix.** The raw
-  `folder_workspace_path_unavailable:~` was a *symptom*: `resolveRemoteHomePath` answers
+  `folder_workspace_path_unavailable:~` was a _symptom_: `resolveRemoteHomePath` answers
   `~` with `~` when the target has no live multiplexer. The tab now connects the target
   first, on the click's own await, through the same registry the classic connect surfaces
   use — `isSshConnectInFlight` + `isConnectingSshStatus` so a dial in flight or a
-  host-driven transient is *waited out* rather than dialed again (a second dial on a
+  host-driven transient is _waited out_ rather than dialed again (a second dial on a
   passphrase-gated target is a second credential prompt), `SSH_RECONNECT_UI_TIMEOUT_MS`
   rather than the composer's 20 s (an interactive passphrase alone allows 120 s
   host-side), and the resolved state written back because `ssh.connect` can resolve
@@ -750,20 +750,20 @@ through `xdotool` so the menu accelerators fire the way they do for a user; a se
 machine's production serve (`~/orca-src`, :6768, `~/.config/orca`) and `~/.config/orca-dev`
 were not touched. Screenshots under `scratchpad/p6-shots/` (session-scoped, not in the tree).
 
-| Checklist row | Result |
-| --- | --- |
-| Create / rename / close vtabs; auto-title follows pwd until pinned | **Pass.** Created from the empty state, the "+", the host picker and `Ctrl+N`; `cd` retitles the tab (`p6-hostwork`), an inline rename pins it and a later `cd` no longer renames it — the pin survived a client restart. **Reorder: not implemented** (deferred since Phase 1, `manualOrder` unused, `createdAt` order). |
-| New vtab inherits host + pwd; default host; host picker | **Pass.** `Ctrl+N` from a tab sitting in a repo opened there; the picker lists Local / `p6-serve` / an SSH target and pins the new tab to the pick; a remote tab starts at the host's `$HOME`. |
-| New htab inherits pwd; shortcuts on Linux | **Pass.** `Ctrl+T` inherits the pwd; `Ctrl+1..3` switch vertical tabs; `Alt+1/2` switch horizontal tabs (default policy — the `terminal-first` caveat from Phase 5 is unchanged); `Ctrl+W` closes an htab without touching the vtab; `Ctrl+Shift+W` opens the close dialog. |
-| Explorer re-roots on `cd` | **Pass** for bash, local and remote (`p6-hostwork` → `sub/deeper` → repo, over the host grant). zsh/fish were not re-exercised in this pass (Phase 2/3 covered them). |
-| Git panel: repo detection, empty state, diff | **Pass (local).** Nearest-repo detection from the pwd, `CHANGES 1 · README.md +2 M`, the file opens a correct diff htab, and leaving the repo shows "Not a git repository — cd into one to see changes." **Remote is the documented clamp**: a remote tab shows the panel only when the pwd's repository *is* the workspace root, and even then `git.status` stays selector-addressed, so the changes list was empty. Pre-existing and recorded above ("`git.status` is still selector-addressed"). |
-| Fallback polling covers a stripped shell | **Pass.** Client relaunched with `ORCA_DISABLE_OSC7=1`; a new local vtab still followed `cd` into `sub/deeper` — tab auto-name and explorer both re-rooted from the process-cwd poll. |
-| Agent in an htab: dot, attention, click-through | **Pass.** A real `claude` session drove its row `Working` → `Done`; the Activity page listed the thread with a live preview and **"TERMINAL TABS"** as its heading (item 0b-i), and "Jump to workspace" from there landed on the right vertical tab with its terminal focused. |
-| Restart restores layout + pwds; reattach restores live sessions | **Pass (the MUST).** Client `SIGKILL` + relaunch: all four vtabs back, the remote tab reattached to the **same shell pid** with scrollback and pwd intact and its `nohup` counter still ticking, the local tab kept its pwd and scrollback. |
-| Host restart | **Pass.** `orca serve` killed and relaunched: the remote pane recovered on its own, same shell pid, correct pwd, no error banner, no vertical tab lost. |
-| Close-with-running-agent confirmation | **Pass.** With `claude` mid-turn the dialog names `claude`; Cancel leaves the tab and its processes alone. |
-| Classic mode with the flag off | **Pass.** Toggled from Settings: the vertical strip disappears, **no terminal pane is left rendered** (item 0b-ii), and the classic sidebar plus its empty state render normally. Toggling back restores all four tabs. |
-| SSH "+" connect UX (item 0a) | **Pass.** Against a deliberately unreachable target the "+" goes busy (`aria-busy`, "Opening terminal tab…") for the whole connect, and the failure toast reads "Failed to create terminal tab / connect ECONNREFUSED 127.0.0.1:59" — no `folder_workspace_path_unavailable:~`, no Electron `invoking remote method` wrapper, no phantom tab. |
+| Checklist row                                                      | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create / rename / close vtabs; auto-title follows pwd until pinned | **Pass.** Created from the empty state, the "+", the host picker and `Ctrl+N`; `cd` retitles the tab (`p6-hostwork`), an inline rename pins it and a later `cd` no longer renames it — the pin survived a client restart. **Reorder: not implemented** (deferred since Phase 1, `manualOrder` unused, `createdAt` order).                                                                                                                                                                           |
+| New vtab inherits host + pwd; default host; host picker            | **Pass.** `Ctrl+N` from a tab sitting in a repo opened there; the picker lists Local / `p6-serve` / an SSH target and pins the new tab to the pick; a remote tab starts at the host's `$HOME`.                                                                                                                                                                                                                                                                                                      |
+| New htab inherits pwd; shortcuts on Linux                          | **Pass.** `Ctrl+T` inherits the pwd; `Ctrl+1..3` switch vertical tabs; `Alt+1/2` switch horizontal tabs (default policy — the `terminal-first` caveat from Phase 5 is unchanged); `Ctrl+W` closes an htab without touching the vtab; `Ctrl+Shift+W` opens the close dialog.                                                                                                                                                                                                                         |
+| Explorer re-roots on `cd`                                          | **Pass** for bash, local and remote (`p6-hostwork` → `sub/deeper` → repo, over the host grant). zsh/fish were not re-exercised in this pass (Phase 2/3 covered them).                                                                                                                                                                                                                                                                                                                               |
+| Git panel: repo detection, empty state, diff                       | **Pass (local).** Nearest-repo detection from the pwd, `CHANGES 1 · README.md +2 M`, the file opens a correct diff htab, and leaving the repo shows "Not a git repository — cd into one to see changes." **Remote is the documented clamp**: a remote tab shows the panel only when the pwd's repository _is_ the workspace root, and even then `git.status` stays selector-addressed, so the changes list was empty. Pre-existing and recorded above ("`git.status` is still selector-addressed"). |
+| Fallback polling covers a stripped shell                           | **Pass.** Client relaunched with `ORCA_DISABLE_OSC7=1`; a new local vtab still followed `cd` into `sub/deeper` — tab auto-name and explorer both re-rooted from the process-cwd poll.                                                                                                                                                                                                                                                                                                               |
+| Agent in an htab: dot, attention, click-through                    | **Pass.** A real `claude` session drove its row `Working` → `Done`; the Activity page listed the thread with a live preview and **"TERMINAL TABS"** as its heading (item 0b-i), and "Jump to workspace" from there landed on the right vertical tab with its terminal focused.                                                                                                                                                                                                                      |
+| Restart restores layout + pwds; reattach restores live sessions    | **Pass (the MUST).** Client `SIGKILL` + relaunch: all four vtabs back, the remote tab reattached to the **same shell pid** with scrollback and pwd intact and its `nohup` counter still ticking, the local tab kept its pwd and scrollback.                                                                                                                                                                                                                                                         |
+| Host restart                                                       | **Pass.** `orca serve` killed and relaunched: the remote pane recovered on its own, same shell pid, correct pwd, no error banner, no vertical tab lost.                                                                                                                                                                                                                                                                                                                                             |
+| Close-with-running-agent confirmation                              | **Pass.** With `claude` mid-turn the dialog names `claude`; Cancel leaves the tab and its processes alone.                                                                                                                                                                                                                                                                                                                                                                                          |
+| Classic mode with the flag off                                     | **Pass.** Toggled from Settings: the vertical strip disappears, **no terminal pane is left rendered** (item 0b-ii), and the classic sidebar plus its empty state render normally. Toggling back restores all four tabs.                                                                                                                                                                                                                                                                             |
+| SSH "+" connect UX (item 0a)                                       | **Pass.** Against a deliberately unreachable target the "+" goes busy (`aria-busy`, "Opening terminal tab…") for the whole connect, and the failure toast reads "Failed to create terminal tab / connect ECONNREFUSED 127.0.0.1:59" — no `folder_workspace_path_unavailable:~`, no Electron `invoking remote method` wrapper, no phantom tab.                                                                                                                                                       |
 
 Two things the run found and fixed on the spot: the failure toast still carried Electron's IPC
 wrapper (now stripped in `terminal-mode-ssh-connect.ts`, with a unit test), and the earlier
@@ -796,14 +796,14 @@ off it collected an unread badge and did nothing on click.
 - **The field rides `tabsByWorktree`, it is not a new session field.** A tab record is
   already `worktreeKeyed` in `workspace-session-host-field-ownership.ts`, already split per
   host by `buildHostIdByWorktreeId`, already sanitized into every write path (the debounced
-  patch *and* the full `beforeunload` snapshot) and already hydrated wholesale. A parallel
+  patch _and_ the full `beforeunload` snapshot) and already hydrated wholesale. A parallel
   `lastCwdByTabId` map would have needed an ownership entry, a `SESSION_RELEVANT_FIELDS`
   entry, a patch-builder branch and its own hydration — four places to disagree with the tab
   it describes. The one non-obvious consequence is that `terminalTabSchema` strips unlisted
   keys, so the field had to be declared there or it would never have survived a reload.
 - **What is persisted is what main read on the tab's host, not the reported OSC 7 path.**
   Phase 2 recorded the foreign-OSC 7 gap: a local shell inside `ssh`/`tmux`/`docker` reports
-  the *remote* shell's directory, and `cwdByPtyId` holds it un-adopted. Restoring into such a
+  the _remote_ shell's directory, and `cwdByPtyId` holds it un-adopted. Restoring into such a
   path opens the tab somewhere unrelated on a good day, and on an SSH host the relay's
   `pty.spawn` throws `ENOENT` with no missing-directory fallback — a dead pane. So the
   recorder corroborates before writing: it calls `pty.getCwd`, which resolves the shell
@@ -821,14 +821,14 @@ off it collected an unread badge and did nothing on click.
   another reader of the same PTY (the Checks panel polls this call too) can seed that cache
   from a read taken just before the `cd`, and a probe inside the window would be served the
   pre-`cd` directory. The constant carries that as a "do not lower" note.
-- **Two `getCwd` callers, deliberately.** `useTerminalCwdTracking`'s poll is a *periodic*
+- **Two `getCwd` callers, deliberately.** `useTerminalCwdTracking`'s poll is a _periodic_
   fallback for shells that report nothing at all: bounded to the focused pane of the active tab,
-  window-visibility gated, retired the moment OSC 7 arrives. The recorder is *edge-triggered* by a
+  window-visibility gated, retired the moment OSC 7 arrives. The recorder is _edge-triggered_ by a
   settled `cd` in any vertical tab — a background tab that moved still has to be restorable — and
   costs nothing while nothing moves. Folding both into one scheduler was considered and rejected:
   it would rewrite Phase 2's live-pwd path (whose visibility gating exists to keep `lsof` off the
   hot path on macOS) to serve a durable-write concern with different timing requirements.
-- **One tab, one directory.** A split tab persists its *focused* pane's pwd and restores every
+- **One tab, one directory.** A split tab persists its _focused_ pane's pwd and restores every
   pane there. Before this change every pane restored at the tab's `startupCwd`, so this is
   uniform before and after; §4's contract is per-tab and the layout carries no per-leaf cwd.
 - **Persistence piggybacks the existing session writer.** The recorder writes the store; the
@@ -837,7 +837,7 @@ off it collected an unread badge and did nothing on click.
 - **Classic mode: deliberately out of scope.** The candidate list is built from
   `selectTerminalModeWorkspaceKeys` (the catalog choke point), so only vertical tabs ever gain
   the field. Two cheaper gates were rejected: "wherever a cwd is tracked" would have changed
-  *classic worktree* restarts whenever the flag happened to be on (the OSC 7 observer is
+  _classic worktree_ restarts whenever the flag happened to be on (the OSC 7 observer is
   global), and a `folder:` key test would have caught classic folder workspaces. With the flag
   off the recorder is not mounted at all, so flag-off behavior is byte-identical rather than
   merely equivalent.
@@ -845,7 +845,7 @@ off it collected an unread badge and did nothing on click.
   candidate list: their restart story is reattach to a live host session that already holds
   the real directory, `pty.getCwd` has no local process to read for them, and never writing
   the field means nothing on the reattach path can consult it.
-- **SSH is excluded too — a deliberate scope reduction.** An SSH tab's cwd *can* be
+- **SSH is excluded too — a deliberate scope reduction.** An SSH tab's cwd _can_ be
   corroborated (the provider's `getCwd` answers over the relay), but the spawn side cannot
   recover: `resolveTerminalStartupCwd`'s existence probe is injected by local callers only,
   and the relay's `pty.spawn` throws `ENOENT` for a missing directory. Since nothing clears
@@ -856,7 +856,7 @@ off it collected an unread badge and did nothing on click.
   it when the spawn path can probe the host, either by an existence check before the spawn or
   by clearing `lastCwd` on a failed one.
 - **The restored pwd is read at mount, never through a prop.** `TerminalPane`'s `cwd` prop is
-  a dependency of the effect that *owns the PaneManager* — before this change it was immutable
+  a dependency of the effect that _owns the PaneManager_ — before this change it was immutable
   for a tab's lifetime, because `startupCwd` is written once at tab creation. Feeding a value
   that changes on every `cd` through it destroys and rebuilds every pane, transport and xterm
   instance in the tab about a second after the user types the most common shell command. So
@@ -875,7 +875,7 @@ off it collected an unread badge and did nothing on click.
   persisted tab's own `startupCwd` — **only when the requested cwd is that tab's `lastCwd`**.
   That gate is what keeps classic provably untouched: split-pane inheritance and "open terminal
   here" also send a cwd that differs from `startupCwd`, and they must keep recovering at the
-  workspace root *with* its notice. Reading the session in main keeps a second cwd from being
+  workspace root _with_ its notice. Reading the session in main keeps a second cwd from being
   threaded through TerminalPane → lifecycle → transport → IPC for a case that only matters on
   restore. Only the workspace-root step keeps the user-visible notice; landing in the tab's own
   start folder is not a surprise worth a banner.
@@ -888,13 +888,13 @@ off it collected an unread badge and did nothing on click.
   refuses it in both arms. Refusing rather than marking also means the tab keeps its previous
   restored pwd instead of acquiring a path that can never be reopened.
 - **Wire compatibility.** No new opcode, no new RPC, no new IPC parameter. The per-host
-  session partitions are the *client's* own `orca-data.json` (`session:get/patch` is
+  session partitions are the _client's_ own `orca-data.json` (`session:get/patch` is
   preload↔main; there is no `session.*` RPC), so the primary cross-version surface is the JSON
   on disk, where the field is optional in both directions
   (`docs/reference/remote-wire-compatibility.md` Rule 1) — an older build strips the key at
-  the schema and restarts at `startupCwd`. One session *does* cross a wire, though:
+  the schema and restarts at `startupCwd`. One session _does_ cross a wire, though:
   `remoteWorkspace:setForConnectedTargets` pushes a projection to connected SSH targets, and
-  `tabToRemote` spreads whole tab records. That projection is keyed by *worktree path*
+  `tabToRemote` spreads whole tab records. That projection is keyed by _worktree path_
   (`worktreePathFromId`), so a vertical tab's `folder:` key is skipped and no `lastCwd` is
   reachable there today; if one ever were, it is an additive optional field an old host
   stores-or-strips, and a stripped value is simply re-established by the next probe.
@@ -902,7 +902,7 @@ off it collected an unread badge and did nothing on click.
 ### Residual risks, recorded rather than fixed
 
 - **A restored pwd deleted between sessions costs one transient error toast** before the
-  recovery. The pane's *first* attempt is a cold restore, which carries a session id, and the
+  recovery. The pane's _first_ attempt is a cold restore, which carries a session id, and the
   renderer deliberately suppresses `cwdFallback` for those (`pty-transport.ts`: reattach needs an
   exact cwd), so the daemon answers `Working directory "…" does not exist`. The pane then spawns
   fresh, the missing-directory fallback applies, and the terminal opens at the workspace root with
@@ -923,14 +923,14 @@ off it collected an unread badge and did nothing on click.
 Driven over CDP against a build of this code; the machine's production serve (`~/orca-src`, :6768)
 and `~/.config/orca-dev` were untouched and verified alive afterwards.
 
-| Check | Result |
-| --- | --- |
+| Check                                                                                                                                              | Result                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Three vertical tabs created in distinct directories (`~`, `/tmp`, repo), each `cd`'d elsewhere, app **and its terminal daemon** killed, relaunched | **Pass — the defect's scenario.** Every shell came back with a **new pid** (2748333/2748889/2747527 vs 2740912/2742382/2743819, so a real respawn rather than a warm reattach) and in its last-known pwd: `/home/gal`→`/tmp`, `/tmp`→`repo/src`, `repo/src`→`/home/gal`. The `vtab-active-pwd` badge agreed in every tab, and the on-disk session carried `lastCwd` per tab in the **local** partition with no host partitions. |
-| Restored pwd deleted between sessions | **Pass with one transient toast.** The tab reopened at the vertical tab's own root with the existing notice ("Orca opened this terminal at the workspace root…"); the failed cold-restore attempt surfaced one `Working directory "/tmp/gone-p7" does not exist` error first (recorded above). |
-| Agents entry, `experimentalActivity` **off** | **Pass.** Row absent from the strip. |
-| Agents entry, `experimentalActivity` **on** | **Pass.** Row present; clicking it opens the Activity page (`activeView === 'activity'`). |
-| Terminal mode **off** | **Pass.** No vertical strip; classic sidebar renders normally. Classic restart behavior is covered by the repo's own `terminal-restart-persistence.spec.ts` (5 tests, all green on this code). |
-| Remote non-regression | **Pass.** `paired-remote-terminal-materialization-reconnect.spec.ts` — a client reconnecting to a paired host materializes its stopped terminal — green on this code. |
+| Restored pwd deleted between sessions                                                                                                              | **Pass with one transient toast.** The tab reopened at the vertical tab's own root with the existing notice ("Orca opened this terminal at the workspace root…"); the failed cold-restore attempt surfaced one `Working directory "/tmp/gone-p7" does not exist` error first (recorded above).                                                                                                                                  |
+| Agents entry, `experimentalActivity` **off**                                                                                                       | **Pass.** Row absent from the strip.                                                                                                                                                                                                                                                                                                                                                                                            |
+| Agents entry, `experimentalActivity` **on**                                                                                                        | **Pass.** Row present; clicking it opens the Activity page (`activeView === 'activity'`).                                                                                                                                                                                                                                                                                                                                       |
+| Terminal mode **off**                                                                                                                              | **Pass.** No vertical strip; classic sidebar renders normally. Classic restart behavior is covered by the repo's own `terminal-restart-persistence.spec.ts` (5 tests, all green on this code).                                                                                                                                                                                                                                  |
+| Remote non-regression                                                                                                                              | **Pass.** `paired-remote-terminal-materialization-reconnect.spec.ts` — a client reconnecting to a paired host materializes its stopped terminal — green on this code.                                                                                                                                                                                                                                                           |
 
 ### Agents entry
 
@@ -961,11 +961,11 @@ and `~/.config/orca-dev` were untouched and verified alive afterwards.
 - **Where the emit sits in the prompt is load-bearing.** Each bash wrapper closes its
   prompt window with a hook that reopens the DEBUG trap (`__orca_osc133_prompt_done`
   locally and in the relay, `__orca_osc133_epilogue` in the daemon). An OSC 7 entry
-  placed *after* it reads as a foreground command: measured, that doubles the OSC 133
+  placed _after_ it reads as a foreground command: measured, that doubles the OSC 133
   `C` per prompt and then emits a bogus `D`, which strands agent rows in "working". So
   the entry is spliced before that hook, and — belt and braces, the same defense
   `__orca_prompt_mark` already had — `*__orca_osc7_emit*` is named in all three
-  preexec skip lists. In zsh the hazard is the reverse: the hook must be *appended* to
+  preexec skip lists. In zsh the hazard is the reverse: the hook must be _appended_ to
   `precmd_functions`, after `__orca_osc133_precmd` has read `$?`.
 - **The registration form is exported, not retyped.** Two shapes exist because the
   wrappers build PROMPT_COMMAND differently (`__orca_append_prompt_command` helper vs
@@ -1000,13 +1000,13 @@ and `~/.config/orca-dev` were untouched and verified alive afterwards.
 - **The cwd path has its own sequence guard.** The replay snapshot is an async
   IPC round-trip, so a `cd` observed while it was in flight would otherwise be
   overwritten by the older directory the snapshot carries. The consumer registry's
-  existing guard cannot cover it: `lastLiveTitleSeq` only advances on *title*
+  existing guard cannot cover it: `lastLiveTitleSeq` only advances on _title_
   facts, and a shell with a static title never emits one. The observers therefore
   keep their own per-PTY high-water mark.
 - **The new-htab pwd is applied at the affordance, not in `createTab`.** That
   reducer has ~25 callers — agent launches, quick commands, background/setup
   terminals, CLI-created sessions, pane detach — and each owns its own start
-  directory (pane detach in particular wants the *detached* pane's, not the
+  directory (pane detach in particular wants the _detached_ pane's, not the
   focused tab's). `openNewTerminalTabInActiveWorkspace` is the Mod+T / tab-bar
   "+" / Cmd+J funnel, so the inheritance lives there.
 - **The 300 ms debounce is keyed on the workspace.** Switching vertical tabs is a
@@ -1014,11 +1014,11 @@ and `~/.config/orca-dev` were untouched and verified alive afterwards.
   otherwise every switch shows the previous tab's directory for 300 ms and
   re-roots Phase 3's consumers twice.
 - **Stickiness is derived, not stored.** `activeTabIdByWorktree` already holds the last
-  *terminal* tab while an editor/diff tab is focused, so `getActivePwdForVtab` gets the
+  _terminal_ tab while an editor/diff tab is focused, so `getActivePwdForVtab` gets the
   spec's sticky rule for free — no extra state to keep in sync on tab close.
 - **`cwdByPtyId` entries carry their source.** Only `'osc7'` retires the fallback poll,
   and a `'poll'` value can never overwrite an `'osc7'` one: the poll reads the shell
-  *process*, which lags a `cd` and is plain wrong while a foreground process runs.
+  _process_, which lags a `cd` and is plain wrong while a foreground process runs.
 - **Dead PTYs are forgotten explicitly.** `window.api.pty.onExit` clears the entry:
   Orca reuses PTY ids across incarnations, and a retained directory would be shown for
   the shell that replaced it. The 256-entry prune stays only as a backstop for PTYs
@@ -1039,7 +1039,7 @@ and `~/.config/orca-dev` were untouched and verified alive afterwards.
 
 ### Known gaps carried to later phases
 
-- **Foreign OSC 7.** A local shell running `ssh`/`tmux`/`docker` emits the *remote*
+- **Foreign OSC 7.** A local shell running `ssh`/`tmux`/`docker` emits the _remote_
   shell's OSC 7, so the tracked pwd is a path that does not exist locally (the same
   caveat `use-checks-panel-terminal-worktree.ts` documents — it deliberately reads the
   process cwd for that reason). Consequences to settle in Phase 3: the sidebar shows a
@@ -1047,7 +1047,7 @@ and `~/.config/orca-dev` were untouched and verified alive afterwards.
   `allowMissingCwdFallback` silently reroutes the new tab to the workspace root. Main
   already tracks the discriminator (`terminalFileUriHostnameByPtyId`) next to the emit
   site; carrying it on the fact is the cheap fix when Phase 3 decides the policy. It is
-  left alone here because main's *existing* `resolveTerminalCwd` already prefers
+  left alone here because main's _existing_ `resolveTerminalCwd` already prefers
   OSC 7 over the process cwd — inverting that is a product decision, not plumbing.
 - **A PTY that once emitted OSC 7 is never polled again.** `exec`ing into a shell with
   no integration therefore freezes the pwd at the last prompt. Retiring the poll is what
@@ -1063,14 +1063,14 @@ and `~/.config/orca-dev` were untouched and verified alive afterwards.
 
 ## Resolved questions (settled 2026-08-13, code-verified — treat as decisions)
 
-| # | Question | Phase | Resolution |
-|---|---|---|---|
-| 1 | Fish OSC 7 wrapper? | 2 | **No wrapper.** Fish emits OSC 7 natively; `resolveProcessCwd(pid)` fallback (`src/main/daemon/terminal-host-session-cwd.ts`) covers silent shells. |
-| 2 | Remote hidden-group creation | 4 | **Existing RPC.** Call `projectGroup.create` (`src/main/runtime/rpc/methods/repo.ts:123`) on the target host, then `folderWorkspace.create`; host hard-fails on missing group so ordering is safe. |
-| 3 | Gate for absolute-path `files.readDir`/`git.status` params | 3 | **Capability token, never version compare.** Add a const in `src/shared/protocol-version.ts` (e.g. `files.absolute-path-scope.v1`), advertised via `status` RPC, checked with `assertRuntimeEnvironmentCapability` (`runtime-rpc-client.ts:322`). Old hosts zod-`.strip()` unknown params → wrong data, hence the hard gate. |
-| 4 | Keybindings | 1/5 | **Add zero new chords.** Reuse `workspace.create` (Mod+N), `tab.newTerminal` (Mod+T), `tab.close` (Mod+W), `workspace.selectByIndex` (Mod+1..9), `tab.selectByIndex` (Ctrl+1..9 mac / Alt+1..9 linux). Bind the currently-empty `workspace.delete` default to Mod+Shift+W for close-vtab. |
-| 5 | First terminal on fresh folder workspace | 1 | **Automatic** — `shouldAutoCreateInitialTerminal` + `Terminal.tsx` activation path creates it. Caveat: skipped for paired web clients (host-authoritative session tabs). |
-| 6 | PTY disposal on `folderWorkspaces.delete` | 1 | **Leak confirmed — must fix.** Add main-side disposal in `deleteFolderWorkspace` (mirror `teardownMissingManagedWorktreeTerminals`, `orca-runtime.ts:21163`) so local and remote deletes kill the workspace's sessions. |
+| #   | Question                                                   | Phase | Resolution                                                                                                                                                                                                                                                                                                                   |
+| --- | ---------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Fish OSC 7 wrapper?                                        | 2     | **No wrapper.** Fish emits OSC 7 natively; `resolveProcessCwd(pid)` fallback (`src/main/daemon/terminal-host-session-cwd.ts`) covers silent shells.                                                                                                                                                                          |
+| 2   | Remote hidden-group creation                               | 4     | **Existing RPC.** Call `projectGroup.create` (`src/main/runtime/rpc/methods/repo.ts:123`) on the target host, then `folderWorkspace.create`; host hard-fails on missing group so ordering is safe.                                                                                                                           |
+| 3   | Gate for absolute-path `files.readDir`/`git.status` params | 3     | **Capability token, never version compare.** Add a const in `src/shared/protocol-version.ts` (e.g. `files.absolute-path-scope.v1`), advertised via `status` RPC, checked with `assertRuntimeEnvironmentCapability` (`runtime-rpc-client.ts:322`). Old hosts zod-`.strip()` unknown params → wrong data, hence the hard gate. |
+| 4   | Keybindings                                                | 1/5   | **Add zero new chords.** Reuse `workspace.create` (Mod+N), `tab.newTerminal` (Mod+T), `tab.close` (Mod+W), `workspace.selectByIndex` (Mod+1..9), `tab.selectByIndex` (Ctrl+1..9 mac / Alt+1..9 linux). Bind the currently-empty `workspace.delete` default to Mod+Shift+W for close-vtab.                                    |
+| 5   | First terminal on fresh folder workspace                   | 1     | **Automatic** — `shouldAutoCreateInitialTerminal` + `Terminal.tsx` activation path creates it. Caveat: skipped for paired web clients (host-authoritative session tabs).                                                                                                                                                     |
+| 6   | PTY disposal on `folderWorkspaces.delete`                  | 1     | **Leak confirmed — must fix.** Add main-side disposal in `deleteFolderWorkspace` (mirror `teardownMissingManagedWorktreeTerminals`, `orca-runtime.ts:21163`) so local and remote deletes kill the workspace's sessions.                                                                                                      |
 
 ## Testing conventions
 
@@ -1123,7 +1123,7 @@ Deviations and consequences worth carrying forward:
   `closeUnifiedTab` (the single close funnel) calls
   `closeVerticalTabIfEmptied(workspaceKey)` at its tail. Three conditions, each
   learned the hard way:
-  - **Workspace scope, not `wasLastTab`.** `wasLastTab` is the *tab group's* order, so
+  - **Workspace scope, not `wasLastTab`.** `wasLastTab` is the _tab group's_ order, so
     using it destroyed a split vtab when only one of its groups emptied — taking the
     other group's running agent with it. The signal is the same emptiness
     `shouldDeactivateWorktree` computes: no unified tabs, no terminal rows, no browser
@@ -1135,8 +1135,8 @@ Deviations and consequences worth carrying forward:
   - **Never from an empty tab record.** Tab-model reconciliation writes the same empty
     record when it prunes terminals whose runtime rows went stale, so inferring from
     state deletes live workspaces. An earlier reconciler did exactly that.
-  The confirmation dialog still lives in `TerminalModeSidebarHost` so Mod+Shift+W works
-  with the sidebar collapsed.
+    The confirmation dialog still lives in `TerminalModeSidebarHost` so Mod+Shift+W works
+    with the sidebar collapsed.
 - **Load-bearing and non-obvious:** `Terminal.tsx`'s auto-create effect keys on
   `[workspaceSessionReady, activeWorktreeId]`, not on tab state, so it does not
   re-fire when the last tab closes and cannot race the close path. It is also the
@@ -1154,7 +1154,7 @@ Deviations and consequences worth carrying forward:
   the app's filesystem IPC/RPC. This is inherent to the product: the spec's explorer
   "roots at the literal pwd, always", so a terminal-first workspace is by definition a
   broad scope. It is recorded here as an explicit decision rather than an accident of a
-  default. Phase 2 narrows the *default* (inherit the focused terminal's pwd) but not
+  default. Phase 2 narrows the _default_ (inherit the focused terminal's pwd) but not
   the ceiling. If a narrower boundary is wanted, that is a product decision to take
   before the daily-driver switch, not a Phase 1 implementation detail.
 - **The hidden group is identified by name, permanently.** `__terminal-mode__` is the
@@ -1165,7 +1165,7 @@ Deviations and consequences worth carrying forward:
   mint it.
 - **Isolation is a choke point, not per-edge filters.** Removing the hidden group
   from `state.projectGroups` at catalog ingress is not possible: a folder
-  workspace's execution host is resolved *from its group* in
+  workspace's execution host is resolved _from its group_ in
   `getFolderWorkspaceHostId`, `folder-workspace-connection.ts`,
   `folder-workspace-runtime-owner.ts` and `resolved-worktree-execution-host.ts`, so
   removing it would silently default every vtab to local and break Phase 4's remote
@@ -1180,11 +1180,11 @@ Deviations and consequences worth carrying forward:
 
 - **One store scope, five consumers.** `store/slices/terminal-mode-panels.ts` holds a single
   `terminalModePanelScope` (workspace key, explorer root, workspace root, repo root, addressing
-  mode, clamp flag) for the *active* vertical tab, written by
+  mode, clamp flag) for the _active_ vertical tab, written by
   `vertical-tabs/use-terminal-mode-panel-scope.ts` and read by the File Explorer, Source
   Control, `useGitStatusPolling`, `useEditorExternalWatch` and the remote file client. Deriving
   the root independently in each consumer desynchronizes: the git panel's file-watch filter
-  compares against the *repo* root while the explorer's compares against the *pwd*, and a
+  compares against the _repo_ root while the explorer's compares against the _pwd_, and a
   consumer computing its own answer half a tick later silently stops matching events. One scope
   also gives main a single directory to authorize.
 
@@ -1192,15 +1192,15 @@ Deviations and consequences worth carrying forward:
   `worktreePath` once, but that read is downstream of `activeWorktree`/`activeRepo`, and a
   vertical tab is a folder workspace: `useRepoById` answers `null`, `isFolder` is true, and every
   git surface (the tab itself, the poller, the diff actions) disables itself. Substituting the
-  *pair* with one rooted at the pwd's repository — same workspace key, synthetic `kind: 'git'`
+  _pair_ with one rooted at the pwd's repository — same workspace key, synthetic `kind: 'git'`
   repo — re-enables all of them through code that already exists, at the cost of three edits
   instead of one. Passing a raw path with `activeRepo` still null is worse: ~150 call sites sit
   after an early return that assumes the repo is non-null.
 
 - **The foreign-OSC7 policy is existence, not hostname.** A local shell running `ssh`/`tmux`/
-  `docker` reports the *other* machine's pwd. Rather than plumb the OSC 7 hostname discriminator
+  `docker` reports the _other_ machine's pwd. Rather than plumb the OSC 7 hostname discriminator
   onto the fact, the panel root is adopted only after the tab's host confirms the directory
-  resolves there — for local tabs that confirmation *is* the `terminalMode:setPathScope` round
+  resolves there — for local tabs that confirmation _is_ the `terminalMode:setPathScope` round
   trip (main stats the directory before granting it), so it costs nothing extra. A rejected pwd
   leaves the panels on the last valid root (sticky), the same behavior as the no-OSC7 case. This
   is strictly broader than a hostname check: it also catches a `cd` into a directory deleted
@@ -1208,10 +1208,10 @@ Deviations and consequences worth carrying forward:
 
 - **The filesystem grant is corroborated by main, not asserted by the renderer.**
   `terminalMode:setPathScope` accepts a directory only when main has itself observed a PTY of
-  that vertical tab in it (`recordObservedPtyCwd`, fed by OSC 7 tracking *and* the process-cwd
+  that vertical tab in it (`recordObservedPtyCwd`, fed by OSC 7 tracking _and_ the process-cwd
   read that covers shells with no shell integration), or it is the tab's own start folder, or it
   is the directory already granted (which keeps a foreign pwd sticky). Main then resolves the
-  enclosing repository *itself* with `rev-parse --show-toplevel` and grants that too, because the
+  enclosing repository _itself_ with `rev-parse --show-toplevel` and grants that too, because the
   git panel is by definition scoped to the whole repository — so no caller can name an ancestor.
   The grant is in-memory, replaced on every `cd`, re-validated on every authorization (flag on +
   workspace still a live vertical tab), revoked on unmount and on the granting `webContents`
@@ -1221,16 +1221,16 @@ Deviations and consequences worth carrying forward:
   `fs:authorizeExternalPath` already allowed that; it does not — that IPC has no preload binding
   and every caller is dialog- or trust-list-gated. Corroboration is what replaced it.
 
-- **The granted repository root is bounded away from `$HOME`.** It is a *containment* root — Source
+- **The granted repository root is bounded away from `$HOME`.** It is a _containment_ root — Source
   Control reads and stages anywhere inside it — so a dotfiles repository at the home directory would
   turn one `cd` into read/write authorization over everything under `$HOME`, plus the `git:*`
   mutation door (including `git:discard`) on it. `boundedRepoRoot` refuses any repository that
   contains the home directory, and the panel shows its quiet empty state there instead. (A vertical
-  tab whose *start folder* is `$HOME` still authorizes `$HOME` — that is Phase 1's recorded decision
+  tab whose _start folder_ is `$HOME` still authorizes `$HOME` — that is Phase 1's recorded decision
   and is unchanged here.)
 
 - **Remote vertical tabs clamp to their start folder for the whole of Phase 3.**
-  `requiresAbsolutePathScope` returns true for *any* remote pwd other than the workspace root, not
+  `requiresAbsolutePathScope` returns true for _any_ remote pwd other than the workspace root, not
   just one outside it: the explorer's mutation and file-open paths each build their own
   worktree-relative path against the root the explorer is showing, and only the two read sites were
   given the workspace-root base. Clamping is the only answer that cannot address the wrong file.
@@ -1240,7 +1240,7 @@ Deviations and consequences worth carrying forward:
   door (exact `git worktree list` registration), not containment — so a repository discovered by
   `cd` fails it even though its own pwd is authorized. It now also accepts the terminal-mode repo
   root. That root is one main resolved itself from a corroborated directory, so the door still
-  never trusts a caller-supplied repository path. Note this deliberately opens the *whole* `git:*`
+  never trusts a caller-supplied repository path. Note this deliberately opens the _whole_ `git:*`
   surface for that one repository, including `git:commit`, `git:discard` and `git:push` — which is
   the point: the panel is a working Source Control view, not a read-only one.
 
@@ -1248,20 +1248,20 @@ Deviations and consequences worth carrying forward:
   for a new `repoRootForPath` on the provider contract and a new relay method.
   `isGitRepoAsync(dirPath) -> { isRepo, rootPath }` already exists on the contract, is already
   implemented by `SshGitProvider`, and the relay already answers `git.isGitRepo` with
-  `rev-parse --show-toplevel`. Reusing it makes SSH work against *existing* relay builds; adding a
+  `rev-parse --show-toplevel`. Reusing it makes SSH work against _existing_ relay builds; adding a
   method would have made it fail until the host was rebuilt, for no behavioral gain.
 
 - **`git.status` did not get the absolute-path param.** It was implemented and then removed: the
   rest of the git RPC surface (diff, stage, commit, branch compare) still addresses a worktree
-  *selector*, so status for `/repo` with a diff action resolving under `/repo/sub` would be a
+  _selector_, so status for `/repo` with a diff action resolving under `/repo/sub` would be a
   correctness bug, and no client could safely send it. `resolveTerminalModeGitRoot` therefore
-  shows a remote tab's git panel only when the pwd's repository *is* the workspace root; local and
+  shows a remote tab's git panel only when the pwd's repository _is_ the workspace root; local and
   SSH take an absolute worktree path throughout and follow the pwd's repository freely. Phase 4
   owns making the remaining git RPCs path-addressed.
 
 - **The capability token exists and gates, but is deliberately not advertised yet.**
   `ABSOLUTE_PATH_SCOPE_RUNTIME_CAPABILITY` is defined, checked before every send, and honored
-  host-side — but it is *not* in `RUNTIME_CAPABILITIES`. A capability is a permanent promise about
+  host-side — but it is _not_ in `RUNTIME_CAPABILITIES`. A capability is a permanent promise about
   behavior, and a host that accepts `absolutePath` today still denies any path outside its own
   allow-list, because the terminal-mode grant is declared by a renderer and an `orca serve` host
   has none. Advertising it would promise a clamp-free experience the host cannot deliver, with no
@@ -1278,9 +1278,9 @@ Deviations and consequences worth carrying forward:
 
 - **Addressing is a stored decision, not a re-derived negation.** `scope.addressing` is written
   once by the scope hook and read by `runtime/terminal-mode-file-scope.ts`. Re-deriving it from
-  `!clamped` at the call site made a pwd *inside* the start folder on an old host send the gated
+  `!clamped` at the call site made a pwd _inside_ the start folder on an old host send the gated
   param and hard-error, instead of using the relative contract that works there. The same module
-  also overrides the remote relative *base* to the workspace root: the explorer's own root is the
+  also overrides the remote relative _base_ to the workspace root: the explorer's own root is the
   pwd, and computing a relative path against that would resolve the wrong directory host-side.
 
 - **`relativePath` still rides along with `absolutePath`.** The `files.readDir` / `files.stat`
@@ -1295,7 +1295,7 @@ Deviations and consequences worth carrying forward:
   now keyed on the serialized `{id, name}[]` that would actually be written.
 
 - **The sticky-pwd rule needed the tab fallback that Phase 2 assumed it already had.**
-  `activeTabIdByWorktree` does *not* keep pointing at the last terminal tab: opening a diff from
+  `activeTabIdByWorktree` does _not_ keep pointing at the last terminal tab: opening a diff from
   Source Control makes the diff tab active, it owns no PTY, and the panels snapped back to the
   start directory — reproduced in app QA. The cwd slice now records
   `lastTerminalTabIdByWorkspace` (written only by terminal mode's tracking hook, on the active tab
@@ -1311,7 +1311,7 @@ Deviations and consequences worth carrying forward:
 
 - **Expanded directories are collapsed on re-root, keyed by workspace.** `expandedDirs` is keyed
   by workspace, and a vertical tab keeps its key across `cd`, so the previous root's expansions
-  would be re-read as children of the new root. The guard has to remember *which* tab it committed
+  would be re-read as children of the new root. The guard has to remember _which_ tab it committed
   a root for, or every tab switch collapses the tab being switched to.
 
 - **The git panel needed its own watch arm.** `getEditorExternalWatchTargets` gates the sidebar
@@ -1363,18 +1363,18 @@ Deviations and consequences worth carrying forward:
   Resolved question 2 called for the existing method, and it was written before Phase 1 put
   `assertProjectGroupNameNotReserved` in `OrcaRuntimeService.createProjectGroup`. Reaching the
   reserved name through it now needs an `allowReservedName`-shaped parameter — a general
-  bypass for *any* reserved name on the general group RPC. `terminalMode.ensureContext` narrows
+  bypass for _any_ reserved name on the general group RPC. `terminalMode.ensureContext` narrows
   that to one shape: the only group it can mint is the terminal-mode sentinel. To be precise
-  about what it does *not* do: every non-mobile RPC client — the CLI included — can still call
+  about what it does _not_ do: every non-mobile RPC client — the CLI included — can still call
   it, so the bypass is limited by shape, not by caller. It also carries the host's home
-  directory, which is the *other* thing a remote vertical tab needs at creation and which no
+  directory, which is the _other_ thing a remote vertical tab needs at creation and which no
   existing RPC exposes. Ordering is unchanged and still load-bearing: the
   group is ensured before `folderWorkspace.create`, which hard-fails on a group it does not have.
 
 - **Two capabilities, in opposite directions.** `terminal-mode.vertical-tabs.v1` is a HOST token
   ("I answer `terminalMode.*`"); `terminal-mode.catalog.v1` is a CLIENT token ("I filter vertical
   tabs out of every classic surface, so send them"). Conflating them was tempting — one string,
-  read by whoever asks — but the host's catalog decision has to be about the *client's* code, and
+  read by whoever asks — but the host's catalog decision has to be about the _client's_ code, and
   a host advertising the catalog token would be claiming it hides its own tabs, which is the
   opposite of what it does. `terminal-mode.absolute-path-scope.v1` is now advertised too, because
   the host finally has a scope source of its own (below). A test pins that the client token never
@@ -1392,21 +1392,21 @@ Deviations and consequences worth carrying forward:
   `files.readDir`/`files.stat`/`files.watch` — which is already refused for mobile clients, for
   SSH-backed workspaces and for any workspace that is not a vertical tab.
 
-- **The grant is read-only, deliberately.** It is *not* joined into `getAllowedRoots`. Every
+- **The grant is read-only, deliberately.** It is _not_ joined into `getAllowedRoots`. Every
   mutating file RPC still addresses a worktree selector plus a contained relative path, so a
   granted directory can never authorize a write, and the blast radius of a bad corroboration is
   "the client can read a directory its own shell is sitting in". The cost is the honest gap
   below: a mutation on a pwd outside the workspace root fails loudly instead of working.
 
 - **Threading the workspace root is what actually lifted the clamp, not the capability.**
-  `requiresAbsolutePathScope` now returns true only for a pwd *outside* the workspace root,
+  `requiresAbsolutePathScope` now returns true only for a pwd _outside_ the workspace root,
   because every explorer call site was given `terminalModeFileScopeArgs` — which pins the
   relative base to the workspace root while the panels show the pwd. That covers the common
   case (`cd` into a subdirectory of the tab's start folder) on **every** host, including ones
   with no terminal-mode capability at all. The capability only buys the escape from the root.
 
 - **`git.status` is still selector-addressed, so a remote tab's git panel still clamps.**
-  `resolveTerminalModeGitRoot` continues to show the panel only when the pwd's repository *is*
+  `resolveTerminalModeGitRoot` continues to show the panel only when the pwd's repository _is_
   the workspace root. Making the whole git RPC surface path-addressed (diff, stage, commit,
   branch compare) is a larger change than this phase should carry, and a half-converted surface
   would resolve status for one repository and a diff action for another. Carried forward.
@@ -1417,7 +1417,7 @@ Deviations and consequences worth carrying forward:
   prints another prompt. The `Metadata` frame remains the live-`cd` path.
 
 - **The client token is declared by the desktop window, not by the shared transport.**
-  `shared/remote-runtime-*.ts` is the client transport for the desktop app, the CLI *and*
+  `shared/remote-runtime-*.ts` is the client transport for the desktop app, the CLI _and_
   headless `orca serve`; hard-coding `terminal-mode.catalog.v1` there made the CLI promise a
   filter it does not have. `shared/remote-runtime-client-capabilities.ts` holds the
   unconditional base set and one `declare…` call from `attach-main-window-services.ts` — the
@@ -1478,7 +1478,7 @@ shell PID, `jobs` still reporting the loop `Running`, scrollback intact through 
 pre-kill marker, and every tab's panels re-rooted at its own pwd (screenshots
 `p4-shots/15-before-kill.png` → `19-all-tabs-reattached.png`). The pieces additionally have
 unit oracles (host partitioning, hydration keys, `SnapshotStart.cwd` decode, capability
-gating). What is *not* covered by an automated regression test is the assembled journey; that
+gating). What is _not_ covered by an automated regression test is the assembled journey; that
 remains a manual run per phase.
 
 ### Known gaps carried to Phase 5
@@ -1507,7 +1507,7 @@ remains a manual run per phase.
   stale `tab.ptyId` is never pruned — it reproduces on every later launch. **Now Phase 5 task
   0**, because the only clean signal (`onPtyExit`) closes the tab when it is the pane's only
   one — which is the close semantics Phase 5 rewrites, so fixing it earlier means doing that
-  work twice. It does not affect this phase's MUST: a *client* kill/relaunch reattaches through
+  work twice. It does not affect this phase's MUST: a _client_ kill/relaunch reattaches through
   `terminal.resolvePane`, which was verified end to end. **If remote terminal mode is
   daily-driven before Phase 5 lands, this has to be pulled forward** — every `orca serve`
   update strands the user's tabs.
@@ -1523,9 +1523,254 @@ remains a manual run per phase.
   `runtime:` tabs and wrong for SSH-backed ones: `terminals.ts` deferred-SSH resolution derives
   a repo id from the workspace key, so an SSH vertical tab never enters
   `deferredSshSessionIdsByTabId`; and `workspace-session-host-persistence.ts`
-  `listKnownRuntimeHostIds` is repo-derived, so a runtime host that owns *only* vertical tabs
+  `listKnownRuntimeHostIds` is repo-derived, so a runtime host that owns _only_ vertical tabs
   contributes no host id and startup recovery leans entirely on the restored-owner map.
 - **`buildRuntimeSessionPlaceholders` skips `folder:` keys.** Harmless today because
   `collectFolderWorkspaceKeysFromSession` already marks them valid for hydration, but it means a
   remote vertical tab has no placeholder `Repo`/`Worktree` during the window before its catalog
   loads — anything that starts reading those for vertical tabs must revisit it.
+
+---
+
+## Phase 8 — macOS exploratory-QA polish (recorded 2026-08-14)
+
+Four findings from a macOS exploratory pass. All four are cross-platform and were
+reproduced, fixed and re-verified on Linux.
+
+### S1 — a vertical tab with an unreadable start folder was a blank, silent pane
+
+**What actually happened** (reproduced on Linux against the pre-fix build): nothing
+throws. `statSync` on a `chmod 000` directory _succeeds_ — you need the traverse bit on
+the directory to enter it, not to stat it — so `localStartupCwdDirectoryExists` said
+"exists", the missing-directory chain was never entered, and node-pty spawned happily.
+The **child** then failed its `chdir` and exited 1. Main logs nothing on that path
+(`pty:spawn`'s catch never ran, because nothing threw), which is exactly the macOS
+evidence: the main log carried only the explorer's `fs:readDir` EACCES and not one line
+from the pty layer. The pane kept a dead PTY, re-activation did not respawn, and a later
+`chmod 755` changed nothing for the session.
+
+- **The probe is the fix, not the symptom.** `directoryExists` became `directoryUsability`
+  and answers `'usable' | 'missing' | 'inaccessible'` (`statSync` **and**
+  `accessSync(X_OK)`). `X_OK` only, deliberately: `chdir` needs the traverse bit, and
+  requiring `R_OK` would divert a perfectly openable `0711` directory.
+- **A vertical tab needed a step the chain did not have.** The old chain ended at the
+  workspace root, and `resolveTerminalStartupCwd` short-circuited when the requested cwd
+  _was_ the root. For a vertical tab those are the same directory, so the chain had
+  nowhere to go. It gained a `homeCwd` last resort, offered **only** for a workspace in
+  the hidden terminal-mode group (`main/ipc/terminal-mode-startup-cwd-home.ts`). Classic
+  keeps the recorded behavior — an unusable workspace root returns the requested cwd so
+  the provider surfaces its own error rather than a misleading `$HOME` shell.
+- **Classic gains one strictly-better case, documented rather than hidden.** With the flag
+  off, a _requested_ cwd that is unreadable (split-pane inheritance, "open terminal here")
+  now falls back to the workspace root with the existing notice instead of spawning a
+  shell that dies on chdir. The first probe returns `'usable'` exactly where the old
+  `statSync` returned true, and no classic caller supplies `homeCwd`, so the recorded
+  "unmounted volume ⇒ let the provider surface its error" invariant still holds.
+  One further classic delta, recorded because the old code had an explicit short-circuit
+  that the candidate walk does not: the requested cwd is now probed even when it _is_ the
+  workspace root. If that root is unusable **and** the tab has a different, usable
+  persisted `startupCwd`, the terminal now opens there with no notice instead of erroring.
+  `resolveRestoredTabFallbackCwd` only offers that candidate for a tab whose `lastCwd` is
+  the requested cwd, which no classic path writes today, so this is currently unreachable
+  from classic — but it is a behavior difference, not an identity.
+- **The notice grew a reason, not a second mechanism.** `startupCwdFallback` carries
+  `kind: 'worktree' | 'home'` and a required `reason`, and
+  `terminal-pane/startup-cwd-fallback-notice.ts` maps the pair to one of four strings
+  ("…no longer exists" / "…is not accessible"). The notice still omits the rejected path;
+  the resolved path is logged in main instead, which is a debug log and not a surface a
+  user screenshares. `reason` is required rather than optional because this payload never
+  crosses a version boundary: it rides `pty:spawn`, which is preload↔main inside one
+  bundle, and the whole fallback is suppressed for `connectionId`/`sessionId` spawns.
+- **Main now says something.** Two `console.warn`s: one when the chain diverts, one when
+  every candidate is unusable and the shell is about to die on chdir. Without them the
+  only main-side trace of a doomed terminal was an unrelated explorer error.
+- **Local agent-resume spawns are NOT covered either — same gate, recorded.** The chain
+  also requires `!args.sessionId`, and the renderer independently suppresses `cwdFallback`
+  once a session id is admitted, because a reattach needs the exact cwd it left. A local
+  vertical-tab terminal _resuming_ an agent session into a locked-down folder therefore
+  still gets no probe, no notice and no log. Relaxing it means telling a true reattach
+  apart from a resume spawn that will create a new PTY, which is a change to the reattach
+  contract rather than to this chain.
+
+- **Remote and SSH vertical tabs are NOT covered — a recorded, scoped gap.** The whole
+  chain is gated on `cwdFallback: 'worktree'`, which `pty-connection.ts` sends only for a
+  local fresh spawn (`runtimeEnvironmentId === null && !connectionId`) and which
+  `pty.ts` re-checks. The host-side resolver for a remote workspace
+  (`orca-runtime.ts` `resolveTerminalStartupCwd(workspace.path, requestedCwd)`) passes no
+  fallback at all, so `chmod 000` on a remote vertical tab's start folder still reproduces
+  the original report on that host. Closing it is not a probe change: the host can stat its
+  own filesystem, but the _notice_ has to reach the client, which means a new optional field
+  on the terminal spawn/attach result and the capability handling that implies
+  (`docs/reference/remote-wire-compatibility.md`). That is a wire change, not a QA fix, so it
+  is recorded here rather than half-done. The same gate is why SSH is uncovered.
+
+- **Retry is a property of the resolver, not a new mechanism.** Nothing caches the
+  decision, so the very next spawn re-probes; app QA confirmed a `chmod 755` plus one
+  click opens in the real directory, and a cold restore does too. One boundary worth
+  stating: a tab that actually _ran_ in `$HOME` records `$HOME` as its `lastCwd` (Phase 7),
+  so restoring that same tab later reopens there — the tab followed its own pwd, which is
+  the documented rule. It is a new terminal in the vertical tab that returns to the start
+  folder.
+
+### S2 — an emptied vertical tab fell back to the classic landing screen
+
+**Behavior before, measured rather than assumed.** The divergence is not `exit` vs
+`kill -9` — both are `reason: 'pty-exit'`. It is **typed vs never-typed**:
+`pty-connection.ts`'s guard keeps a dead pane mounted when the PTY was a genuine fresh
+spawn the user never typed into (added upstream so a worktree whose `.envrc` kills the
+login shell does not strand the user on `Landing`). A pane the user _had_ typed in closed
+its tab, emptied the vertical tab, and dropped the main pane to "Add a project to get
+started" with the Add Project / Create worktree buttons and the worktree shortcut legend.
+
+- **Chosen semantics: in terminal mode a dead shell closes its tab — unless it never
+  started.** Typed or not, `exit` or `SIGKILL`, the tab goes. The exception is a fresh,
+  never-typed PTY that exits within 3 s: that pane holds the only explanation there is
+  (`chdir(2) failed`, a bad rc file, a missing shell), and the cwd chain above cannot
+  recover the remote and SSH cases at all, so closing the tab would reproduce the very
+  report this phase is answering — a terminal that vanishes with no reason given. Above
+  that window a dead shell is an ordinary dead shell and the tab closes, which is the
+  emulator behavior the spec adopts. Classic is untouched: the exit guard is only narrowed
+  when the workspace is a live vertical tab, so the `.envrc` case keeps its dead pane and
+  its error text for every classic worktree (verified with the flag off).
+- **Empty state, not auto-respawn.** Respawning into an empty vertical tab was rejected:
+  a shell that dies at startup (bad rc file, and — before S1 — an unreadable start folder)
+  would spin, and the respawn would erase the output explaining why it died. The empty pane
+  is one keystroke from a terminal and cannot loop. It is also strictly more recoverable
+  than a real terminal emulator, which would have closed the window. The same
+  "do not erase the explanation" argument is what carved out the startup-failure exception
+  above — a review round pointed out, correctly, that the argument applied to the close as
+  much as to the respawn.
+- **Phase 1's `reason === 'user'` rule is unchanged.** A user closing the last horizontal
+  tab still deletes the vertical tab. The empty pane is only for the paths that are not
+  user intent.
+- **The state model, not the guards, is what keeps the pane from going blank.** The
+  "this workspace emptied → deselect it" decision is open-coded in **five** upstream places
+  (the fifth, `Terminal.tsx`'s browser-tab close, was found by a review round after the
+  first four had been guarded and the list written down as complete). Guard-every-copy
+  therefore cannot be trusted on its own, so `selectTerminalModeMainPaneState` has no state
+  that renders nothing outside the boot window: a vertical tab that is deselected by an
+  unguarded path lands on `no-active-vertical-tab`, which is an actionable pane, not a void.
+  Two reviewers argued instead for collapsing the five into one store action — a real
+  option, since two of the five are already verbatim duplicates upstream. It was not taken
+  here: it rewrites two upstream functions and adds a store action in place of five
+  one-line insertions, which is a larger merge surface for this branch's contract, and the
+  state-model backstop bounds the failure to cosmetic. Revisit it if a sixth copy appears.
+
+- **Keeping the tab selected costs five one-line guards, and the load-bearing one was
+  found by measurement.** `isTerminalModeVerticalTabKey` is applied in `tabs.ts`
+  (`closeUnifiedTab`), `terminal-tab-actions.ts`,
+  `terminal-pane/TerminalPaneOverlayLayer.tsx`, `tab-group/useTabGroupWorkspaceModel.ts`
+  and `Terminal.tsx` (browser-tab close). The first two were the obvious ones and were
+  **both** insufficient: instrumented app QA showed the deactivation coming from a _third_,
+  duplicated `leaveWorktreeIfEmpty` in the overlay layer — the pane host a dying shell
+  actually reaches. The fourth is that function's twin, reachable only from user closes
+  today; it is guarded anyway, because "which of these four identical copies is on the
+  path" is exactly the question that cost an instrumented QA cycle, and a reachability
+  argument is not an invariant.
+  Collapsing all four into one store action was considered and rejected: it would rewrite
+  two upstream functions and add a store action instead of leaving four one-line
+  insertions, and the merge contract prefers the smallest possible hunks in upstream files.
+  Keeping the selection is what makes the state honest — the strip highlight, the pwd
+  header, the pwd-derived panels and `Mod+T` all key on the active workspace.
+- **No respawn loop by construction.** `Terminal.tsx`'s auto-create effect keys on
+  `[workspaceSessionReady, activeWorktreeId]`; neither changes when a tab closes under a
+  still-active workspace, so nothing re-creates a terminal until the user asks. Switching
+  to another vertical tab and back _does_ change `activeWorktreeId`, so that route still
+  recovers on its own.
+- **One recorded regression in a recovery path:** Phase 1 noted that a failed
+  `deleteFolderWorkspace` re-activates the vertical tab and the activation path respawns a
+  terminal. With the workspace still active that re-activation is now a no-op, and the
+  user gets the empty pane's button instead. That is a visible affordance rather than a
+  silent respawn, and it is the same one every other empty-tab path lands on.
+
+### Small item 3 — "Send Test Notification" could report nothing at all
+
+The darwin path already suppresses its own toasts whenever the permission card is on
+screen (the card _is_ the delivery state), and the outcome then only wrote card state. So
+clicking the button while the card already said "blocked" changed nothing visible. A small
+inline result now sits beside the button (`settings/notification-test-feedback.ts`):
+"Sent", or a warning that points at the amber alert when it is showing. It is not
+darwin-only — a plain result beside the control is better than a toast on every platform,
+and it is what makes the path testable on Linux.
+
+### Small item 4 — the "replay guard released … pane likely needs recovery" console error
+
+**Conclusion: on a cold restore this is usually a false positive on a pane that no longer
+exists, which is why QA saw it repeatedly with nothing broken.**
+
+The mechanism: xterm's `WriteBuffer` **silently drops** a write callback once its store is
+disposed — it does not throw (`terminal-write-pipeline-health.ts` documents this against
+the vendored 6.1.0-beta.287). The replay guard arms its stall timer _before_ issuing the
+write and nothing cancels that timer when a pane is torn down, so an ordinary unmount
+mid-replay (a cold restore's `restoreScrollbackBuffers`, React StrictMode's
+mount→dispose→remount, a tab switch during restore) reaches the probe on a dead terminal,
+gets no callback, and 2 × 10 s later certifies "undeliverable write pipeline". On a
+disposed pane the undeliverable handler has usually been unregistered already, so the only
+output is the console error and its breadcrumb — no recovery, no breakage. That is exactly
+the reported shape.
+
+It is therefore **(a)**, and both halves were fixed rather than papered over:
+
+- The guard now checks `isXtermInstanceDisposed` before certifying, and releases as
+  `'disposed'`: the counter is still decremented (a latched guard would eat keystrokes),
+  but there is no console line and — the part that matters — no
+  `notifyUndeliverableWrite`, which permanently marks the terminal dead and would remount a
+  pane that is merely gone. A `terminal_replay_guard_disposed_release` breadcrumb is still
+  recorded: the disposal probe reads xterm privates, and a mis-report there would otherwise
+  be completely invisible.
+- The remaining, genuine wedge logs at `warn`, matching the project's own stated rule in
+  `terminal-pane-recovery.ts` ("warn, not error: this is the recovery succeeding"), and the
+  wording now says what happens ("requesting pane recovery") instead of "pane likely needs
+  recovery". The breadcrumb and the recovery request are unchanged.
+- One adjacent hazard fixed while there: `waitForTerminalReplayWritesParsed` had no
+  disposal check either, so on a disposed terminal its promise never settled and the
+  awaiting cold-restore chain never reached `ackColdRestore`.
+
+**Residual, recorded rather than fixed:** the stall timer is still not _cancelled_ at
+teardown — disposal is detected when the deadline fires, so the guard's per-pane counter
+survives up to two stall windows after the pane dies. Cancelling it needs a registry of
+in-flight guards plus a teardown call in `use-terminal-pane-lifecycle.ts`, and the counter
+semantics there are delicate: `paneId`s are reused across a remount, the lifecycle already
+deletes the whole map entry on teardown, and a late release that decrements a _live_ pane's
+counter would open a guard mid-replay and leak xterm auto-replies into the shell. That
+hazard predates this change (the old `'wedged'` release decremented at exactly the same
+moment) and is not made worse by it, so it is left for a change that can own the counter's
+ownership model rather than bolted onto a QA fix.
+
+**Recorded, not fixed:** `isWorkspaceRenderEmpty` (the selector's answer) and
+`renderableTabCount` (the guards' answer) are two definitions of "this workspace renders
+nothing" and can disagree while an orphan terminal record is pending reconciliation. With
+the state model above, a disagreement shows the workbench with nothing in it — the
+pre-existing upstream outcome for that state — rather than a blank replacement pane.
+
+**Honest QA gap:** the message could not be provoked on Linux at QA scale — four vertical
+tabs with 300 lines of scrollback each, a cold restore, and six passes of rapid tab
+switching produced zero replay-guard lines (the renderer console was captured; other
+renderer logs from the same window appear in the log). The conclusion rests on the code
+path plus the existing suite, which already documents this branch firing benignly in
+production bursts (`replay-guard.test.ts`: "wedge-release breadcrumbs in bursts of ~a
+dozen on a pane that later parses fine").
+
+### App QA (executed 2026-08-14, Linux/Xvfb `:98`, isolated profiles under `/tmp/orca-qa-c*`)
+
+Driven over CDP. The machine's production serve (`~/orca-src`, :6768, `~/.config/orca`)
+and the shared `~/.config/orca-dev` daemon were untouched and verified alive afterwards;
+both QA profiles were deleted at the end.
+
+| Check                                     | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Baseline repro (pre-fix build)**        | **All four symptoms reproduced.** A `chmod 000` vertical tab showed `chdir(2) failed.: Permission denied` and a dead pane, the main log carried only the explorer's `fs:readDir` EACCES, re-activation did not retry and `chmod 755` did not help. `kill -9` on a typed pane and `exit` both dropped the main pane to the classic "Add a project to get started" landing; `kill -9` on a never-typed pane kept a dead tab.                                              |
+| **S1 — unreadable start folder**          | **Pass.** The tab opens a live shell in `$HOME` with `[Orca opened this terminal in your home directory because this tab's start folder is not accessible.]`, and main logs `[pty] startup cwd inaccessible (/tmp/s1dir); opening at the home directory instead`.                                                                                                                                                                                                       |
+| **S1 — retry**                            | **Pass.** After `chmod 755`, the empty pane's "Open terminal" opens in `/tmp/s1dir`, and a cold restore does too (explorer lists the directory's file). No sticky failure.                                                                                                                                                                                                                                                                                              |
+| **S2 — `kill -9` the only shell**         | **Pass.** Tab closes, the vertical tab stays selected with its pwd header, and the pane shows "No terminals in this tab. / `Ctrl` `T` opens one here / Open terminal". No project or worktree concepts.                                                                                                                                                                                                                                                                 |
+| **S2 — `exit`**                           | **Pass, identical to `kill -9`.** The unification holds.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **S2 — zero vertical tabs**               | **Pass.** The classic landing is replaced by "No terminal tabs. / `Ctrl` `N` opens a terminal tab / New terminal tab".                                                                                                                                                                                                                                                                                                                                                  |
+| **Item 3 — inline feedback**              | **Pass.** "Sent" renders beside the button. The blocked/not-sent wordings are unit-tested; macOS is the only platform that can produce them.                                                                                                                                                                                                                                                                                                                            |
+| **Item 4 — cold restore**                 | **Not observed** (see the honest gap above).                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **Shell that never starts**               | **Pass.** A newborn shell killed inside the startup window leaves its tab and pane in place, so the reason survives — the exception carved out of the dead-shell unification. The long-lived-shell kill above still closes the tab, so both halves of the rule are exercised. (The intended repro — a `terminalShellPath` pointing at a script that exits — could not be made to take effect in the rig; the branch itself is unit-tested on both sides of the window.) |
+| **No vertical tab selected**              | **Covered by unit tests, not driven end to end.** The state exists so an unguarded deactivation (the browser-tab close found in review) lands on an actionable pane instead of nothing; reproducing it live needs a browser htab in a vertical tab, which the CDP rig does not script. The selector and the pane variant are both tested.                                                                                                                               |
+| **Flag off — classic empty state**        | **Pass.** Byte-identical landing copy, buttons and shortcut legend.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Baseline repro fidelity**               | The Linux repro showed `chdir(2) failed.: Permission denied` in the pane where the macOS report described it as blank; node-pty's spawn helper writes that line to the pty on Linux and macOS's path does not surface it. Same cause, same dead pane, different visible residue.                                                                                                                                                                                        |
+| **Cold-start hydration**                  | **Pass (re-verified after review).** Sampled the main pane every 150 ms for 9 s across a relaunch with a vertical tab in the catalog: zero frames of the classic landing and zero false "No terminal tabs". An earlier revision of this change had a window where the catalog had hydrated but the restored workspace had not, and the pane fell through to `Landing`.                                                                                                  |
+| **User close of the last horizontal tab** | **Pass.** `Ctrl+W` on a vertical tab's only terminal still deletes the vertical tab (Phase 1's `reason === 'user'` rule) and focuses the neighbouring tab with its live shell — no empty-pane flash.                                                                                                                                                                                                                                                                    |
+| **Flag off — classic spawn**              | **Pass.** A classic folder workspace spawns its terminal normally, and a never-typed shell killed with `SIGKILL` still keeps its dead pane and its active workspace — the upstream guard is intact.                                                                                                                                                                                                                                                                     |

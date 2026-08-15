@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '@/store'
-import { selectTerminalModeWorkspaceKeys } from '@/store/classic-workspace-catalog'
+import { selectTerminalModeWorkspaceKeys } from '@/store/terminal-mode-workspace-keys'
 import {
   collectTerminalTabLastCwdCandidates,
   terminalTabLastCwdKey,

@@ -1,3 +1,4 @@
+import { isTerminalModeVerticalTabKey } from '@/store/terminal-mode-workspace-keys'
 import { memo, useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Tab, TabGroup, TerminalTab } from '../../../../shared/types'
@@ -67,7 +68,10 @@ const TerminalPaneOverlayLayer = memo(function TerminalPaneOverlayLayer({
       return
     }
     const { renderableTabCount } = reconcileWorktreeTabModel(worktreeId)
-    if (renderableTabCount === 0) {
+    // Terminal mode keeps an emptied vertical tab selected — see
+    // store/terminal-mode-empty-workspace.ts. This is the pane host a dying shell
+    // reaches, so it is the one that actually decides.
+    if (renderableTabCount === 0 && !isTerminalModeVerticalTabKey(state, worktreeId)) {
       setActiveWorktree(null)
     }
   }, [reconcileWorktreeTabModel, setActiveWorktree, worktreeId])

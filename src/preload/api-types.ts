@@ -1,4 +1,5 @@
 /* eslint-disable max-lines -- Why: the preload contract is intentionally centralized in one declaration file so renderer and preload stay in lockstep when IPC surfaces change. */
+import type { TerminalStartupCwdFallbackNotice } from '../shared/terminal-startup-cwd'
 import type {
   CreateHostedReviewArgs,
   CreateHostedReviewResult,
@@ -1580,7 +1581,7 @@ export type PreloadApi = {
       replay?: string
       sessionExpired?: boolean
       coldRestore?: { scrollback: string; cwd: string; cols?: number; rows?: number }
-      startupCwdFallback?: { kind: 'worktree'; cwd: string }
+      startupCwdFallback?: TerminalStartupCwdFallbackNotice
       agentResumeUnavailable?: true
     }>
     write: (id: string, data: string) => void

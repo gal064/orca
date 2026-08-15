@@ -1,6 +1,6 @@
 import type { AppState } from '@/store/types'
 import { isTerminalMode } from '@/lib/terminal-mode'
-import { selectTerminalModeWorkspaceKeys } from '@/store/classic-workspace-catalog'
+import { selectTerminalModeWorkspaceKeys } from '@/store/terminal-mode-workspace-keys'
 import { translate } from '@/i18n/i18n'
 
 /** No vertical tabs — the flag-off answer, and the default for callers outside the page. */

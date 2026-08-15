@@ -669,7 +669,8 @@ export type TerminalSlice = {
       startupCwd?: string
     }
   ) => TerminalTab
-  openNewTerminalTabInActiveWorkspace: (groupId: string) => Promise<void>
+  /** `groupId` may be omitted for a workspace whose groups collapsed with its last tab. */
+  openNewTerminalTabInActiveWorkspace: (groupId?: string) => Promise<void>
   closeTab: (
     tabId: string,
     opts?: {
@@ -1525,12 +1526,19 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     return tab
   },
 
-  openNewTerminalTabInActiveWorkspace: async (groupId) => {
+  openNewTerminalTabInActiveWorkspace: async (requestedGroupId) => {
     const state = get()
     const worktreeId = state.activeWorktreeId
     if (!worktreeId) {
       return
     }
+    // Why resolved here: a workspace whose groups collapsed with its last tab has no
+    // group to name, and every caller resolving its own default would fork this
+    // action's runtime/web-client routing — which is the reason it exists.
+    const groupId =
+      requestedGroupId ??
+      state.activeGroupIdByWorktree[worktreeId] ??
+      state.groupsByWorktree[worktreeId]?.[0]?.id
     const workspaceScope = parseWorkspaceKey(worktreeId)
     const worktreeRoute =
       worktreeId === FLOATING_TERMINAL_WORKTREE_ID || workspaceScope?.type === 'folder'

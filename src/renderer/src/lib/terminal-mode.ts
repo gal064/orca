@@ -11,7 +11,13 @@ export function isTerminalModeSupportedPlatform(
 
 export function isTerminalMode(
   settings: Pick<GlobalSettings, 'experimentalTerminalMode'> | null | undefined,
-  platform: NodeJS.Platform = getRendererAppPlatform()
+  platform?: NodeJS.Platform
 ): boolean {
-  return settings?.experimentalTerminalMode === true && isTerminalModeSupportedPlatform(platform)
+  // Why not a default parameter: this runs on every store write through the
+  // close-path guards and the main-pane selector, and resolving the platform is a
+  // contextBridge round trip. Classic users must not pay it.
+  return (
+    settings?.experimentalTerminalMode === true &&
+    isTerminalModeSupportedPlatform(platform ?? getRendererAppPlatform())
+  )
 }

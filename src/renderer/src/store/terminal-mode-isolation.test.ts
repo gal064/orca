@@ -26,9 +26,9 @@ import { TERMINAL_MODE_GROUP_NAME } from '../../../shared/terminal-mode-group'
 import {
   selectBadgeCountableFolderWorkspaces,
   selectClassicFolderWorkspaces,
-  selectClassicProjectGroups,
-  selectTerminalModeWorkspaceKeys
+  selectClassicProjectGroups
 } from './classic-workspace-catalog'
+import { selectTerminalModeWorkspaceKeys } from './terminal-mode-workspace-keys'
 import {
   filterFolderWorkspacesForVisibleHosts,
   filterProjectGroupsForVisibleHosts

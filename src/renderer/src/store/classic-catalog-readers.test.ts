@@ -33,6 +33,8 @@ const RAW_CATALOG_READ = /\b(?:s|state|current|snapshot)\.(?:projectGroups|folde
  */
 const ALLOWED: Record<string, string> = {
   'store/classic-workspace-catalog.ts': 'the choke point',
+  'store/terminal-mode-workspace-keys.ts':
+    'half of the choke point, split out so store slices can read it without pulling the hooks (and the store) into their init',
   'store/slices/vertical-tabs.ts': 'owns vertical tabs',
   'components/vertical-tabs/use-vertical-tabs.ts': 'renders vertical tabs',
   'components/vertical-tabs/index.tsx': 'renders vertical tabs, incl. their host badge',

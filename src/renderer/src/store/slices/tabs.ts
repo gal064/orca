@@ -1,4 +1,5 @@
 /* eslint-disable max-lines -- Why: split-tab group state updates layout, focus, and tab membership atomically in one slice to avoid split-brain. */
+import { isTerminalModeVerticalTabKey } from '../terminal-mode-workspace-keys'
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
 import type { TerminalTabCloseReason } from './terminal-tab-retirement'
@@ -1189,7 +1190,13 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
         (current.browserTabsByWorktree[worktreeId] ?? []).length === 0 &&
         !current.openFiles.some((file) => file.worktreeId === worktreeId)
       const shouldDeactivateWorktree =
-        current.activeWorktreeId === worktreeId && workspaceBecameEmpty
+        current.activeWorktreeId === worktreeId &&
+        workspaceBecameEmpty &&
+        // Terminal mode keeps an emptied vertical tab selected; its own empty pane
+        // renders instead of the classic landing screen. A *user* close still ends
+        // up elsewhere: closeVerticalTabIfEmptied below deletes the workspace on a
+        // microtask, and closeVerticalTab picks the next tab.
+        !isTerminalModeVerticalTabKey(current, worktreeId)
       return {
         unifiedTabsByWorktree: { ...current.unifiedTabsByWorktree, [worktreeId]: nextTabs },
         groupsByWorktree: {

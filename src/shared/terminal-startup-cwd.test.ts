@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { FLOATING_TERMINAL_WORKTREE_ID } from './constants'
 import {
   resolveTerminalStartupCwd,
-  resolveTerminalStartupCwdForWorkspace
+  resolveTerminalStartupCwdForWorkspace,
+  resolveTerminalStartupCwdResult
 } from './terminal-startup-cwd'
 import { folderWorkspaceKey } from './workspace-scope'
 
@@ -51,13 +52,13 @@ describe('resolveTerminalStartupCwd', () => {
       resolveTerminalStartupCwdForWorkspace({
         workspaceId: 'repo-1::/repo/app',
         requestedCwd: '/repo/app/packages/web'
-      })
+      }).cwd
     ).toBe('/repo/app/packages/web')
     expect(
       resolveTerminalStartupCwdForWorkspace({
         workspaceId: 'repo-1::/repo/app',
         requestedCwd: '/repo/app-other'
-      })
+      }).cwd
     ).toBe('/repo/app-other')
   })
 
@@ -68,7 +69,7 @@ describe('resolveTerminalStartupCwd', () => {
       resolveTerminalStartupCwdForWorkspace({
         workspaceId: FLOATING_TERMINAL_WORKTREE_ID,
         requestedCwd: '/Volumes/work/notes'
-      })
+      }).cwd
     ).toBe('/Volumes/work/notes')
   })
 
@@ -77,25 +78,25 @@ describe('resolveTerminalStartupCwd', () => {
       resolveTerminalStartupCwdForWorkspace({
         workspaceId: undefined,
         requestedCwd: '/anywhere'
-      })
+      }).cwd
     ).toBeUndefined()
     expect(
       resolveTerminalStartupCwdForWorkspace({
         workspaceId: 'opaque-worktree-id',
         requestedCwd: '/anywhere'
-      })
+      }).cwd
     ).toBeUndefined()
   })
 
   it('falls back to the workspace root when the requested cwd directory is missing', () => {
-    const onFallbackToWorkspaceRoot = vi.fn()
     expect(
-      resolveTerminalStartupCwd('/repo/app', '/repo/app/deleted-folder', {
-        directoryExists: (path) => path === '/repo/app',
-        onFallbackToWorkspaceRoot
+      resolveTerminalStartupCwdResult('/repo/app', '/repo/app/deleted-folder', {
+        directoryUsability: (path) => (path === '/repo/app' ? 'usable' : 'missing')
       })
-    ).toBe('/repo/app')
-    expect(onFallbackToWorkspaceRoot).toHaveBeenCalledWith('/repo/app/deleted-folder')
+    ).toEqual({
+      cwd: '/repo/app',
+      fallback: { kind: 'worktree', reason: 'missing', rejectedCwd: '/repo/app/deleted-folder' }
+    })
   })
 
   it('falls back to a non-ASCII workspace root for a missing cwd (#7239)', () => {
@@ -104,109 +105,99 @@ describe('resolveTerminalStartupCwd', () => {
     const worktreePath = '/Users/motoki/orca/workspaces/nakamuramotoki/Fableと議論'
     expect(
       resolveTerminalStartupCwd(worktreePath, '/var/tmp/orca-stale', {
-        directoryExists: (path) => path === worktreePath
+        directoryUsability: (path) => (path === worktreePath ? 'usable' : 'missing')
       })
     ).toBe(worktreePath)
   })
 
   it('keeps an existing cwd outside the worktree when fallback is enabled (#7685)', () => {
-    const onFallbackToWorkspaceRoot = vi.fn()
     expect(
-      resolveTerminalStartupCwd('/repo/app', '/repo/app-other', {
-        directoryExists: () => true,
-        onFallbackToWorkspaceRoot
+      resolveTerminalStartupCwdResult('/repo/app', '/repo/app-other', {
+        directoryUsability: () => 'usable'
       })
-    ).toBe('/repo/app-other')
-    expect(onFallbackToWorkspaceRoot).not.toHaveBeenCalled()
+    ).toEqual({ cwd: '/repo/app-other' })
   })
 
   it('keeps an existing nested cwd when fallback is enabled', () => {
-    const onFallbackToWorkspaceRoot = vi.fn()
     expect(
-      resolveTerminalStartupCwd('/repo/app', 'packages/web', {
-        directoryExists: () => true,
-        onFallbackToWorkspaceRoot
+      resolveTerminalStartupCwdResult('/repo/app', 'packages/web', {
+        directoryUsability: () => 'usable'
       })
-    ).toBe('/repo/app/packages/web')
-    expect(onFallbackToWorkspaceRoot).not.toHaveBeenCalled()
+    ).toEqual({ cwd: '/repo/app/packages/web' })
   })
 
   it('keeps the requested cwd when the workspace root is missing too', () => {
     // Why: unmounted volume / stopped WSL distro — falling back would spawn a
     // misleading shell; let the provider surface its normal error instead.
-    const onFallbackToWorkspaceRoot = vi.fn()
     expect(
-      resolveTerminalStartupCwd('/repo/app', '/repo/app/deleted-folder', {
-        directoryExists: () => false,
-        onFallbackToWorkspaceRoot
+      resolveTerminalStartupCwdResult('/repo/app', '/repo/app/deleted-folder', {
+        directoryUsability: () => 'missing'
       })
-    ).toBe('/repo/app/deleted-folder')
-    expect(onFallbackToWorkspaceRoot).not.toHaveBeenCalled()
+    ).toEqual({
+      cwd: '/repo/app/deleted-folder',
+      unrecoverable: { rejectedCwd: '/repo/app/deleted-folder', reason: 'missing' }
+    })
   })
 
   it('prefers the tab start folder over the workspace root for a missing cwd', () => {
     // Terminal mode restores a tab in its last-known pwd; when that directory is
     // gone the tab's own creation folder is closer than the workspace root.
-    const onFallbackToWorkspaceRoot = vi.fn()
+    // No notice: nothing surprising happened to the user.
     expect(
-      resolveTerminalStartupCwd('/home/dev', '/tmp/gone', {
-        directoryExists: (path) => path !== '/tmp/gone',
-        fallbackCwd: '/home/dev/repo/src',
-        onFallbackToWorkspaceRoot
+      resolveTerminalStartupCwdResult('/home/dev', '/tmp/gone', {
+        directoryUsability: (path) => (path === '/tmp/gone' ? 'missing' : 'usable'),
+        fallbackCwd: () => '/home/dev/repo/src'
       })
-    ).toBe('/home/dev/repo/src')
-    // Not the workspace-root notice: nothing surprising happened to the user.
-    expect(onFallbackToWorkspaceRoot).not.toHaveBeenCalled()
+    ).toEqual({ cwd: '/home/dev/repo/src' })
   })
 
   it('falls through to the workspace root when the tab start folder is gone too', () => {
-    const onFallbackToWorkspaceRoot = vi.fn()
     expect(
-      resolveTerminalStartupCwd('/home/dev', '/tmp/gone', {
-        directoryExists: (path) => path === '/home/dev',
-        fallbackCwd: '/home/dev/repo/src',
-        onFallbackToWorkspaceRoot
+      resolveTerminalStartupCwdResult('/home/dev', '/tmp/gone', {
+        directoryUsability: (path) => (path === '/home/dev' ? 'usable' : 'missing'),
+        fallbackCwd: () => '/home/dev/repo/src'
       })
-    ).toBe('/home/dev')
-    expect(onFallbackToWorkspaceRoot).toHaveBeenCalledWith('/tmp/gone')
+    ).toEqual({
+      cwd: '/home/dev',
+      fallback: { kind: 'worktree', reason: 'missing', rejectedCwd: '/tmp/gone' }
+    })
   })
 
   it('ignores a tab start folder equal to the missing cwd', () => {
-    const directoryExists = vi.fn((path: string) => path === '/home/dev')
+    const directoryUsability = vi.fn((path: string) =>
+      path === '/home/dev' ? ('usable' as const) : ('missing' as const)
+    )
     expect(
       resolveTerminalStartupCwd('/home/dev', '/tmp/gone', {
-        directoryExists,
-        fallbackCwd: ' /tmp/gone '
+        directoryUsability,
+        fallbackCwd: () => ' /tmp/gone '
       })
     ).toBe('/home/dev')
   })
 
   it('keeps an existing cwd without consulting the tab start folder', () => {
-    const directoryExists = vi.fn(() => true)
+    const directoryUsability = vi.fn(() => 'usable' as const)
     expect(
       resolveTerminalStartupCwd('/home/dev', '/tmp/keep', {
-        directoryExists,
-        fallbackCwd: '/home/dev/repo/src'
+        directoryUsability,
+        fallbackCwd: () => '/home/dev/repo/src'
       })
     ).toBe('/tmp/keep')
-    expect(directoryExists).toHaveBeenCalledTimes(1)
+    expect(directoryUsability).toHaveBeenCalledTimes(1)
   })
 
-  it('does not probe when the requested cwd resolves to the workspace root', () => {
-    const directoryExists = vi.fn(() => false)
-    expect(
-      resolveTerminalStartupCwd('/repo/app', '/repo/app', {
-        directoryExists,
-        onFallbackToWorkspaceRoot: () => {}
-      })
-    ).toBe('/repo/app')
-    expect(directoryExists).not.toHaveBeenCalled()
+  it('keeps the workspace root when the requested cwd resolves to it and is usable', () => {
+    const directoryUsability = vi.fn(() => 'usable' as const)
+    expect(resolveTerminalStartupCwd('/repo/app', '/repo/app', { directoryUsability })).toBe(
+      '/repo/app'
+    )
+    expect(directoryUsability).toHaveBeenCalledTimes(1)
   })
 
   it('falls back from a missing parent-traversal cwd to the workspace root', () => {
     expect(
       resolveTerminalStartupCwd('/repo/app', '../deleted', {
-        directoryExists: (path) => path === '/repo/app'
+        directoryUsability: (path) => (path === '/repo/app' ? 'usable' : 'missing')
       })
     ).toBe('/repo/app')
   })
@@ -217,9 +208,9 @@ describe('resolveTerminalStartupCwd', () => {
         workspaceId: 'repo-1::/repo/app',
         requestedCwd: '/repo/app/deleted-folder',
         missingDirFallback: {
-          directoryExists: (path) => path === '/repo/app'
+          directoryUsability: (path) => (path === '/repo/app' ? 'usable' : 'missing')
         }
-      })
+      }).cwd
     ).toBe('/repo/app')
   })
 
@@ -230,22 +221,22 @@ describe('resolveTerminalStartupCwd', () => {
         requestedCwd: 'deleted-folder',
         resolveFolderWorkspacePath: (id) => (id === 'folder-1' ? '/repo/app' : null),
         missingDirFallback: {
-          directoryExists: (path) => path === '/repo/app'
+          directoryUsability: (path) => (path === '/repo/app' ? 'usable' : 'missing')
         }
-      })
+      }).cwd
     ).toBe('/repo/app')
   })
 
   it('never probes floating terminal cwds', () => {
-    const directoryExists = vi.fn(() => false)
+    const directoryUsability = vi.fn(() => 'missing' as const)
     expect(
       resolveTerminalStartupCwdForWorkspace({
         workspaceId: FLOATING_TERMINAL_WORKTREE_ID,
         requestedCwd: '/Volumes/work/notes',
-        missingDirFallback: { directoryExists }
-      })
+        missingDirFallback: { directoryUsability }
+      }).cwd
     ).toBe('/Volumes/work/notes')
-    expect(directoryExists).not.toHaveBeenCalled()
+    expect(directoryUsability).not.toHaveBeenCalled()
   })
 
   it('resolves renderer PTY cwd values against folder workspace keys', () => {
@@ -254,14 +245,77 @@ describe('resolveTerminalStartupCwd', () => {
         workspaceId: folderWorkspaceKey('folder-1'),
         requestedCwd: 'packages/web',
         resolveFolderWorkspacePath: (id) => (id === 'folder-1' ? '/repo/app' : null)
-      })
+      }).cwd
     ).toBe('/repo/app/packages/web')
     expect(
       resolveTerminalStartupCwdForWorkspace({
         workspaceId: folderWorkspaceKey('folder-1'),
         requestedCwd: '../other',
         resolveFolderWorkspacePath: (id) => (id === 'folder-1' ? '/repo/app' : null)
-      })
+      }).cwd
     ).toBe('/repo/other')
+  })
+  it('falls back to the workspace root when the requested cwd is unreadable', () => {
+    // A chmod 000 directory stats fine but the child's chdir fails, so it must
+    // travel the same chain as a deleted one — with its own reason.
+    expect(
+      resolveTerminalStartupCwdResult('/repo/app', '/repo/app/locked', {
+        directoryUsability: (path) => (path === '/repo/app' ? 'usable' : 'inaccessible')
+      })
+    ).toEqual({
+      cwd: '/repo/app',
+      fallback: { kind: 'worktree', reason: 'inaccessible', rejectedCwd: '/repo/app/locked' }
+    })
+  })
+
+  it('falls back to the home directory when the workspace root is unreadable too', () => {
+    // A terminal-mode vertical tab's root *is* its start folder, so an unusable
+    // root has no worktree step left to take.
+    expect(
+      resolveTerminalStartupCwdResult('/tmp/locked', '/tmp/locked', {
+        directoryUsability: (path) => (path === '/home/dev' ? 'usable' : 'inaccessible'),
+        homeCwd: () => '/home/dev'
+      })
+    ).toEqual({
+      cwd: '/home/dev',
+      fallback: { kind: 'home', reason: 'inaccessible', rejectedCwd: '/tmp/locked' }
+    })
+  })
+
+  it('keeps an unusable cwd when no home fallback was offered', () => {
+    // Classic workspaces pass no homeCwd, so an unmounted worktree still surfaces
+    // the provider's own error instead of silently opening somewhere else.
+    expect(
+      resolveTerminalStartupCwdResult('/mnt/vol/app', '/mnt/vol/app', {
+        directoryUsability: () => 'missing'
+      })
+    ).toEqual({
+      cwd: '/mnt/vol/app',
+      unrecoverable: { rejectedCwd: '/mnt/vol/app', reason: 'missing' }
+    })
+  })
+
+  it('prefers the workspace root over the home directory', () => {
+    expect(
+      resolveTerminalStartupCwdResult('/repo/app', '/tmp/locked', {
+        directoryUsability: (path) => (path === '/tmp/locked' ? 'inaccessible' : 'usable'),
+        homeCwd: () => '/home/dev'
+      })
+    ).toEqual({
+      cwd: '/repo/app',
+      fallback: { kind: 'worktree', reason: 'inaccessible', rejectedCwd: '/tmp/locked' }
+    })
+  })
+
+  it('reports an unusable home fallback rather than opening there', () => {
+    expect(
+      resolveTerminalStartupCwdResult('/tmp/locked', '/tmp/locked', {
+        directoryUsability: () => 'inaccessible',
+        homeCwd: () => '/home/dev'
+      })
+    ).toEqual({
+      cwd: '/tmp/locked',
+      unrecoverable: { rejectedCwd: '/tmp/locked', reason: 'inaccessible' }
+    })
   })
 })

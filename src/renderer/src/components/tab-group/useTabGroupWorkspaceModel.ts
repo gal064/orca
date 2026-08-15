@@ -1,4 +1,5 @@
 /* eslint-disable max-lines -- Why: keeps group-scoped activation, close, split, and tab-order rules together with the TabGroupPanel surface. */
+import { isTerminalModeVerticalTabKey } from '@/store/terminal-mode-workspace-keys'
 import { useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { OpenFile } from '@/store/slices/editor'
@@ -216,7 +217,10 @@ export function useTabGroupWorkspaceModel({
     }
     // Why: split-group closes bypass legacy Terminal.tsx; deselect the emptied worktree here or the window goes blank instead of landing.
     const { renderableTabCount } = state.reconcileWorktreeTabModel(worktreeId)
-    if (renderableTabCount === 0) {
+    // Terminal mode keeps an emptied vertical tab selected — see
+    // store/terminal-mode-empty-workspace.ts. Guarded here too so no close path
+    // disagrees with the others; a user close still deletes the tab afterwards.
+    if (renderableTabCount === 0 && !isTerminalModeVerticalTabKey(state, worktreeId)) {
       setActiveWorktree(null)
     }
   }, [setActiveWorktree, worktreeId])

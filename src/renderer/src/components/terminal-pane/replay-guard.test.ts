@@ -262,6 +262,83 @@ describe('replay-guard', () => {
     }
   })
 
+  it('releases quietly when the pane was disposed mid-replay', () => {
+    // xterm's WriteBuffer drops callbacks silently once disposed, and nothing
+    // cancels this guard's timer on teardown — so an ordinary unmount used to be
+    // certified as an undeliverable pipeline and logged as needing recovery.
+    vi.useFakeTimers()
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const ref = makeRef()
+      const { pane, terminal } = makeFakePane(1)
+      const onUndeliverable = vi.fn()
+      registerUndeliverableWriteHandler(pane.terminal, onUndeliverable)
+
+      replayIntoTerminal(pane, ref, 'restore bytes', { stallCheckMs: 400 })
+      ;(terminal._core as { _store?: { _isDisposed: boolean } })._store = { _isDisposed: true }
+      vi.advanceTimersByTime(2000)
+
+      expect(onUndeliverable).not.toHaveBeenCalled()
+      expect(consoleWarn).not.toHaveBeenCalled()
+      expect(consoleError).not.toHaveBeenCalled()
+      // Silent on the console, but still traceable if the disposal probe misreports.
+      expect(mocks.recordRendererCrashBreadcrumb).toHaveBeenCalledWith(
+        'terminal_replay_guard_disposed_release',
+        expect.anything()
+      )
+      // The guard must still be released, or the pane would eat every keystroke.
+      expect(isPaneReplaying(ref, 1)).toBe(false)
+      _resetWritePipelineHealthForTests(pane.terminal)
+    } finally {
+      consoleWarn.mockRestore()
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('warns rather than errors on a genuine wedge', () => {
+    vi.useFakeTimers()
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const ref = makeRef()
+      const { pane } = makeFakePane(1)
+      replayIntoTerminal(pane, ref, 'fossil frame bytes', { stallCheckMs: 400 })
+      vi.advanceTimersByTime(1000)
+
+      expect(consoleError).not.toHaveBeenCalled()
+      expect(consoleWarn).toHaveBeenCalledTimes(1)
+      expect(mocks.recordRendererCrashBreadcrumb).toHaveBeenCalledWith(
+        'terminal_replay_guard_wedged_release',
+        expect.anything()
+      )
+      _resetWritePipelineHealthForTests(pane.terminal)
+    } finally {
+      consoleWarn.mockRestore()
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('settles waitForTerminalReplayWritesParsed on a disposed terminal', async () => {
+    vi.useFakeTimers()
+    try {
+      const { pane, terminal } = makeFakePane(1)
+      terminal.write = () => {}
+      ;(terminal._core as { _store?: { _isDisposed: boolean } })._store = { _isDisposed: true }
+      const settled = vi.fn()
+      const promise = waitForTerminalReplayWritesParsed(pane.terminal, { stallCheckMs: 400 }).then(
+        settled
+      )
+      await vi.advanceTimersByTimeAsync(1000)
+      await promise
+      expect(settled).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('short-circuits replays into a certified-dead terminal', () => {
     const ref = makeRef()
     const { pane, terminal } = makeFakePane(1)

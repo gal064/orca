@@ -1,3 +1,4 @@
+import type { TerminalStartupCwdFallbackNotice } from '../../../../shared/terminal-startup-cwd'
 import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
 import type {
   AgentProviderSessionMetadata,
@@ -63,7 +64,7 @@ export type PtyConnectResult = {
   sessionExpired?: boolean
   coldRestore?: { scrollback: string; cwd: string; cols?: number; rows?: number }
   replay?: string
-  startupCwdFallback?: { kind: 'worktree'; cwd: string }
+  startupCwdFallback?: TerminalStartupCwdFallbackNotice
   /** Main declined an unverifiable provider-session resume and launched fresh. */
   agentResumeUnavailable?: true
   /** Trailing partial escape the daemon emulator held mid-parse; the reattach

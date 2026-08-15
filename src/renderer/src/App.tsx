@@ -1,5 +1,9 @@
 /* eslint-disable max-lines */
 import {
+  isTerminalModeEmptyPaneState,
+  selectTerminalModeMainPaneState
+} from './store/terminal-mode-empty-workspace'
+import {
   Suspense,
   useCallback,
   useEffect,
@@ -328,6 +332,7 @@ function WindowControls(): React.JSX.Element {
 }
 
 const Landing = lazy(() => import('./components/Landing'))
+const TerminalModeEmptyPane = lazy(() => import('./components/vertical-tabs/TerminalModeEmptyPane'))
 const WorktreeCreationPanel = lazy(
   () => import('./components/worktree-creation/WorktreeCreationPanel')
 )
@@ -561,8 +566,15 @@ function App(): React.JSX.Element {
   })
   const workspaceChromeActive =
     activeView === 'terminal' && activeWorktreeId !== null && !creationLayoutActive
+  // Terminal mode replaces Landing (and an emptied vertical tab's blank workbench)
+  // with its own empty pane — no project/worktree concepts. `classic` with the flag off.
+  const terminalModeMainPane = useAppStore(useShallow(selectTerminalModeMainPaneState))
+  const terminalModeEmptyPaneVisible = isTerminalModeEmptyPaneState(terminalModeMainPane)
   const terminalWorkbenchVisible =
-    activeView === 'terminal' && activeWorktreeId !== null && !creationLayoutActive
+    activeView === 'terminal' &&
+    activeWorktreeId !== null &&
+    !creationLayoutActive &&
+    !terminalModeEmptyPaneVisible
   // Why: once the floating workspace owns tabs, keep it mounted while closed so hidden terminal/browser/editor panes retain local state.
   const shouldMountFloatingTerminalPanel =
     floatingTerminalEnabled && (floatingTerminalOpen || floatingVisibleTabCount > 0)
@@ -2406,8 +2418,14 @@ function App(): React.JSX.Element {
                                 />
                               ) : null}
                               {activeView === 'terminal' &&
+                              !creationLayoutActive &&
+                              terminalModeEmptyPaneVisible ? (
+                                <TerminalModeEmptyPane state={terminalModeMainPane} />
+                              ) : null}
+                              {activeView === 'terminal' &&
                               !activeWorktreeId &&
-                              !creationLayoutActive ? (
+                              !creationLayoutActive &&
+                              terminalModeMainPane.kind === 'classic' ? (
                                 <Landing />
                               ) : null}
                             </RecoverableRenderErrorBoundary>

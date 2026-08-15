@@ -9,6 +9,7 @@ import {
   notifyUndeliverableWrite,
   recordTerminalParseProgress
 } from '@/lib/pane-manager/terminal-write-pipeline-health'
+import { isXtermInstanceDisposed } from '@/lib/pane-manager/xterm-instance-disposed'
 import { redactPtyIdForDiagnostics } from '../../../../shared/pty-delivery-diagnostics'
 
 // Why this guard exists: xterm auto-replies to query sequences (DA1/DECRQM/OSC 10-11/CPR) via onData → shell stdin, so replaying recorded PTY bytes leaks stray replies onto the new shell's prompt.
@@ -94,7 +95,7 @@ function engageReplayGuard(
   map.set(paneId, (map.get(paneId) ?? 0) + 1)
   let released = false
   let timer: ReturnType<typeof setTimeout> | null = null
-  const release = (reason: 'parsed' | 'lost-completion' | 'wedged'): void => {
+  const release = (reason: 'parsed' | 'lost-completion' | 'wedged' | 'disposed'): void => {
     if (released) {
       return
     }
@@ -109,14 +110,23 @@ function engageReplayGuard(
     } else {
       map.set(paneId, remaining)
     }
-    if (reason === 'lost-completion') {
+    if (reason === 'disposed') {
+      // No console line — an unmount mid-replay is routine — but keep the trace,
+      // because the disposal probe reads xterm privates and a mis-report here
+      // would otherwise be completely silent.
+      recordRendererCrashBreadcrumb('terminal_replay_guard_disposed_release', breadcrumbData)
+    } else if (reason === 'lost-completion') {
       console.error(
         `[terminal] replay guard released for pane ${paneId} — the probe write parsed but the replay completion never arrived (lost write callback)`
       )
       recordRendererCrashBreadcrumb('terminal_replay_guard_lost_completion', breadcrumbData)
     } else if (reason === 'wedged') {
-      console.error(
-        `[terminal] replay guard released for pane ${paneId} — xterm rejected the replay write or its probe never parsed (undeliverable write pipeline; pane likely needs recovery)`
+      // warn, not error: the guard is released, the breadcrumb below is what
+      // diagnostics read, and recovery is requested right after — the same call
+      // terminal-pane-recovery.ts makes at warn level for the identical class of
+      // handled event. A disposed pane never reaches here (see 'disposed').
+      console.warn(
+        `[terminal] replay guard released for pane ${paneId} — xterm never parsed the replay probe; requesting pane recovery`
       )
       recordRendererCrashBreadcrumb('terminal_replay_guard_wedged_release', breadcrumbData)
       // Why: a rejected replay or silent probe makes the pipeline undeliverable; recover instead of a fossil that eats input.
@@ -124,9 +134,19 @@ function engageReplayGuard(
     }
     onRelease?.()
   }
+  // Why disposal is not a wedge: xterm's WriteBuffer drops write callbacks
+  // silently once the store is disposed (it does not throw), and nothing cancels
+  // this guard's timer when a pane is torn down — so an ordinary unmount mid-replay
+  // (cold restore, StrictMode's mount→dispose→remount) certified a *gone* terminal
+  // as an undeliverable pipeline and logged an error about a pane needing recovery.
+  const isDisposed = (): boolean => isXtermInstanceDisposed(terminal)
   const armWedgeDeadline = (quietSinceGeneration: number): void => {
     timer = setTimeout(() => {
       if (released) {
+        return
+      }
+      if (isDisposed()) {
+        release('disposed')
         return
       }
       // Why: completions after the probe prove the FIFO is alive, just behind; certify wedged only after a fully quiet window.
@@ -141,6 +161,10 @@ function engageReplayGuard(
     if (released) {
       return
     }
+    if (isDisposed()) {
+      release('disposed')
+      return
+    }
     const probeQueuedAtGeneration = captureTerminalParseProgressGeneration(terminal)
     try {
       // FIFO certification: this callback runs only after every replay byte queued before it has parsed.
@@ -149,8 +173,9 @@ function engageReplayGuard(
         release('lost-completion')
       })
     } catch {
-      // write threw (terminal disposed mid-replay): nothing will parse, so no auto-replies can leak.
-      release('wedged')
+      // write threw: nothing will parse, so no auto-replies can leak. A dispose that
+      // landed between the check above and this write is not a wedged pipeline.
+      release(isDisposed() ? 'disposed' : 'wedged')
       return
     }
     armWedgeDeadline(probeQueuedAtGeneration)
@@ -163,7 +188,7 @@ function engageReplayGuard(
       release('parsed')
     },
     // A rejected write produced no auto-replies, so release immediately without recording fake parser progress.
-    onWriteFailure: () => release('wedged')
+    onWriteFailure: () => release(isDisposed() ? 'disposed' : 'wedged')
   }
 }
 
@@ -259,6 +284,13 @@ export function waitForTerminalReplayWritesParsed(
     }
     const queueProbe = (): void => {
       if (finished) {
+        return
+      }
+      if (isXtermInstanceDisposed(terminal)) {
+        // Why: a disposed WriteBuffer drops callbacks without throwing, so this
+        // promise would never settle and the cold-restore chain would hang short
+        // of its ackColdRestore.
+        finish()
         return
       }
       try {

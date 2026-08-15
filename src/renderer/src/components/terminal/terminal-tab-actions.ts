@@ -1,3 +1,4 @@
+import { isTerminalModeVerticalTabKey } from '@/store/terminal-mode-workspace-keys'
 import { useAppStore } from '@/store'
 import {
   closeWebRuntimeSessionTab,
@@ -211,7 +212,9 @@ export function closeTerminalTab(
         if (browserTab) {
           state.setActiveBrowserTab(browserTab.id)
           state.setActiveTabType('browser')
-        } else {
+        } else if (!isTerminalModeVerticalTabKey(state, owningWorktreeId)) {
+          // Terminal mode keeps the emptied vertical tab selected — see
+          // store/terminal-mode-empty-workspace.ts.
           state.setActiveWorktree(null)
         }
       }

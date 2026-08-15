@@ -3800,6 +3800,88 @@ describe('connectPanePty', () => {
     expect(manager.closePane).not.toHaveBeenCalled()
   })
 
+  it('tears down a terminal-mode vertical tab pane even when its newborn PTY was never typed into', async () => {
+    // A vertical tab is a terminal emulator's tab: a dead shell closes it, typed or
+    // not. The keep-mounted guard exists to avoid the classic Landing screen, which
+    // terminal mode replaces with its own empty pane.
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('tab-pty')
+    transportFactoryQueue.push(transport)
+    const manager = createManager(1)
+    const deps = createDeps({ worktreeId: 'folder:vt-1' })
+    // This suite's window.api reports win32, where terminal mode cannot activate.
+    const platformGet = (window as unknown as { api: { platform: { get: () => unknown } } }).api
+      .platform.get
+    ;(window as unknown as { api: { platform: { get: () => unknown } } }).api.platform.get =
+      () => ({
+        platform: 'linux'
+      })
+
+    mockStoreState = {
+      ...mockStoreState,
+      settings: { ...mockStoreState.settings, experimentalTerminalMode: true },
+      folderWorkspaces: [{ id: 'vt-1', projectGroupId: 'g-terminal', createdAt: 1 }],
+      projectGroups: [{ id: 'g-terminal', name: '__terminal-mode__' }]
+    } as unknown as StoreState
+
+    connectPanePty(createPane(1) as never, manager as never, deps as never)
+    const onPtySpawn = createdTransportOptions[0]?.onPtySpawn as
+      | ((ptyId: string) => void)
+      | undefined
+    const onPtyExit = createdTransportOptions[0]?.onPtyExit as ((ptyId: string) => void) | undefined
+
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValueOnce(0)
+    onPtySpawn?.('tab-pty')
+    // Past the startup window: an ordinary dead shell, not a shell that never started.
+    now.mockReturnValue(60_000)
+    onPtyExit?.('tab-pty')
+    now.mockRestore()
+    ;(window as unknown as { api: { platform: { get: () => unknown } } }).api.platform.get =
+      platformGet
+
+    expect(deps.onPtyExitRef.current).toHaveBeenCalledWith('tab-pty')
+  })
+
+  it('keeps a vertical tab pane whose shell died during startup, so the reason survives', async () => {
+    // The cwd chain does not reach remote or SSH tabs, so a `chdir` failure there still
+    // prints into the pane — closing the tab would take the only explanation with it.
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('tab-pty')
+    transportFactoryQueue.push(transport)
+    const manager = createManager(1)
+    const deps = createDeps({ worktreeId: 'folder:vt-1' })
+    const platformGet = (window as unknown as { api: { platform: { get: () => unknown } } }).api
+      .platform.get
+    ;(window as unknown as { api: { platform: { get: () => unknown } } }).api.platform.get =
+      () => ({
+        platform: 'linux'
+      })
+
+    mockStoreState = {
+      ...mockStoreState,
+      settings: { ...mockStoreState.settings, experimentalTerminalMode: true },
+      folderWorkspaces: [{ id: 'vt-1', projectGroupId: 'g-terminal', createdAt: 1 }],
+      projectGroups: [{ id: 'g-terminal', name: '__terminal-mode__' }]
+    } as unknown as StoreState
+
+    connectPanePty(createPane(1) as never, manager as never, deps as never)
+    const onPtySpawn = createdTransportOptions[0]?.onPtySpawn as
+      | ((ptyId: string) => void)
+      | undefined
+    const onPtyExit = createdTransportOptions[0]?.onPtyExit as ((ptyId: string) => void) | undefined
+
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(0)
+    onPtySpawn?.('tab-pty')
+    onPtyExit?.('tab-pty')
+    now.mockRestore()
+    ;(window as unknown as { api: { platform: { get: () => unknown } } }).api.platform.get =
+      platformGet
+
+    expect(deps.onPtyExitRef.current).not.toHaveBeenCalled()
+  })
+
   it('tears down the sole terminal when a freshly-spawned PTY exits after the user typed input', async () => {
     // Why: an explicit `exit` (or any typed input) is a deliberate close, not a failed-startup shell, so the worktree should deactivate as before.
     const { connectPanePty } = await import('./pty-connection')
@@ -18840,11 +18922,12 @@ describe('connectPanePty', () => {
   })
 
   it('prints a terminal notice when the startup cwd fell back to the workspace root', async () => {
-    const { connectPanePty, STARTUP_CWD_FALLBACK_NOTICE } = await import('./pty-connection')
+    const { connectPanePty } = await import('./pty-connection')
+    const { getStartupCwdFallbackNotice } = await import('./startup-cwd-fallback-notice')
     const transport = createMockTransport('pty-fallback')
     transport.connect.mockResolvedValueOnce({
       id: 'pty-fallback',
-      startupCwdFallback: { kind: 'worktree', cwd: '/tmp/wt-1' }
+      startupCwdFallback: { kind: 'worktree', reason: 'missing', cwd: '/tmp/wt-1' }
     })
     transportFactoryQueue.push(transport)
 
@@ -18861,7 +18944,9 @@ describe('connectPanePty', () => {
     connectPanePty(pane as never, createManager(2) as never, createDeps() as never)
     await flushAsyncTicks()
 
-    expect(writes).toContain(STARTUP_CWD_FALLBACK_NOTICE)
+    expect(writes).toContain(
+      getStartupCwdFallbackNotice({ kind: 'worktree', reason: 'missing', cwd: '/tmp/wt-1' })
+    )
   })
 
   it('attaches restored remote PTYs for later split panes instead of spawning host tabs', async () => {

@@ -1,4 +1,5 @@
 /* eslint-disable max-lines -- Why: preload is the audited renderer/Electron IPC contract; co-locating the surface eases security and type-drift review. */
+import type { TerminalStartupCwdFallbackNotice } from '../shared/terminal-startup-cwd'
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { preloadE2EConfig } from './e2e-config'
@@ -971,7 +972,7 @@ const api = {
       replay?: string
       sessionExpired?: boolean
       coldRestore?: { scrollback: string; cwd: string; cols?: number; rows?: number }
-      startupCwdFallback?: { kind: 'worktree'; cwd: string }
+      startupCwdFallback?: TerminalStartupCwdFallbackNotice
       agentResumeUnavailable?: true
     }> => ipcRenderer.invoke('pty:spawn', opts),
 

@@ -15,6 +15,11 @@ import {
   resolveNotificationVolumeDraftState,
   sendNotificationSettingsTestNotification
 } from './notification-settings-copy'
+import {
+  NOTIFICATION_TEST_FEEDBACK_TIMEOUT_MS,
+  resolveNotificationTestFeedback,
+  type NotificationTestFeedback
+} from './notification-test-feedback'
 import { translate } from '@/i18n/i18n'
 export { getNotificationsPaneSearchEntries } from './notifications-search'
 export {
@@ -81,15 +86,37 @@ export function NotificationsPane({
     }
   }
 
+  const [testFeedback, setTestFeedback] = useState<NotificationTestFeedback | null>(null)
+  const testFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (testFeedbackTimerRef.current !== null) {
+        clearTimeout(testFeedbackTimerRef.current)
+      }
+    },
+    []
+  )
+
   const handleSendTestNotification = async (): Promise<void> => {
     useAppStore.getState().recordFeatureInteraction('notifications')
     const showsMacPermissionCard = macPermissionState !== null
+    setTestFeedback(null)
     const outcome = await sendNotificationSettingsTestNotification(
       notificationSettings,
       volumeDraft,
       // Why: the card renders delivery state inline, so the ambiguous darwin
       // "check if a banner appeared" toasts would contradict it.
       showsMacPermissionCard ? { suppressSystemPermissionToasts: true } : undefined
+    )
+    setTestFeedback(
+      resolveNotificationTestFeedback(outcome, { hasPermissionCard: showsMacPermissionCard })
+    )
+    if (testFeedbackTimerRef.current !== null) {
+      clearTimeout(testFeedbackTimerRef.current)
+    }
+    testFeedbackTimerRef.current = setTimeout(
+      () => setTestFeedback(null),
+      NOTIFICATION_TEST_FEEDBACK_TIMEOUT_MS
     )
     if (!showsMacPermissionCard) {
       return
@@ -208,6 +235,19 @@ export function NotificationsPane({
             'Send Test Notification'
           )}
         </Button>
+        {testFeedback ? (
+          <span
+            role="status"
+            data-testid="notification-test-feedback"
+            className={
+              testFeedback.tone === 'warning'
+                ? 'text-xs text-amber-700 dark:text-amber-300'
+                : 'text-xs text-muted-foreground'
+            }
+          >
+            {testFeedback.message}
+          </span>
+        ) : null}
       </div>
     </div>
   )

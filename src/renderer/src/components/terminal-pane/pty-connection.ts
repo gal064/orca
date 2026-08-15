@@ -1,4 +1,6 @@
 /* oxlint-disable max-lines */
+import { getStartupCwdFallbackNotice } from './startup-cwd-fallback-notice'
+import { isTerminalModeVerticalTabKey } from '@/store/terminal-mode-workspace-keys'
 import type { PaneManager, ManagedPane } from '@/lib/pane-manager/pane-manager'
 import type { ManagedPaneInternal } from '@/lib/pane-manager/pane-manager-types'
 import type { IBuffer, IDisposable } from '@xterm/xterm'
@@ -345,10 +347,10 @@ const PTY_CONNECT_DIAG_LIMIT = 200
 const SSH_SHELL_READY_STARTUP_FALLBACK_MS = 1500
 const MANUAL_AGENT_COMMAND_MAX_CHARS = 4096
 const STARTUP_DRAFT_PASTE_QUIET_MS = 1500
-// Why: the notice deliberately omits the rejected path — saved cwds can
-// contain private repo/user names; the terminal itself shows where it opened.
-export const STARTUP_CWD_FALLBACK_NOTICE =
-  '\r\n[Orca opened this terminal at the workspace root because its saved start folder no longer exists.]\r\n'
+// Why a window and not just "never typed": a shell that dies this fast never reached a
+// prompt, so its pane is the only place the reason is written. A shell the user watched
+// for longer is an ordinary dead tab, which terminal mode closes.
+const NEWBORN_STARTUP_FAILURE_WINDOW_MS = 3000
 const STARTUP_DRAFT_PASTE_TIMEOUT_MS = 8000
 const HIDDEN_OUTPUT_RESTORE_PENDING_CHARS = 512 * 1024
 const HIDDEN_OUTPUT_RESTORE_DEFERRED_RETRY_MS = 50
@@ -2541,6 +2543,7 @@ export function connectPanePty(
   // on a brand-new worktree keeps its dead terminal visible instead of bouncing
   // the user to Landing.
   let spawnedFreshPtyId: string | null = null
+  let spawnedFreshPtyAt = 0
   // Why: hibernation suppresses its kill's exit while the pane is hidden, so
   // onExit must not tear the pane down — but the pane still owes the user a
   // wake. Remember the hibernated PTY and exact record; the visibility-resume
@@ -2737,8 +2740,23 @@ export function connectPanePty(
       // for this ptyId — reattach/coldRestore skip it) that the user never typed
       // into, so a reattached-dead session or an explicit `exit` still tears
       // down as before.
+      // Terminal mode narrows it: a vertical tab is a terminal emulator's tab, so a
+      // dead shell closes it — typed or not, `exit` or SIGKILL — and the emptied
+      // vertical tab renders its own empty pane rather than the Landing screen this
+      // guard exists to avoid (docs/terminal-mode-design.md Phase 8). The exception
+      // is a shell that never started: its pane holds the only explanation there is
+      // (a bad rc file, a missing shell, or a start folder the cwd chain cannot
+      // recover — which it cannot on a remote or SSH tab), and closing the tab would
+      // throw that away.
       if (spawnedFreshPtyId === ptyId && !Number.isFinite(lastTerminalInputAt)) {
-        return
+        const diedDuringStartup =
+          performance.now() - spawnedFreshPtyAt <= NEWBORN_STARTUP_FAILURE_WINDOW_MS
+        if (
+          diedDuringStartup ||
+          !isTerminalModeVerticalTabKey(useAppStore.getState(), deps.worktreeId)
+        ) {
+          return
+        }
       }
       deps.onPtyExitRef.current(ptyId)
       return
@@ -3064,6 +3082,7 @@ export function connectPanePty(
     // just-created worktree) can be kept visible rather than tearing down the
     // worktree. Reattach/coldRestore skip onPtySpawn (pty-transport.ts).
     spawnedFreshPtyId = ptyId
+    spawnedFreshPtyAt = performance.now()
     // Why: Command Code has no prompt-start hook. Seed the visible working row
     // once the PTY exists, then let real hook events refine or complete it.
     bindActivePanePty(ptyId, { seedInitialAgentStatus: true })
@@ -5347,11 +5366,13 @@ export function connectPanePty(
             if (
               spawnedPtyId &&
               typeof spawnedPtyId === 'object' &&
-              spawnedPtyId.startupCwdFallback?.kind === 'worktree'
+              spawnedPtyId.startupCwdFallback
             ) {
-              writeTerminalOutput(pane.terminal, STARTUP_CWD_FALLBACK_NOTICE, {
-                foreground: shouldWritePtyOutputForeground(deps.isVisibleRef.current)
-              })
+              writeTerminalOutput(
+                pane.terminal,
+                getStartupCwdFallbackNotice(spawnedPtyId.startupCwdFallback),
+                { foreground: shouldWritePtyOutputForeground(deps.isVisibleRef.current) }
+              )
             }
             if (
               spawnedPtyId &&
